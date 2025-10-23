@@ -1,0 +1,18 @@
+{
+  "components/LiveLocations.tsx -> @/components/leaflet-map": {
+    "id": 79564,
+    "files": [
+      "static/css/55693049b062c6a3.css",
+      "static/chunks/d0deef33.59194872e4111dca.js",
+      "static/chunks/9564.51c867ffcc2d4b65.js"
+    ]
+  },
+  "components/dashboard/OverviewSection.tsx -> @/components/leaflet-map": {
+    "id": 79564,
+    "files": [
+      "static/css/55693049b062c6a3.css",
+      "static/chunks/d0deef33.59194872e4111dca.js",
+      "static/chunks/9564.51c867ffcc2d4b65.js"
+    ]
+  }
+}

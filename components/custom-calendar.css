@@ -1,0 +1,201 @@
+.custom-calendar {
+    border: none;
+    border-radius: 20px;
+    background-color: #fff;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    width: 100%;
+    max-width: 300px;
+    position: relative;
+}
+
+.calendar-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    padding: 10px;
+    background-color: #333;
+    color: white;
+    text-transform: uppercase;
+    font-size: 0.8em;
+    letter-spacing: 1px;
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+}
+
+.calendar-dates {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    padding: 10px;
+    position: relative;
+    overflow: visible;
+    contain: layout;
+}
+
+.calendar-dates div {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 5px;
+    cursor: pointer;
+    border-radius: 10px;
+    margin: 2px;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    font-size: 0.9em;
+    /* Add padding to create a larger hover area */
+    padding: 8px;
+}
+
+.calendar-dates div.full-day {
+    background-color: #4CAF50;
+    color: white;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.calendar-dates div.half-day {
+    background-color: #FFEB3B;
+    color: black;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.calendar-dates div.absent {
+    background-color: #F44336;
+    color: white;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.calendar-dates div.present {
+    background-color: #2196F3;
+    color: white;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.calendar-dates div.sunday {
+    background-color: #ADD8E6;
+    color: black;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.calendar-dates div:hover {
+    transform: scale(1.1);
+    z-index: 2;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.calendar-dates div.full-day:hover {
+    background-color: #45a049;
+    filter: brightness(1.1);
+}
+
+.calendar-dates div.half-day:hover {
+    background-color: #fdd835;
+    filter: brightness(1.1);
+}
+
+.calendar-dates div.absent:hover {
+    background-color: #e53935;
+    filter: brightness(1.1);
+}
+
+.calendar-dates div.present:hover {
+    background-color: #1976d2;
+    filter: brightness(1.1);
+}
+
+.calendar-dates div.sunday:hover {
+    background-color: #90caf9;
+    filter: brightness(1.1);
+}
+
+.calendar-dates div.empty {
+    cursor: default;
+    background: none;
+    transform: none;
+}
+
+.calendar-dates div.empty:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+.calendar-tooltip {
+    visibility: hidden;
+    width: auto;
+    max-width: 120px;
+    background-color: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    text-align: center;
+    border-radius: 8px;
+    padding: 8px 12px;
+    position: absolute;
+    z-index: 10;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    opacity: 0;
+    transition: opacity 0.2s ease 0.1s, visibility 0.2s ease 0.1s;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 500;
+    pointer-events: auto;
+    /* Add margin to create space between tooltip and date */
+    margin-bottom: 10px;
+}
+
+/* Create a larger hover area */
+.calendar-dates div::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: -5px;
+    bottom: -5px;
+    z-index: -1;
+}
+
+.calendar-dates div:hover .calendar-tooltip {
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: translateX(-50%) translateY(0) !important;
+    transition-delay: 0.2s;
+}
+
+/* Keep tooltip visible when hovering over it */
+.calendar-tooltip:hover {
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.calendar-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px;
+    border-style: solid;
+    border-color: rgba(0, 0, 0, 0.9) transparent transparent transparent;
+    pointer-events: none;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .custom-calendar {
+        background-color: #1f2937;
+    }
+    
+    .calendar-days {
+        background-color: #111827;
+    }
+    
+    .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday) {
+        background-color: #374151;
+        color: #d1d5db;
+    }
+    
+    .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday):hover {
+        background-color: #4b5563;
+    }
+}
