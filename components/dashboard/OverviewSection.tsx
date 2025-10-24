@@ -157,18 +157,6 @@ export default function OverviewSection(props: OverviewSectionProps) {
                 </span>
               )}
             </Text>
-            {highlightedEmployee && showVisitLocations && (
-              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex-1">
-                  <Text size="sm" className="text-green-900 font-medium">
-                    🎯 Complete Journey View
-                  </Text>
-                  <Text size="xs" className="text-green-700 mt-1">
-                    Now showing {String(highlightedEmployee.name)}&apos;s current location, home, and all visit locations for the selected date range.
-                  </Text>
-                </div>
-              </div>
-            )}
           </div>
           <Button variant="outline" size="sm" onClick={onResetView}>Reset View</Button>
         </div>
@@ -248,16 +236,15 @@ export default function OverviewSection(props: OverviewSectionProps) {
                           </Badge>
                         </div>
                         {highlightedEmployee?.listId === employee.listId && !showVisitLocations && onShowVisitLocations && (
-                          <button
-                            type="button"
+                          <span
                             onClick={(e) => {
                               e.stopPropagation();
                               onShowVisitLocations();
                             }}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
                           >
                             📍 Explore Journey
-                          </button>
+                          </span>
                         )}
                       </div>
                     </button>
