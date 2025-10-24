@@ -89,25 +89,26 @@ const VisitsByPurposeChart = ({ data }: VisitsByPurposeChartProps) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base md:text-lg">Visits by Purpose</CardTitle>
+        <CardTitle className="text-base md:text-lg text-white">Visits by Purpose</CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={250} className="md:hidden">
           <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="purpose" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', border: 'none', fontSize: '12px' }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.2)" />
+            <XAxis dataKey="purpose" tick={{ fontSize: 10, fill: 'white' }} />
+            <YAxis tick={{ fontSize: 10, fill: 'white' }} />
+            <Tooltip contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', border: 'none', fontSize: '12px', color: 'white' }} />
+            <Legend wrapperStyle={{ color: 'white', fontSize: '14px' }} />
             <Bar dataKey="visits" fill="#1a202c" />
           </BarChart>
         </ResponsiveContainer>
         <ResponsiveContainer width="100%" height={300} className="hidden md:block">
           <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="purpose" />
-            <YAxis />
-            <Tooltip contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', border: 'none' }} />
-            <Legend />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.2)" />
+            <XAxis dataKey="purpose" tick={{ fill: 'white' }} />
+            <YAxis tick={{ fill: 'white' }} />
+            <Tooltip contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', border: 'none', color: 'white' }} />
+            <Legend wrapperStyle={{ color: 'white', fontSize: '14px' }} />
             <Bar dataKey="visits" fill="#1a202c" />
           </BarChart>
         </ResponsiveContainer>
@@ -151,19 +152,6 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
     setLastClickedColumn(column);
   };
 
-  const totalPages = rowsPerPage > 0 ? Math.ceil(visits.length / rowsPerPage) : 0;
-  const safeTotalPages = totalPages === 0 ? 1 : totalPages;
-
-  useEffect(() => {
-    if (currentPage > safeTotalPages && safeTotalPages > 0 && !hasAdjustedPageRef.current) {
-      hasAdjustedPageRef.current = true;
-      onPageChange(safeTotalPages);
-    }
-    if (currentPage <= safeTotalPages) {
-      hasAdjustedPageRef.current = false;
-    }
-  }, [currentPage, safeTotalPages, onPageChange]);
-
   const sortedVisits = [...visits].sort((a, b) => {
     const valueA = a[sortColumn];
     const valueB = b[sortColumn];
@@ -188,9 +176,25 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
     return 0;
   });
 
+  // Filter to only completed visits for pagination calculation
+  const completedVisits = sortedVisits.filter(visit => getOutcomeStatus(visit).status === 'Completed');
+  
+  const totalPages = rowsPerPage > 0 ? Math.ceil(completedVisits.length / rowsPerPage) : 0;
+  const safeTotalPages = totalPages === 0 ? 1 : totalPages;
+
+  useEffect(() => {
+    if (currentPage > safeTotalPages && safeTotalPages > 0 && !hasAdjustedPageRef.current) {
+      hasAdjustedPageRef.current = true;
+      onPageChange(safeTotalPages);
+    }
+    if (currentPage <= safeTotalPages) {
+      hasAdjustedPageRef.current = false;
+    }
+  }, [currentPage, safeTotalPages, onPageChange]);
+
   const startIndex = (currentPage - 1) * rowsPerPage;
   const endIndex = startIndex + rowsPerPage;
-  const visitsToDisplay = sortedVisits.slice(startIndex, endIndex);
+  const visitsToDisplay = completedVisits.slice(startIndex, endIndex);
 
   return (
     <Card>
@@ -202,7 +206,6 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
         <div className="md:hidden space-y-3">
           {visitsToDisplay.map((visit) => {
             const { emoji, status } = getOutcomeStatus(visit);
-            if (status !== 'Completed') return null; // Only show completed visits
             return (
               <Card key={visit.id} className="border-l-4 border-l-primary">
                 <CardContent className="p-4">
@@ -233,7 +236,7 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
               </Card>
             );
           })}
-          {visitsToDisplay.filter(v => getOutcomeStatus(v).status === 'Completed').length === 0 && (
+          {visitsToDisplay.length === 0 && (
             <div className="text-xs text-muted-foreground">No completed visits available</div>
           )}
         </div>
@@ -290,7 +293,6 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
             <tbody>
               {visitsToDisplay.map((visit) => {
                 const { emoji, status } = getOutcomeStatus(visit);
-                if (status !== 'Completed') return null; // Filter out non-completed visits
                 return (
                   <tr key={visit.id}>
                     <td className="px-2 md:px-4 py-2 text-xs md:text-sm">{visit.customer}</td>
@@ -320,7 +322,7 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
           </table>
         </div>
       </CardContent>
-      {visits.length > 0 && (
+      {completedVisits.length > 0 && (
         <div className="mt-4 border-t pt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2 text-sm">
             <Label htmlFor="employee-detail-rows" className="text-muted-foreground">Rows per page:</Label>
@@ -383,6 +385,7 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
   const [currentPage, setCurrentPage] = useState(1);
   const router = useRouter();
   const DETAIL_STATE_KEY = 'dashboard.employeeDetail.state.v1';
+  const hasHydratedRef = useRef(false);
 
   // Added: filters and extra datasets to match reference
   const [expenses, setExpenses] = useState<Array<Record<string, unknown>>>([]);
@@ -399,12 +402,18 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
 
   // Hydrate filters if returning back from Visit Detail
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || hasHydratedRef.current) return;
     try {
       const raw = sessionStorage.getItem(DETAIL_STATE_KEY);
-      if (!raw) return;
+      if (!raw) {
+        hasHydratedRef.current = true;
+        return;
+      }
       const saved = JSON.parse(raw) as Record<string, unknown>;
-      if (saved?.employeeId !== employee.id) return;
+      if (saved?.employeeId !== employee.id) {
+        hasHydratedRef.current = true;
+        return;
+      }
 
       const startKey = format(dateRange.start, 'yyyy-MM-dd');
       const endKey = format(dateRange.end, 'yyyy-MM-dd');
@@ -413,11 +422,7 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       const savedPage = typeof saved.currentPage === 'number' ? saved.currentPage : null;
 
       if (savedPage != null && savedStartKey === startKey && savedEndKey === endKey) {
-        if (currentPage !== savedPage) {
-          setCurrentPage(savedPage);
-        }
-      } else if (currentPage !== 1) {
-        setCurrentPage(1);
+        setCurrentPage(savedPage);
       }
 
       if (saved.expenseStartDate && typeof saved.expenseStartDate === 'string') setExpenseStartDate(new Date(saved.expenseStartDate));
@@ -426,8 +431,12 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       if (typeof saved.selectedMonth === 'number') setSelectedMonth(saved.selectedMonth);
       if (saved.pricingStartDate && typeof saved.pricingStartDate === 'string') setPricingStartDate(new Date(saved.pricingStartDate));
       if (saved.pricingEndDate && typeof saved.pricingEndDate === 'string') setPricingEndDate(new Date(saved.pricingEndDate));
-    } catch {}
-  }, [employee.id, dateRange.start, dateRange.end, currentPage]);
+      
+      hasHydratedRef.current = true;
+    } catch {
+      hasHydratedRef.current = true;
+    }
+  }, [employee.id, dateRange.start, dateRange.end]);
 
   // Persist filters on change
   useEffect(() => {
@@ -659,59 +668,9 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
         <VisitsByPurposeChart data={visitsByPurposeChartData} />
       </div>
 
-      {/* Attendance quick stats (month/year selectors) */}
-      <div className="mt-6 md:mt-8 space-y-3 md:space-y-4">
-        <div className="flex flex-col sm:flex-row gap-2 md:gap-4">
-          <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
-            <SelectTrigger className="w-full sm:w-[120px] text-xs md:text-sm"><SelectValue placeholder="Year" /></SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((y) => (
-                <SelectItem key={y} value={y.toString()} className="text-xs md:text-sm">{y}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={selectedMonth.toString()} onValueChange={(v) => setSelectedMonth(parseInt(v))}>
-            <SelectTrigger className="w-full sm:w-[140px] text-xs md:text-sm"><SelectValue placeholder="Month" /></SelectTrigger>
-            <SelectContent>
-              {[
-                'January','February','March','April','May','June','July','August','September','October','November','December'
-              ].map((m, idx) => (
-                <SelectItem key={m} value={(idx+1).toString()} className="text-xs md:text-sm">{m}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid grid-cols-3 gap-2 md:gap-4">
-          <Card><CardContent className="pt-4 md:pt-6"><div className="text-xs md:text-sm text-muted-foreground">Full Day</div><div className="text-xl md:text-2xl font-semibold">{(attendanceStats as { statsDto?: { fullDays?: number } })?.statsDto?.fullDays ?? 0}</div></CardContent></Card>
-          <Card><CardContent className="pt-4 md:pt-6"><div className="text-xs md:text-sm text-muted-foreground">Half Day</div><div className="text-xl md:text-2xl font-semibold">{(attendanceStats as { statsDto?: { halfDays?: number } })?.statsDto?.halfDays ?? 0}</div></CardContent></Card>
-          <Card><CardContent className="pt-4 md:pt-6"><div className="text-xs md:text-sm text-muted-foreground">Absent</div><div className="text-xl md:text-2xl font-semibold">{(attendanceStats as { statsDto?: { absences?: number } })?.statsDto?.absences ?? 0}</div></CardContent></Card>
-        </div>
-      </div>
 
-      {/* Expenses with date pickers */}
+      {/* Expenses */}
       <div className="mt-6 md:mt-8 space-y-3 md:space-y-4">
-        <div className="flex flex-col sm:flex-row gap-2 md:gap-4">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="w-full sm:w-auto text-xs md:text-sm justify-start">
-                Start: {expenseStartDate ? format(expenseStartDate, 'MMM d, yyyy') : 'Pick'}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-              <CalendarComponent mode="single" selected={expenseStartDate} onSelect={setExpenseStartDate} />
-            </PopoverContent>
-          </Popover>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="w-full sm:w-auto text-xs md:text-sm justify-start">
-                End: {expenseEndDate ? format(expenseEndDate, 'MMM d, yyyy') : 'Pick'}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-              <CalendarComponent mode="single" selected={expenseEndDate} onSelect={setExpenseEndDate} />
-            </PopoverContent>
-          </Popover>
-        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           {expenses.map((exp, index) => (
             <Card key={String(exp.id) || index}><CardContent className="pt-4 md:pt-6">
@@ -725,26 +684,8 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
         </div>
       </div>
 
-      {/* Daily Pricing with date pickers */}
+      {/* Daily Pricing */}
       <div className="mt-8 space-y-4">
-        <div className="flex gap-4">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline">Start: {pricingStartDate ? format(pricingStartDate, 'MMM d, yyyy') : 'Pick'}</Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-              <CalendarComponent mode="single" selected={pricingStartDate} onSelect={setPricingStartDate} />
-            </PopoverContent>
-          </Popover>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline">End: {pricingEndDate ? format(pricingEndDate, 'MMM d, yyyy') : 'Pick'}</Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-              <CalendarComponent mode="single" selected={pricingEndDate} onSelect={setPricingEndDate} />
-            </PopoverContent>
-          </Popover>
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {dailyPricing.map((p, index) => (
             <Card key={String(p.id) || index}><CardContent className="pt-6">

@@ -601,7 +601,7 @@ export class API {
     return apiService.getStoresForTeam(teamId, page, size);
   }
 
-  private loadToken(): void {
+  private async loadToken(): Promise<void> {
     if (typeof window !== 'undefined') {
       // Client-side: get from localStorage
       this.token = localStorage.getItem('authToken');
@@ -610,7 +610,7 @@ export class API {
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { cookies } = require('next/headers');
-        const cookieStore = cookies();
+        const cookieStore = await cookies();
         this.token = cookieStore.get('authToken')?.value || null;
       } catch (error) {
         // If cookies() fails, token will remain null
@@ -619,9 +619,9 @@ export class API {
     }
   }
 
-  private getHeaders(): HeadersInit {
+  private async getHeaders(): Promise<HeadersInit> {
     // Always refresh token before building headers to avoid stale auth
-    this.loadToken();
+    await this.loadToken();
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
@@ -635,10 +635,11 @@ export class API {
 
   private async makeRequest<T>(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    const headers = await this.getHeaders();
     const config: RequestInit = {
       ...options,
       headers: {
-        ...this.getHeaders(),
+        ...headers,
         ...options.headers,
       },
     };
@@ -1034,8 +1035,9 @@ Please check your internet connection and try again.`);
   }
 
   async exportStores(): Promise<string> {
+    const headers = await this.getHeaders();
     const response = await fetch(`${this.baseUrl}/store/export`, {
-      headers: this.getHeaders(),
+      headers,
     });
     
     if (!response.ok) {
