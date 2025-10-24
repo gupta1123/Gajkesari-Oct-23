@@ -157,28 +157,6 @@ export default function OverviewSection(props: OverviewSectionProps) {
                 </span>
               )}
             </Text>
-            {highlightedEmployee && !showVisitLocations && onShowVisitLocations && (
-              <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex-1">
-                  <Text size="sm" className="text-blue-900 font-medium">
-                    📍 Explore {String(highlightedEmployee.name)}&apos;s Journey
-                  </Text>
-                  <Text size="xs" className="text-blue-700 mt-1">
-                    {selectedEmployeeMarkers.length > 0 
-                      ? "See their current location and home. Want to discover where they've been visiting?"
-                      : "No location data available yet. Want to discover where they've been visiting?"
-                    }
-                  </Text>
-                </div>
-                <Button 
-                  size="sm" 
-                  onClick={onShowVisitLocations}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Show Visit Locations
-                </Button>
-              </div>
-            )}
             {highlightedEmployee && showVisitLocations && (
               <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <div className="flex-1">
@@ -260,13 +238,27 @@ export default function OverviewSection(props: OverviewSectionProps) {
                           </Text>
                         </div>
                       </div>
-                      <div className="mt-3 flex items-center gap-2">
-                        <Badge variant="secondary" className="text-xs capitalize">
-                          {String(employee.status)}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {String(employee.visits)} visits
-                        </Badge>
+                      <div className="mt-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="text-xs capitalize">
+                            {String(employee.status)}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {String(employee.visits)} visits
+                          </Badge>
+                        </div>
+                        {highlightedEmployee?.listId === employee.listId && !showVisitLocations && onShowVisitLocations && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onShowVisitLocations();
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            📍 Explore Journey
+                          </button>
+                        )}
                       </div>
                     </button>
                   ))}
