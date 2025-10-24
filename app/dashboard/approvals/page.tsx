@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CheckCircle, XCircle, Search, Filter, Calendar, User, Clock, Loader } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
+import { isManagerRoleValue, normalizeRoleValue } from '@/lib/auth';
 import { API, type TeamDataDto } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -68,16 +69,21 @@ const ApprovalsPage = () => {
                     const authorities = userData.authorities || [];
                     const role = authorities.length > 0 ? authorities[0].authority : null;
                     setUserRoleFromAPI(role);
-                    
+
+                    const normalizedRole = normalizeRoleValue(role);
+                    const managerFlag = isManagerRoleValue(role);
+                    const adminFlag = normalizedRole === 'ROLE_ADMIN' || normalizedRole === 'ADMIN';
+                    const fieldOfficerFlag = normalizedRole === 'ROLE_FIELD OFFICER' || normalizedRole === 'FIELD OFFICER';
+
                     // Set role flags
-                    setIsManager(role === 'ROLE_MANAGER');
-                    setIsAdmin(role === 'ROLE_ADMIN');
-                    setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
-                    
+                    setIsManager(managerFlag);
+                    setIsAdmin(adminFlag);
+                    setIsFieldOfficer(fieldOfficerFlag);
+
                     console.log('Role from API:', role);
-                    console.log('isManager:', role === 'ROLE_MANAGER');
-                    console.log('isAdmin:', role === 'ROLE_ADMIN');
-                    console.log('isFieldOfficer:', role === 'ROLE_FIELD OFFICER');
+                    console.log('isManager:', managerFlag);
+                    console.log('isAdmin:', adminFlag);
+                    console.log('isFieldOfficer:', fieldOfficerFlag);
                 } else {
                     console.error('Failed to fetch current user data');
                 }

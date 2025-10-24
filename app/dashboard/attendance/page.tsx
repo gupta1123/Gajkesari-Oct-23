@@ -161,18 +161,22 @@ export default function AttendancePage() {
 
       const modifiedData = data.map((item: Record<string, unknown>) => {
         // Preserve original status for breakdowns
-        const originalStatus = item.attendanceStatus as string;
+        const originalStatus = typeof item.attendanceStatus === "string" ? item.attendanceStatus : "";
+        const normalizedOriginal = originalStatus.trim().toLowerCase();
+
         // Normalize the attendance status values used by calendar/summary
         let normalizedStatus = originalStatus;
-        if (originalStatus === "Present") {
+        if (normalizedOriginal === "present") {
+          normalizedStatus = "present";
+        } else if (normalizedOriginal === "full day") {
           normalizedStatus = "full day";
-        } else if (originalStatus === "Absent") {
+        } else if (normalizedOriginal === "absent") {
           normalizedStatus = "absent";
-        } else if (originalStatus === "Half Day") {
+        } else if (normalizedOriginal === "half day") {
           normalizedStatus = "half day";
-        } else if (originalStatus === "Paid Leave") {
+        } else if (normalizedOriginal === "paid leave") {
           normalizedStatus = "paid";
-        } else if (originalStatus === "Activity") {
+        } else if (normalizedOriginal === "activity") {
           normalizedStatus = "activity";
         }
 
@@ -305,14 +309,22 @@ export default function AttendancePage() {
         </div>
         <div className="mb-4">
           <p className="text-lg font-bold text-foreground">Legend:</p>
-          <div className="flex space-x-4">
+          <div className="flex flex-wrap gap-4">
             <div className="flex items-center">
               <span className="inline-block w-3.5 h-3.5 rounded-sm bg-green-500 dark:bg-green-400 mr-2" />
               <p className="text-muted-foreground">Full Day</p>
             </div>
             <div className="flex items-center">
+              <span className="inline-block w-3.5 h-3.5 rounded-sm bg-blue-500 dark:bg-blue-400 mr-2" />
+              <p className="text-muted-foreground">Present</p>
+            </div>
+            <div className="flex items-center">
               <span className="inline-block w-3.5 h-3.5 rounded-sm bg-yellow-500 dark:bg-yellow-400 mr-2" />
               <p className="text-muted-foreground">Half Day</p>
+            </div>
+            <div className="flex items-center">
+              <span className="inline-block w-3.5 h-3.5 rounded-sm bg-purple-200 border border-purple-400 dark:bg-purple-900/40 dark:border-purple-500 mr-2" />
+              <p className="text-muted-foreground">Paid Leave</p>
             </div>
             <div className="flex items-center">
               <span className="inline-block w-3.5 h-3.5 rounded-sm bg-red-500 dark:bg-red-400 mr-2" />
@@ -350,11 +362,16 @@ export default function AttendancePage() {
                     fullDays: 0,
                     halfDays: 0,
                     absent: 0,
-                    attendance: employeeAttendance.map(att => ({
-                      date: att.checkinDate,
-                      status: att.attendanceStatus === 'full day' ? 'present' : att.attendanceStatus === 'half day' ? 'half' : 'absent',
-                      visits: []
-                    }))
+                  attendance: employeeAttendance.map(att => ({
+                    date: att.checkinDate,
+                    status:
+                      att.attendanceStatus === 'full day'
+                        ? 'present'
+                        : att.attendanceStatus === 'half day'
+                          ? 'half'
+                          : 'absent',
+                    visits: []
+                  }))
                   }}
                   selectedMonth={selectedMonth}
                   selectedYear={selectedYear}

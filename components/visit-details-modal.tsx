@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Dialog,
   DialogContent as DialogContentPrimitive,
@@ -65,6 +65,14 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
     const [currentPage, setCurrentPage] = useState(1);
     const visitsPerPage = 7;
     const router = useRouter();
+
+    // Always reset pagination (and clear any expanded visit) when the modal opens with fresh data.
+    useEffect(() => {
+        if (isOpen) {
+            setCurrentPage(1);
+            setSelectedVisit(null);
+        }
+    }, [isOpen, visitData]);
 
     const handleViewDetails = (visitId: number) => {
         router.push(`/dashboard/visits/${visitId}`);

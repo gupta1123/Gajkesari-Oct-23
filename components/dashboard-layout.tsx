@@ -42,7 +42,7 @@ import {
 import { useRouter } from "next/navigation";
 import { CircleUser } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import DailyPricingChecker from "@/components/DailyPricingChecker";
+import { CurrentUserDto, hasManagerPrivileges, normalizeRoleValue } from "@/lib/auth";
 import MobileBottomNav from "@/components/mobile-bottom-nav";
 
 interface DashboardLayoutProps {
@@ -102,8 +102,8 @@ const managerAllowedPages = [
 ];
 
 // Function to filter sidebar categories based on user role
-const getFilteredSidebarCategories = (userRole: string | null, currentUser: Record<string, unknown> | null) => {
-  const isManager = userRole === 'MANAGER' || (currentUser?.authorities as Array<Record<string, unknown>>)?.some((auth) => auth.authority === 'ROLE_MANAGER');
+const getFilteredSidebarCategories = (userRole: string | null, currentUser: CurrentUserDto | null) => {
+  const isManager = hasManagerPrivileges(userRole, currentUser);
   
   if (isManager) {
     // For managers, filter categories to only show allowed pages
@@ -129,7 +129,7 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
   // Get filtered sidebar categories based on user role
-  const sidebarCategories = getFilteredSidebarCategories(userRole, currentUser as Record<string, unknown> | null);
+  const sidebarCategories = getFilteredSidebarCategories(userRole, currentUser);
   
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
     const initialState: Record<string, boolean> = {};
@@ -141,20 +141,23 @@ export default function DashboardLayout({
 
   // Determine display role
   const getDisplayRole = () => {
-    if (userRole === 'MANAGER' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER')) {
+    const hasAuthority = (target: string) =>
+      currentUser?.authorities?.some((auth) => normalizeRoleValue(auth.authority) === target);
+
+    if (hasManagerPrivileges(userRole, currentUser)) {
       return 'Manager';
     }
-    if (userRole === 'ADMIN' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_ADMIN')) {
+    if (normalizeRoleValue(userRole) === 'ADMIN' || hasAuthority('ROLE_ADMIN')) {
       return 'Admin';
     }
-    if (userRole === 'FIELD OFFICER' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_FIELD OFFICER')) {
+    if (normalizeRoleValue(userRole) === 'FIELD OFFICER' || hasAuthority('ROLE_FIELD OFFICER')) {
       return 'Field Officer';
     }
     return 'User';
   };
 
   // Check if user is manager
-  const isManager = userRole === 'MANAGER' || (currentUser?.authorities as Array<Record<string, unknown>>)?.some((auth) => auth.authority === 'ROLE_MANAGER');
+  const isManager = hasManagerPrivileges(userRole, currentUser);
 
   const toggleCategory = (categoryName: string) => {
     setOpenCategories(prev => ({
@@ -180,9 +183,6 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen w-full grid md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]">
-      {/* Daily Pricing Checker - Global Modal */}
-      <DailyPricingChecker />
-      
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav sidebarCategories={sidebarCategories} isManager={isManager || false} />
       {/* Mobile sidebar trigger - hidden since we use bottom nav */}

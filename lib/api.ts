@@ -689,9 +689,20 @@ export class API {
           '/notes/getByVisit'
         ];
         
+        // For endpoints that return success message as text
+        const successTextEndpoints = [
+          '/employee-user/create',
+          '/attendance-log/createAttendanceLog'
+        ];
+        
         if (visitEndpoints.some(visitEndpoint => endpoint.includes(visitEndpoint)) && response.ok) {
           console.warn(`Non-JSON response from ${endpoint}, returning empty array. Response: ${text.slice(0, 200)}`);
           return [] as unknown as T;
+        }
+        
+        if (successTextEndpoints.some(successEndpoint => endpoint.includes(successEndpoint)) && response.ok) {
+          console.log(`Success response from ${endpoint}: ${text}`);
+          return { success: true, message: text } as unknown as T;
         }
         
         const preview = text.slice(0, 200);

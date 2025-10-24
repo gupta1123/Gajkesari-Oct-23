@@ -36,6 +36,7 @@ import { useRouter } from "next/navigation";
 import { API, type VisitDto, type VisitResponse, type EmployeeUserDto, type TeamDataDto } from "@/lib/api";
 import { format as formatDate } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
+import { hasManagerPrivileges } from "@/lib/auth";
 import { formatTimeTo12Hour, formatDateToUserFriendly, formatLastUpdated } from "@/lib/utils";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 
@@ -304,14 +305,13 @@ export default function VisitsTable() {
   useEffect(() => {
     const checkUserRole = () => {
       // Check both userRole and currentUser authorities
-      const isManagerRole = userRole === 'MANAGER' || 
-        currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER');
-      
+      const isManagerRole = hasManagerPrivileges(userRole, currentUser);
+
       console.log('Role detection - userRole:', userRole);
       console.log('Role detection - currentUser authorities:', currentUser?.authorities);
       console.log('Role detection - isManagerRole:', isManagerRole);
-      
-      setIsManager(!!isManagerRole);
+
+      setIsManager(isManagerRole);
     };
     checkUserRole();
   }, [userRole, currentUser]);

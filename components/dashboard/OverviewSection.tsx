@@ -9,6 +9,16 @@ import { Calendar, Users, MapPin, Building } from "lucide-react";
 
 const LeafletMap = dynamic(() => import("@/components/leaflet-map"), { ssr: false });
 
+const getNumericId = (value: unknown): number | null => {
+  if (typeof value === "number" && !Number.isNaN(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) {
+    return Number(value);
+  }
+  return null;
+};
+
 export interface OverviewSectionProps {
   kpis: { totalVisits: number; activeEmployees: number; liveLocations: number };
   states: Array<{ id: number; name: string; employeeCount: number; color?: string }>;
@@ -22,6 +32,8 @@ export interface OverviewSectionProps {
   onMarkerClick: (marker: Record<string, unknown>) => void;
   onEmployeeSelect: (employee: Record<string, unknown>) => void;
   employeeList: Record<string, unknown>[];
+  showVisitLocations?: boolean;
+  onShowVisitLocations?: () => void;
 }
 
 export default function OverviewSection(props: OverviewSectionProps) {
@@ -38,7 +50,28 @@ export default function OverviewSection(props: OverviewSectionProps) {
     onMarkerClick,
     onEmployeeSelect,
     employeeList,
+    showVisitLocations,
+    onShowVisitLocations,
   } = props;
+
+  const highlightedEmployeeId =
+    highlightedEmployee == null
+      ? null
+      : getNumericId((highlightedEmployee as { id?: unknown }).id) ??
+        getNumericId((highlightedEmployee as { listId?: unknown }).listId) ??
+        getNumericId((highlightedEmployee as { employeeId?: unknown }).employeeId);
+
+  const activeMarkers = highlightedEmployeeId != null
+    ? markers.filter((marker) => {
+        const markerData = marker as { employeeId?: unknown; id?: unknown };
+        const markerId =
+          getNumericId(markerData.employeeId) ?? getNumericId(markerData.id);
+        return markerId === highlightedEmployeeId;
+      })
+    : markers;
+
+  const combinedMarkers = [...activeMarkers, ...selectedEmployeeMarkers];
+  const visitMarkerCount = selectedEmployeeMarkers.filter((m) => (m as { type?: unknown }).type === "visit").length;
 
   return (
     <>
@@ -100,7 +133,7 @@ export default function OverviewSection(props: OverviewSectionProps) {
                 <Heading as="p" size="xl" weight="bold">
                   {state.employeeCount}
                 </Heading>
-                <Text size="xs" tone="muted">Employees working today</Text>
+                <Text size="xs" tone="muted">Employees working</Text>
               </CardContent>
             </Card>
           ))}
@@ -112,17 +145,53 @@ export default function OverviewSection(props: OverviewSectionProps) {
           Live Employee Locations
         </Heading>
         <div className="flex flex-col items-center justify-between gap-4 lg:flex-row">
-          <Text tone="muted">
-            Click on an employee to zoom to their location
-            {highlightedEmployee && (
-              <span className="ml-2 text-sm font-medium text-primary">
-                • Showing {markers.filter(m => Number(m.id) === highlightedEmployee.id).length + selectedEmployeeMarkers.length} locations
-                {selectedEmployeeMarkers.filter(m => m.type === 'visit').length > 0 && (
-                  <span className="ml-1">({selectedEmployeeMarkers.filter(m => m.type === 'visit').length} visits)</span>
-                )}
-              </span>
+          <div className="flex flex-col gap-2">
+            <Text tone="muted">
+              Click on an employee to zoom to their location
+              {highlightedEmployee && (
+                <span className="ml-2 text-sm font-medium text-primary">
+                  • Showing {activeMarkers.length + selectedEmployeeMarkers.length} locations
+                  {visitMarkerCount > 0 && (
+                    <span className="ml-1">({visitMarkerCount} visits)</span>
+                  )}
+                </span>
+              )}
+            </Text>
+            {highlightedEmployee && !showVisitLocations && onShowVisitLocations && (
+              <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex-1">
+                  <Text size="sm" className="text-blue-900 font-medium">
+                    📍 Explore {String(highlightedEmployee.name)}&apos;s Journey
+                  </Text>
+                  <Text size="xs" className="text-blue-700 mt-1">
+                    {selectedEmployeeMarkers.length > 0 
+                      ? "See their current location and home. Want to discover where they've been visiting?"
+                      : "No location data available yet. Want to discover where they've been visiting?"
+                    }
+                  </Text>
+                </div>
+                <Button 
+                  size="sm" 
+                  onClick={onShowVisitLocations}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Show Visit Locations
+                </Button>
+              </div>
             )}
-          </Text>
+            {highlightedEmployee && showVisitLocations && (
+              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex-1">
+                  <Text size="sm" className="text-green-900 font-medium">
+                    🎯 Complete Journey View
+                  </Text>
+                  <Text size="xs" className="text-green-700 mt-1">
+                    Now showing {String(highlightedEmployee.name)}&apos;s current location, home, and all visit locations for the selected date range.
+                  </Text>
+                </div>
+              </div>
+            )}
+          </div>
           <Button variant="outline" size="sm" onClick={onResetView}>Reset View</Button>
         </div>
         <div className="flex flex-col gap-6 lg:flex-row">
@@ -132,7 +201,13 @@ export default function OverviewSection(props: OverviewSectionProps) {
                 center={mapCenter}
                 zoom={mapZoom}
                 highlightedEmployee={highlightedEmployee as { id: number | string; name?: string; lat: number; lng: number } | null}
-                markers={[...markers, ...selectedEmployeeMarkers] as Array<{ id: number | string; name?: string; lat: number; lng: number; subtitle?: string; type?: "live" | "house" | "visit"; tooltipLines?: string[]; employeeId?: number }>}
+                markers={(() => {
+                  console.log('=== LEAFLET MAP MARKERS DEBUG ===');
+                  console.log('Filtered main markers:', activeMarkers);
+                  console.log('Selected employee markers:', selectedEmployeeMarkers);
+                  console.log('Combined markers for map:', combinedMarkers);
+                  return combinedMarkers as Array<{ id: number | string; name?: string; lat: number; lng: number; subtitle?: string; type?: "live" | "house" | "visit"; tooltipLines?: string[]; employeeId?: number }>;
+                })()}
                 onMarkerClick={onMarkerClick as (marker: { id: number | string; name?: string; lat: number; lng: number }) => void}
               />
             </Card>
@@ -190,7 +265,7 @@ export default function OverviewSection(props: OverviewSectionProps) {
                           {String(employee.status)}
                         </Badge>
                         <Badge variant="outline" className="text-xs">
-                          {String(employee.visitsToday)} visits today
+                          {String(employee.visits)} visits
                         </Badge>
                       </div>
                     </button>
@@ -204,5 +279,4 @@ export default function OverviewSection(props: OverviewSectionProps) {
     </>
   );
 }
-
 

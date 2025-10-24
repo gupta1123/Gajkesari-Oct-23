@@ -148,6 +148,7 @@ function EmployeeList() {
 
   // Additional state for new employee form
   const initialNewEmployeeState = {
+    employeeId: "",
     firstName: "",
     lastName: "",
     primaryContact: "",
@@ -438,7 +439,23 @@ function EmployeeList() {
         return;
       }
 
-      const roleForApi = newEmployee.role === 'Manager' ? 'Office_Manager' : newEmployee.role;
+      const roleForApi = newEmployee.role === 'Manager' ? 'Office Manager' : 
+                        newEmployee.role === 'Regional Manager' ? 'Office Manager' : 
+                        newEmployee.role;
+
+      // Validate contact numbers
+      const primaryContactNum = Number(newEmployee.primaryContact);
+      const secondaryContactNum = newEmployee.secondaryContact ? Number(newEmployee.secondaryContact) : null;
+      
+      if (isNaN(primaryContactNum) || primaryContactNum.toString().length !== 10) {
+        alert('Primary contact must be a valid 10-digit number');
+        return;
+      }
+      
+      if (secondaryContactNum && (isNaN(secondaryContactNum) || secondaryContactNum.toString().length !== 10)) {
+        alert('Secondary contact must be a valid 10-digit number');
+        return;
+      }
 
       const requestBody = {
         user: {
@@ -446,10 +463,11 @@ function EmployeeList() {
           password: newEmployee.password,
         },
         employee: {
+          employeeId: newEmployee.employeeId,
           firstName: newEmployee.firstName,
           lastName: newEmployee.lastName,
-          primaryContact: newEmployee.primaryContact,
-          secondaryContact: newEmployee.secondaryContact,
+          primaryContact: primaryContactNum,
+          secondaryContact: secondaryContactNum,
           departmentName: newEmployee.departmentName,
           email: newEmployee.email,
           role: roleForApi,
@@ -573,7 +591,9 @@ function EmployeeList() {
   };
 
   const transformRole = (role: string) => {
-    return role === 'Manager' ? 'Regional Manager' : role;
+    return role === 'Manager' ? 'Regional Manager' : 
+           role === 'Office Manager' ? 'Regional Manager' : 
+           role;
   };
 
   // Function to generate role tags with pastel colors
@@ -1167,6 +1187,20 @@ function EmployeeList() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
+                      <Label htmlFor="employeeId">
+                        Employee ID <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="employeeId"
+                        name="employeeId"
+                        value={newEmployee.employeeId}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
                       <Label htmlFor="primaryContact">
                         Primary Contact <span className="text-red-500">*</span>
                       </Label>
@@ -1204,6 +1238,7 @@ function EmployeeList() {
                 <Button
                   onClick={() => setActiveTab('tab2')}
                   disabled={
+                    !newEmployee.employeeId ||
                     !newEmployee.firstName ||
                     !newEmployee.lastName ||
                     !newEmployee.primaryContact ||

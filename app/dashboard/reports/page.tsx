@@ -235,6 +235,8 @@ const ReportsPage: React.FC = () => {
             case 'last-7-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 6); break;
             case 'last-15-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 14); break;
             case 'last-30-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 29); break;
+            case 'this-week': { const day = now.getDay(); startDt = new Date(now); startDt.setDate(now.getDate() - day); endDt = new Date(now); break; } // Cap at today
+            case 'this-month': { const y = now.getFullYear(), m = now.getMonth(); startDt = new Date(y, m, 1); endDt = new Date(now); break; } // Cap at today
             case 'last-week': { const day = now.getDay(); startDt = new Date(now); startDt.setDate(now.getDate() - (day + 6)); endDt = new Date(startDt); endDt.setDate(startDt.getDate() + 6); break; }
             case 'last-month': { const y = now.getFullYear(), m = now.getMonth(); startDt = new Date(y, m - 1, 1); endDt = new Date(y, m, 0); break; }
             default: return;
@@ -470,6 +472,8 @@ const ReportsPage: React.FC = () => {
                                     <SelectItem value="last-7-days">Last 7 Days</SelectItem>
                                     <SelectItem value="last-15-days">Last 15 Days</SelectItem>
                                     <SelectItem value="last-30-days">Last 30 Days</SelectItem>
+                                    <SelectItem value="this-week">This Week</SelectItem>
+                                    <SelectItem value="this-month">This Month</SelectItem>
                                     <SelectItem value="last-week">Last Week</SelectItem>
                                     <SelectItem value="last-month">Last Month</SelectItem>
                 </SelectContent>

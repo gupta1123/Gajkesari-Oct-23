@@ -23,6 +23,29 @@ interface CustomCalendarProps {
   employeeName: string;
 }
 
+const formatStatusLabel = (status: string): string => {
+  switch (status) {
+    case 'full day':
+      return 'Full Day';
+    case 'present':
+      return 'Present';
+    case 'half day':
+      return 'Half Day';
+    case 'absent':
+      return 'Absent';
+    case 'paid':
+      return 'Paid Leave';
+    case 'activity':
+      return 'Activity';
+    default:
+      return status
+        .split(' ')
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+  }
+};
+
 const CustomCalendar: React.FC<CustomCalendarProps> = ({
   month,
   year,
@@ -70,6 +93,7 @@ const CustomCalendar: React.FC<CustomCalendarProps> = ({
 
           const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
           const date = new Date(year, month, i);
+          const isSunday = date.getDay() === 0;
 
           // Find an attendance record (if any) for this date
           const attendanceRecord = attendanceData.find((data) => {
@@ -87,18 +111,22 @@ const CustomCalendar: React.FC<CustomCalendarProps> = ({
           tooltip.classList.add('calendar-tooltip');
 
           // Check if it's Sunday first (like reference code)
-          if (date.getDay() === 0) {
-            dateDiv.classList.add('full-day');
-            tooltip.textContent = 'Full Day (Sunday)';
+          if (isSunday) {
+            dateDiv.classList.add('paid');
+            tooltip.textContent = formatStatusLabel('paid');
+            tooltip.style.setProperty('--tooltip-translate-x', '-20%');
+            tooltip.style.setProperty('--tooltip-arrow-left', '35%');
+            // Keep Sunday tally in the full-day summary so card totals remain consistent.
             fullDays++;
           }
           // If there's an attendance record, use it (but don't double-count Sundays)
           else if (attendanceStatus) {
-            const normalizedStatus = attendanceStatus.toLowerCase();
-            dateDiv.classList.add(normalizedStatus.replace(' ', '-'));
-            tooltip.textContent = ` ${attendanceStatus}`;
+            const normalizedStatus = attendanceStatus.toLowerCase().trim();
+            const statusClass = normalizedStatus.replace(/\s+/g, '-');
+            dateDiv.classList.add(statusClass);
+            tooltip.textContent = formatStatusLabel(normalizedStatus);
 
-            if (normalizedStatus === 'full day') {
+            if (normalizedStatus === 'full day' || normalizedStatus === 'present') {
               fullDays++;
             } else if (normalizedStatus === 'half day') {
               halfDays++;
@@ -109,7 +137,7 @@ const CustomCalendar: React.FC<CustomCalendarProps> = ({
           // If no attendance record and it's not Sunday, count as absent
           else {
             dateDiv.classList.add('absent');
-            tooltip.textContent = 'Absent';
+            tooltip.textContent = formatStatusLabel('absent');
             absentDays++;
           }
 

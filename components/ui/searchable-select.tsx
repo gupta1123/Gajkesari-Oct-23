@@ -19,6 +19,12 @@ interface SearchableSelectProps {
   className?: string;
   disabled?: boolean;
   maxHeight?: string;
+  // If this number changes, the dropdown will open (used for external triggers)
+  openOnSignal?: number;
+  // Hide the internal trigger button entirely (use with anchorRef + openOnSignal)
+  hideTrigger?: boolean;
+  // Use an external element as the anchor for positioning the dropdown
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
 const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -30,11 +36,15 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   className,
   disabled = false,
   maxHeight = "200px",
+  openOnSignal,
+  hideTrigger = false,
+  anchorRef,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -49,12 +59,20 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   // Handle click outside to close dropdown (robust against portals)
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Element;
       const path = (event.composedPath && event.composedPath()) || [];
 
+      // Don't close if clicking inside the component or its portal
       if (
-        (dropdownRef.current && path.includes(dropdownRef.current)) ||
-        (portalRef.current && path.includes(portalRef.current))
+        (dropdownRef.current && dropdownRef.current.contains(target)) ||
+        (portalRef.current && portalRef.current.contains(target)) ||
+        (triggerRef.current && triggerRef.current.contains(target))
       ) {
+        return;
+      }
+
+      // Don't close if clicking inside a dialog
+      if (target.closest('[data-radix-dialog-content]')) {
         return;
       }
 
@@ -69,13 +87,30 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   // Calculate dropdown position when opening
   useEffect(() => {
-    if (isOpen && triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      setDropdownPosition({
-        top: rect.bottom + window.scrollY + 4,
-        left: rect.left + window.scrollX,
-        width: rect.width
-      });
+    if (isOpen && typeof window !== "undefined") {
+      const anchorEl = (anchorRef?.current as HTMLElement | null) || triggerRef.current;
+      const dialogContent = anchorEl?.closest('[data-radix-dialog-content]') as HTMLElement | null;
+      if (dialogContent) {
+        setPortalContainer(dialogContent);
+      } else {
+        const radixPortal = anchorEl?.closest('[data-radix-portal]') as HTMLElement | null ||
+          (document.querySelector('[data-radix-portal]') as HTMLElement | null);
+        setPortalContainer(radixPortal ?? document.body);
+      }
+    } else if (!isOpen) {
+      setPortalContainer(null);
+    }
+
+    if (isOpen) {
+      const anchorEl = (anchorRef?.current as HTMLElement | null) || triggerRef.current;
+      if (anchorEl) {
+        const rect = anchorEl.getBoundingClientRect();
+        setDropdownPosition({
+          top: rect.bottom + window.scrollY + 4,
+          left: rect.left + window.scrollX,
+          width: rect.width
+        });
+      }
     }
 
     if (!isOpen) {
@@ -83,8 +118,9 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     }
 
     const handleScroll = () => {
-      if (!triggerRef.current) return;
-      const rect = triggerRef.current.getBoundingClientRect();
+      const anchorEl = (anchorRef?.current as HTMLElement | null) || triggerRef.current;
+      if (!anchorEl) return;
+      const rect = anchorEl.getBoundingClientRect();
       setDropdownPosition({
         top: rect.bottom + window.scrollY + 4,
         left: rect.left + window.scrollX,
@@ -100,6 +136,13 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
       window.removeEventListener("resize", handleScroll);
     };
   }, [isOpen]);
+
+  // Open dropdown when parent triggers a new signal
+  useEffect(() => {
+    if (typeof openOnSignal === 'number' && !disabled) {
+      setIsOpen(true);
+    }
+  }, [openOnSignal, disabled]);
 
   // Focus search input when dropdown opens and reset state when closing
   useEffect(() => {
@@ -179,74 +222,70 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   return (
     <div className={cn("relative", className)} ref={dropdownRef}>
-      {/* Trigger Button */}
-      <button
-        ref={triggerRef}
-        type="button"
-        className={cn(
-          "flex items-center justify-between w-full px-3 py-2 text-sm border border-input bg-background rounded-md",
-          "hover:bg-accent hover:text-accent-foreground",
-          "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-          "disabled:opacity-50 disabled:cursor-not-allowed",
-          isOpen && "ring-2 ring-ring ring-offset-2"
-        )}
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        onKeyDown={handleKeyDown}
-        disabled={disabled}
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-      >
-        <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-          {selectedLabels.length > 0 ? (
-            selectedLabels.map((label, index) => (
-              <span
-                key={index}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground text-xs rounded"
-              >
-                {label}
-                <button
-                  type="button"
+      {/* Trigger Button (optional) */}
+      {!hideTrigger && (
+        <button
+          ref={triggerRef}
+          type="button"
+          className={cn(
+            "flex items-center justify-between w-full px-3 py-2 text-sm border border-input bg-background rounded-md",
+            "hover:bg-accent hover:text-accent-foreground",
+            "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+            isOpen && "ring-2 ring-ring ring-offset-2"
+          )}
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+        >
+          <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+            {selectedLabels.length > 0 ? (
+              selectedLabels.map((label, index) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground text-xs rounded"
+                >
+                  {label}
+                <span
                   onClick={(e) => {
                     e.stopPropagation();
                     const option = options.find(opt => opt.label === label);
                     if (option) handleRemove(option.value);
                   }}
-                  className="hover:bg-primary-foreground/20 rounded-full p-0.5"
+                  aria-label="Remove"
+                  className="hover:bg-primary-foreground/20 rounded-full p-0.5 cursor-pointer"
                 >
                   <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))
-          ) : (
-            <span className="text-muted-foreground">{placeholder}</span>
-          )}
-        </div>
-        <ChevronDown className={cn("h-4 w-4 opacity-50 transition-transform", isOpen && "rotate-180")} />
-      </button>
+                </span>
+                </span>
+              ))
+            ) : (
+              placeholder ? <span className="text-muted-foreground">{placeholder}</span> : null
+            )}
+          </div>
+          <ChevronDown className={cn("h-4 w-4 opacity-50 transition-transform", isOpen && "rotate-180")} />
+        </button>
+      )}
 
       {/* Dropdown Portal */}
-      {isOpen && typeof window !== 'undefined' && createPortal(
+      {isOpen && typeof window !== 'undefined' && portalContainer && createPortal(
         <div 
-          className="fixed z-[9999] bg-popover border border-border rounded-md shadow-lg"
+          className="fixed bg-popover border border-border rounded-md shadow-lg"
           style={{ 
             top: dropdownPosition.top,
             left: dropdownPosition.left,
             width: dropdownPosition.width,
-            zIndex: 9999
+            zIndex: 99999
           }}
           ref={(node) => {
             portalRef.current = node;
           }}
-          onMouseDownCapture={(event) => {
+          onMouseDown={(event) => {
             event.stopPropagation();
           }}
-          onClickCapture={(event) => {
-            event.stopPropagation();
-          }}
-          onWheelCapture={(event) => {
-            event.stopPropagation();
-          }}
-          onTouchStartCapture={(event) => {
+          onClick={(event) => {
             event.stopPropagation();
           }}
         >
@@ -298,8 +337,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
             )}
           </div>
         </div>,
-        // Mount inside Radix UI portal container if present to avoid dialog inert/aria-hidden issues
-        (document.querySelector('[data-radix-portal]') as HTMLElement) || document.body
+        portalContainer
       )}
     </div>
   );

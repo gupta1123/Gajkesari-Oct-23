@@ -32,6 +32,7 @@ import { API, type StoreDto, type StoreResponse, type TeamDataDto, type Employee
 import AddCustomerModal from "@/components/AddCustomerModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
+import { isManagerRoleValue, normalizeRoleValue } from "@/lib/auth";
 import { formatDateToUserFriendly } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
@@ -360,17 +361,22 @@ function CustomerListContent() {
                     const authorities = userData.authorities || [];
                     const role = authorities.length > 0 ? authorities[0].authority : null;
                     setUserRoleFromAPI(role);
-                    
+
+                    const normalizedRole = normalizeRoleValue(role);
+                    const managerFlag = isManagerRoleValue(role);
+                    const adminFlag = normalizedRole === 'ROLE_ADMIN' || normalizedRole === 'ADMIN';
+                    const fieldOfficerFlag = normalizedRole === 'ROLE_FIELD OFFICER' || normalizedRole === 'FIELD OFFICER';
+
                     // Set role flags
-                    setIsManager(role === 'ROLE_MANAGER');
-                    setIsAdmin(role === 'ROLE_ADMIN');
-                    setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
-                    
+                    setIsManager(managerFlag);
+                    setIsAdmin(adminFlag);
+                    setIsFieldOfficer(fieldOfficerFlag);
+
                     console.log('Role from API:', role);
-                    console.log('isManager:', role === 'ROLE_MANAGER');
-                    console.log('isAdmin:', role === 'ROLE_ADMIN');
-                    console.log('isFieldOfficer:', role === 'ROLE_FIELD OFFICER');
-                    
+                    console.log('isManager:', managerFlag);
+                    console.log('isAdmin:', adminFlag);
+                    console.log('isFieldOfficer:', fieldOfficerFlag);
+
                     // Mark role as determined
                     setIsRoleDetermined(true);
                 } else {

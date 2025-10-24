@@ -104,6 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserRole(null);
       setUserData(null);
       setCurrentUser(null);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('pricingModalDismissed');
+      }
       router.replace('/login');
     } catch (error) {
       // Still clear local state even if API call fails
@@ -111,6 +114,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsAuthenticated(false);
       setUserRole(null);
       setUserData(null);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('pricingModalDismissed');
+      }
       throw error;
     }
   };

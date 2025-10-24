@@ -73,6 +73,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { CalendarIcon } from "lucide-react";
 import { API, BrandProCon, IntentAuditLog, MonthlySaleChange, Task, Note as ApiNote, VisitDto } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { hasManagerPrivileges } from "@/lib/auth";
 import Image from 'next/image';
 import BrandTab from './BrandTab';
 
@@ -479,10 +480,9 @@ export default function VisitDetailPage() {
   useEffect(() => {
     const checkUserRole = () => {
       // Check both userRole and currentUser authorities
-      const isManagerRole = userRole === 'MANAGER' || 
-        currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER');
-      
-      setIsManager(!!isManagerRole);
+      const isManagerRole = hasManagerPrivileges(userRole, currentUser);
+
+      setIsManager(isManagerRole);
     };
     checkUserRole();
   }, [userRole, currentUser]);

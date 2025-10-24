@@ -5,6 +5,7 @@ import { format, subDays, differenceInDays } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { API, type TeamDataDto } from '@/lib/api';
+import { hasManagerPrivileges } from '@/lib/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sortBy, uniqBy } from 'lodash';
 import { Button } from "@/components/ui/button";
@@ -124,10 +125,8 @@ const Requirements = () => {
     useEffect(() => {
         const checkUserRole = () => {
             // Check both userRole and currentUser authorities
-            const isManagerRole = userRole === 'MANAGER' || 
-                currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER');
-            
-            setIsManager(!!isManagerRole);
+            const isManagerRole = hasManagerPrivileges(userRole, currentUser);
+            setIsManager(isManagerRole);
         };
         checkUserRole();
     }, [userRole, currentUser]);

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Pagination, PaginationContent, PaginationItem, PaginationLink } from "@/components/ui/pagination";
 import { 
   Calendar, 
   CheckCircle, 
@@ -23,7 +22,8 @@ import {
   User,
   ChevronUpIcon,
   ChevronDownIcon,
-  ChevronRight
+  ChevronRight,
+  ChevronLeft
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, parseISO } from "date-fns";
@@ -39,6 +39,7 @@ import {
   SelectValue,
   SelectItem
 } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface Employee {
   id: number;
@@ -126,6 +127,8 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [sortColumn, setSortColumn] = useState<keyof VisitRow>('date');
   const [lastClickedColumn, setLastClickedColumn] = useState<keyof VisitRow | null>(null);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const hasAdjustedPageRef = useRef(false);
 
   const getOutcomeStatus = (visit: VisitRow): { emoji: React.ReactNode; status: string } => {
     if (visit.checkinTime && visit.checkoutTime) {
@@ -148,8 +151,18 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
     setLastClickedColumn(column);
   };
 
-  const rowsPerPage = 10;
-  const totalPages = Math.ceil(visits.length / rowsPerPage);
+  const totalPages = rowsPerPage > 0 ? Math.ceil(visits.length / rowsPerPage) : 0;
+  const safeTotalPages = totalPages === 0 ? 1 : totalPages;
+
+  useEffect(() => {
+    if (currentPage > safeTotalPages && safeTotalPages > 0 && !hasAdjustedPageRef.current) {
+      hasAdjustedPageRef.current = true;
+      onPageChange(safeTotalPages);
+    }
+    if (currentPage <= safeTotalPages) {
+      hasAdjustedPageRef.current = false;
+    }
+  }, [currentPage, safeTotalPages, onPageChange]);
 
   const sortedVisits = [...visits].sort((a, b) => {
     const valueA = a[sortColumn];
@@ -307,40 +320,52 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
           </table>
         </div>
       </CardContent>
-      {totalPages > 1 && visitsToDisplay.length > 0 && (
-        <Pagination>
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationLink
-                size="default"
-                onClick={() => onPageChange(currentPage - 1)}
-                className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
-              >
-                Previous
-              </PaginationLink>
-            </PaginationItem>
-            {Array.from({ length: totalPages }, (_, index) => (
-              <PaginationItem key={index}>
-                <PaginationLink
-                  size="default"
-                  onClick={() => onPageChange(index + 1)}
-                  className={currentPage === index + 1 ? 'bg-gray-300' : ''}
-                >
-                  {index + 1}
-                </PaginationLink>
-              </PaginationItem>
-            ))}
-            <PaginationItem>
-              <PaginationLink
-                size="default"
-                onClick={() => onPageChange(currentPage + 1)}
-                className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
-              >
-                Next
-              </PaginationLink>
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
+      {visits.length > 0 && (
+        <div className="mt-4 border-t pt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2 text-sm">
+            <Label htmlFor="employee-detail-rows" className="text-muted-foreground">Rows per page:</Label>
+            <Select
+              value={rowsPerPage.toString()}
+              onValueChange={(value) => {
+                const parsed = Number(value);
+                setRowsPerPage(parsed);
+                onPageChange(1);
+              }}
+            >
+              <SelectTrigger id="employee-detail-rows" className="w-[90px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="25">25</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage <= 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {Math.min(currentPage, safeTotalPages)} of {safeTotalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(Math.min(safeTotalPages, currentPage + 1))}
+              disabled={currentPage >= safeTotalPages}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
       )}
     </Card>
   );
@@ -360,7 +385,6 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
   const DETAIL_STATE_KEY = 'dashboard.employeeDetail.state.v1';
 
   // Added: filters and extra datasets to match reference
-  const [visitFilter, setVisitFilter] = useState<string>('today');
   const [expenses, setExpenses] = useState<Array<Record<string, unknown>>>([]);
   const [expenseStartDate, setExpenseStartDate] = useState<Date | undefined>(new Date());
   const [expenseEndDate, setExpenseEndDate] = useState<Date | undefined>(new Date());
@@ -381,8 +405,21 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       if (!raw) return;
       const saved = JSON.parse(raw) as Record<string, unknown>;
       if (saved?.employeeId !== employee.id) return;
-      if (typeof saved.visitFilter === 'string') setVisitFilter(saved.visitFilter);
-      if (typeof saved.currentPage === 'number') setCurrentPage(saved.currentPage);
+
+      const startKey = format(dateRange.start, 'yyyy-MM-dd');
+      const endKey = format(dateRange.end, 'yyyy-MM-dd');
+      const savedStartKey = typeof saved.startKey === 'string' ? saved.startKey : null;
+      const savedEndKey = typeof saved.endKey === 'string' ? saved.endKey : null;
+      const savedPage = typeof saved.currentPage === 'number' ? saved.currentPage : null;
+
+      if (savedPage != null && savedStartKey === startKey && savedEndKey === endKey) {
+        if (currentPage !== savedPage) {
+          setCurrentPage(savedPage);
+        }
+      } else if (currentPage !== 1) {
+        setCurrentPage(1);
+      }
+
       if (saved.expenseStartDate && typeof saved.expenseStartDate === 'string') setExpenseStartDate(new Date(saved.expenseStartDate));
       if (saved.expenseEndDate && typeof saved.expenseEndDate === 'string') setExpenseEndDate(new Date(saved.expenseEndDate));
       if (typeof saved.selectedYear === 'number') setSelectedYear(saved.selectedYear);
@@ -390,8 +427,7 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       if (saved.pricingStartDate && typeof saved.pricingStartDate === 'string') setPricingStartDate(new Date(saved.pricingStartDate));
       if (saved.pricingEndDate && typeof saved.pricingEndDate === 'string') setPricingEndDate(new Date(saved.pricingEndDate));
     } catch {}
-  // run once per employee
-  }, [employee.id]);
+  }, [employee.id, dateRange.start, dateRange.end, currentPage]);
 
   // Persist filters on change
   useEffect(() => {
@@ -399,8 +435,9 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
     try {
       sessionStorage.setItem(DETAIL_STATE_KEY, JSON.stringify({
         employeeId: employee.id,
-        visitFilter,
         currentPage,
+        startKey: format(dateRange.start, 'yyyy-MM-dd'),
+        endKey: format(dateRange.end, 'yyyy-MM-dd'),
         expenseStartDate,
         expenseEndDate,
         selectedYear,
@@ -409,45 +446,16 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
         pricingEndDate,
       }));
     } catch {}
-  }, [employee.id, visitFilter, currentPage, expenseStartDate, expenseEndDate, selectedYear, selectedMonth, pricingStartDate, pricingEndDate]);
+  }, [employee.id, currentPage, dateRange.start, dateRange.end, expenseStartDate, expenseEndDate, selectedYear, selectedMonth, pricingStartDate, pricingEndDate]);
 
-  // Visits + stats loaded using visitFilter (today/yesterday/etc.)
+  // Visits + stats loaded using parent-provided date range
   useEffect(() => {
     const run = async () => {
       setLoading(true);
       setError(null);
       try {
-        const now = new Date();
-        let start: string;
-        let end: string;
-        if (visitFilter === 'today') {
-          start = format(now, 'yyyy-MM-dd');
-          end = format(now, 'yyyy-MM-dd');
-        } else if (visitFilter === 'yesterday') {
-          const y = new Date(now);
-          y.setDate(y.getDate() - 1);
-          start = format(y, 'yyyy-MM-dd');
-          end = format(y, 'yyyy-MM-dd');
-        } else if (visitFilter === 'last-2-days') {
-          const twoDaysAgo = new Date(now);
-          twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-          start = format(twoDaysAgo, 'yyyy-MM-dd');
-          end = format(now, 'yyyy-MM-dd');
-        } else if (visitFilter === 'this-month') {
-          const first = new Date(now.getFullYear(), now.getMonth(), 1);
-          const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-          start = format(first, 'yyyy-MM-dd');
-          end = format(last, 'yyyy-MM-dd');
-        } else if (visitFilter === 'last-month') {
-          const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-          const last = new Date(now.getFullYear(), now.getMonth(), 0);
-          start = format(first, 'yyyy-MM-dd');
-          end = format(last, 'yyyy-MM-dd');
-        } else {
-          start = format(dateRange.start, 'yyyy-MM-dd');
-          end = format(dateRange.end, 'yyyy-MM-dd');
-        }
-
+        const start = format(dateRange.start, 'yyyy-MM-dd');
+        const end = format(dateRange.end, 'yyyy-MM-dd');
         const data = await API.getEmployeeStatsWithVisits(employee.id, start, end);
         setEmployeeDetails(data);
       } catch (e) {
@@ -457,7 +465,7 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       }
     };
     run();
-  }, [employee.id, visitFilter, dateRange.start, dateRange.end]);
+  }, [employee.id, dateRange.start, dateRange.end]);
 
   // Expenses by employee and date range
   useEffect(() => {
@@ -631,24 +639,6 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       <div>
         <h1 className="text-2xl md:text-3xl font-bold capitalize">{employee.name}</h1>
         <p className="text-sm md:text-base text-muted-foreground">{employee.position}</p>
-      </div>
-
-      {/* Visits filter selector to match reference */}
-      <div className="flex items-center gap-4">
-        <div className="space-y-2 w-full sm:w-auto">
-          <Select value={visitFilter} onValueChange={setVisitFilter}>
-            <SelectTrigger className="w-full sm:w-[180px] text-xs md:text-sm">
-              <SelectValue placeholder="Select Filter" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="today" className="text-xs md:text-sm">Today</SelectItem>
-              <SelectItem value="yesterday" className="text-xs md:text-sm">Yesterday</SelectItem>
-              <SelectItem value="last-2-days" className="text-xs md:text-sm">Last 2 Days</SelectItem>
-              <SelectItem value="this-month" className="text-xs md:text-sm">This Month</SelectItem>
-              <SelectItem value="last-month" className="text-xs md:text-sm">Last Month</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">

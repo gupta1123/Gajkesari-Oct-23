@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MapPin, Users, Calendar, ArrowLeft, Building } from "lucide-react";
+import { MapPin, Users, Calendar, ArrowLeft, Building, Loader2, CalendarIcon } from "lucide-react";
 import OverviewSection from "@/components/dashboard/OverviewSection";
 import StateSection from "@/components/dashboard/StateSection";
 import EmployeeDetailSection from "@/components/dashboard/EmployeeDetailSection";
@@ -27,6 +27,10 @@ import { Heading, Text } from "@/components/ui/typography";
 import { API, type EmployeeUserDto, type VisitDto, type ReportCountsItem, type AttendanceLogItem, type LiveLocationDto, type TeamDataDto, type CurrentUserDto } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { Skeleton } from "@/components/ui/skeleton";
+import DailyPricingModal from "@/components/DailyPricingModal";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SpacedCalendar } from "@/components/ui/spaced-calendar";
+import { isManagerRoleValue } from "@/lib/auth";
 
 
 const DEFAULT_MAP_CENTER: [number, number] = [22.5726, 88.3639];
@@ -72,7 +76,7 @@ type Employee = {
 };
 type ExtendedEmployee = Employee & {
   listId: string;
-  visitsToday: number;
+  visits: number;
   formattedLastUpdated: string;
 };
 
@@ -100,11 +104,17 @@ const dateRanges = [
   { value: "yesterday", label: "Yesterday" },
   { value: "thisWeek", label: "This Week" },
   { value: "thisMonth", label: "This Month" },
+  { value: "custom", label: "Custom Range" },
 ] as const;
 
 export default function DashboardPage() {
   const { userRole, userData, currentUser, token } = useAuth();
   const [selectedDateRange, setSelectedDateRange] = useState("today");
+  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
+  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [isStartDatePopoverOpen, setIsStartDatePopoverOpen] = useState(false);
+  const [isEndDatePopoverOpen, setIsEndDatePopoverOpen] = useState(false);
   const [view, setView] = useState<"dashboard" | "state" | "employeeDetail">(
     "dashboard"
   );
@@ -124,8 +134,15 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [isManager, setIsManager] = useState(false);
   const [isRoleDetermined, setIsRoleDetermined] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDateRangeLoading, setIsDateRangeLoading] = useState(false);
+  const [showVisitLocations, setShowVisitLocations] = useState(false);
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  const [hasCheckedPricing, setHasCheckedPricing] = useState(false);
+  const [isPricingDismissed, setIsPricingDismissed] = useState(false);
   const VIEW_STATE_KEY = 'dashboard.view.state.v1';
+  const PRICING_MODAL_DISMISS_KEY = 'pricingModalDismissed';
 
   // Fetch current user data to determine role
   useEffect(() => {
@@ -167,28 +184,113 @@ export default function DashboardPage() {
           const role = authorities.length > 0 ? authorities[0].authority : null;
           
           // Set role flags
-          const isManagerRole = role === 'ROLE_MANAGER';
+          const isManagerRole = isManagerRoleValue(role);
           setIsManager(isManagerRole);
+          setCurrentUserRole(role); // Set the currentUserRole state
           
           console.log('Dashboard - Role from API:', role);
           console.log('Dashboard - isManager:', isManagerRole);
+          console.log('Dashboard - currentUserRole set to:', role);
           
           // Mark role as determined
           setIsRoleDetermined(true);
         } else {
           console.error('Dashboard - Failed to fetch current user data');
           // Fallback to existing logic
+          setCurrentUserRole(null);
           setIsRoleDetermined(true);
         }
       } catch (error) {
         console.error('Dashboard - Error fetching current user:', error);
         // Fallback to existing logic
+        setCurrentUserRole(null);
         setIsRoleDetermined(true);
       }
     };
 
     fetchCurrentUser();
   }, [token]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const dismissed = sessionStorage.getItem(PRICING_MODAL_DISMISS_KEY) === 'true';
+    setIsPricingDismissed(dismissed);
+  }, []);
+
+  const handlePricingModalDismiss = useCallback(() => {
+    setIsPricingModalOpen(false);
+    if (!isPricingDismissed) {
+      setIsPricingDismissed(true);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(PRICING_MODAL_DISMISS_KEY, 'true');
+      }
+    }
+  }, [isPricingDismissed]);
+
+  useEffect(() => {
+    console.log('Pricing check useEffect triggered:', {
+      token: token ? 'present' : 'missing',
+      isPricingDismissed,
+      hasCheckedPricing,
+      isRoleDetermined,
+      currentUserRole
+    });
+    
+    if (!token || isPricingDismissed || hasCheckedPricing || !isRoleDetermined) return;
+
+    const normalizedRole = (currentUserRole ?? '').toUpperCase();
+    const isAdmin = normalizedRole.includes('ADMIN');
+    console.log('User role check:', { normalizedRole, isAdmin });
+    
+    if (!isAdmin) {
+      console.log('User is not admin, skipping pricing check');
+      setHasCheckedPricing(true);
+      return;
+    }
+
+    const fetchPricing = async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        console.log('Checking pricing for today:', today);
+        const response = await fetch(`https://api.gajkesaristeels.in/brand/getByDateRange?start=${today}&end=${today}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          console.log('Pricing API response not ok:', response.status, response.statusText);
+          setHasCheckedPricing(true);
+          return;
+        }
+
+        const data: Array<Record<string, unknown>> = await response.json();
+        console.log('Pricing API response data:', data);
+        
+        const hasGajkesari = data.some(
+          (item) => typeof item.brandName === 'string' && item.brandName.toLowerCase() === 'gajkesari'
+        );
+        
+        console.log('Has Gajkesari pricing:', hasGajkesari);
+
+        if (!hasGajkesari) {
+          console.log('No Gajkesari pricing found, showing modal');
+          setIsPricingModalOpen(true);
+        } else {
+          console.log('Gajkesari pricing found, not showing modal');
+        }
+
+        setHasCheckedPricing(true);
+      } catch (err) {
+        console.error('Dashboard - Error checking Gajkesari pricing:', err);
+        setHasCheckedPricing(true);
+      }
+    };
+
+    void fetchPricing();
+  }, [token, currentUserRole, isPricingDismissed, hasCheckedPricing, isRoleDetermined]);
 
   // Persist view chain for back navigation (dashboard -> state -> employeeDetail)
   useEffect(() => {
@@ -263,8 +365,35 @@ export default function DashboardPage() {
     return employees; // Admin sees all employees
   }, [isManager, teamMembers, employees]);
 
+  const handleDateRangeChange = (value: string) => {
+    setSelectedDateRange(value);
+    if (value === "custom") {
+      setShowCustomDatePicker(true);
+    } else {
+      setShowCustomDatePicker(false);
+      setCustomStartDate(undefined);
+      setCustomEndDate(undefined);
+    }
+  };
+
+  const handleCustomDateApply = () => {
+    if (customStartDate && customEndDate) {
+      setShowCustomDatePicker(false);
+      setIsDateRangeLoading(true);
+      // The useEffect will automatically trigger due to dateRange dependency change
+    }
+  };
+
   const dateRange = useMemo<DateRangeValue>(() => {
     const today = new Date();
+    
+    if (selectedDateRange === "custom" && customStartDate && customEndDate) {
+      return {
+        start: customStartDate,
+        end: customEndDate,
+      };
+    }
+    
     switch (selectedDateRange) {
       case "today":
         return { start: today, end: today };
@@ -273,13 +402,13 @@ export default function DashboardPage() {
         return { start: yesterday, end: yesterday };
       }
       case "thisWeek":
-        return { start: startOfWeek(today), end: endOfWeek(today) };
+        return { start: startOfWeek(today), end: today };
       case "thisMonth":
-        return { start: startOfMonth(today), end: endOfMonth(today) };
+        return { start: startOfMonth(today), end: today };
       default:
         return { start: today, end: today };
     }
-  }, [selectedDateRange]);
+  }, [selectedDateRange, customStartDate, customEndDate]);
 
   // Load KPIs (visits and active employees) from report counts
   useEffect(() => {
@@ -287,6 +416,7 @@ export default function DashboardPage() {
       if (!isRoleDetermined) return;
       
       try {
+        setIsDateRangeLoading(true);
         const start = format(dateRange.start, 'yyyy-MM-dd');
         const end = format(dateRange.end, 'yyyy-MM-dd');
         
@@ -310,6 +440,8 @@ export default function DashboardPage() {
       } catch (error) {
         console.error('Error fetching KPIs:', error);
         // leave KPIs as-is if error
+      } finally {
+        setIsDateRangeLoading(false);
       }
     };
     run();
@@ -329,7 +461,9 @@ export default function DashboardPage() {
         const results: MapMarker[] = [];
         
         liveLocations.forEach((loc: LiveLocationDto) => {
-          if (loc.latitude != null && loc.longitude != null) {
+          if (loc.latitude != null && loc.longitude != null && 
+              loc.latitude !== 0 && loc.longitude !== 0 && 
+              loc.latitude !== 0.0 && loc.longitude !== 0.0) {
             // For managers: show all employees under their management
             // For admins: show all employees
             let shouldShow = true;
@@ -339,14 +473,28 @@ export default function DashboardPage() {
               shouldShow = teamMembers.some(emp => emp.id === loc.empId);
             }
             
-            if (!shouldShow) return;
+            if (!shouldShow) {
+              console.log(`Skipping employee ${loc.empName} (ID: ${loc.empId}) - not in team`);
+              return;
+            }
             
-            // Check if location is recent (within 60 minutes)
+            // Check if location falls within the selected date range
             const timePart = String(loc.updatedTime).split('.')[0];
             const ts = new Date(`${loc.updatedAt}T${timePart}`);
-            const diffMin = (now.getTime() - ts.getTime()) / 60000;
+            const locationDate = ts.toISOString().split('T')[0]; // Get YYYY-MM-DD format
             
-            if (diffMin <= 60) {
+            // Check if location date is within the selected date range
+            const startDateStr = dateRange.start.toISOString().split('T')[0];
+            const endDateStr = dateRange.end.toISOString().split('T')[0];
+            
+            console.log(`Location date check for ${loc.empName}:`, {
+              locationDate,
+              startDateStr,
+              endDateStr,
+              inRange: locationDate >= startDateStr && locationDate <= endDateStr
+            });
+            
+            if (locationDate >= startDateStr && locationDate <= endDateStr) {
               results.push({
                 id: loc.empId,
                 name: loc.empName,
@@ -376,7 +524,7 @@ export default function DashboardPage() {
     };
     run();
     return () => { cancelled = true; };
-  }, [isManager, teamMembers, isRoleDetermined]);
+  }, [isManager, teamMembers, isRoleDetermined, dateRange.start, dateRange.end]);
 
   // Keep KPI liveLocations in sync with markers count
   useEffect(() => {
@@ -405,17 +553,17 @@ export default function DashboardPage() {
   }, [employees, countsByEmployee]);
 
   const employeeList = useMemo<ExtendedEmployee[]>(() => {
-    // Build list only for employees with live markers, preserving UI fields
+    // Build list only for employees with live markers (current location data)
     const byId = new Map<number, { lat: number; lng: number; subtitle?: string }>();
     markers.forEach(m => {
       byId.set(Number(m.id), { lat: m.lat, lng: m.lng, subtitle: m.subtitle });
     });
     const list = displayEmployees
-      .filter(e => byId.has(e.id))
+      .filter(e => byId.has(e.id)) // Only show employees with live location data
       .map((employee) => ({
         ...employee,
         listId: String(employee.id),
-        visitsToday: countsByEmployee.get(employee.id) ?? 0,
+        visits: countsByEmployee.get(employee.id) ?? 0,
         formattedLastUpdated: byId.get(employee.id)?.subtitle || '',
       }));
     // Sorted by employee name similar to example list
@@ -454,67 +602,150 @@ export default function DashboardPage() {
   }, []);
 
   const handleEmployeeSelect = useCallback(async (employee: ExtendedEmployee) => {
+    console.log('=== EMPLOYEE SELECTION DEBUG ===');
+    console.log('Selected employee:', employee);
+    
     // Find the live marker for this employee
     const liveMarker = markers.find(m => Number(m.id) === employee.id);
+    console.log('Live marker found:', liveMarker);
     
-    // Clear previous markers and set the highlighted employee
+    // Clear previous markers and reset visit locations state
     setSelectedEmployeeMarkers([]);
     setHighlightedEmployee(employee);
+    setShowVisitLocations(false);
     
-    // Immediately fetch and show house location if available
+    // Load house location and handle cases where employee might not have location data
     try {
+      console.log('Fetching employee details for ID:', employee.id);
       const employeeDetail = await API.getEmployeeById(employee.id);
+      console.log('Employee detail response:', employeeDetail);
       
+      const allMarkers: MapMarker[] = [];
+
+      // Add house location if available
       if (employeeDetail && 
           employeeDetail.houseLatitude != null && 
-          employeeDetail.houseLongitude != null) {
+          employeeDetail.houseLongitude != null &&
+          !isNaN(Number(employeeDetail.houseLatitude)) &&
+          !isNaN(Number(employeeDetail.houseLongitude))) {
         
-        const placeParts = [employeeDetail.city, employeeDetail.state, employeeDetail.country]
-          .filter(Boolean)
-          .join(", ");
-
-        const houseMarker: MapMarker = {
-          id: `house-${employeeDetail.id}`,
-          name: `${employee.name}'s Home`,
-          lat: Number(employeeDetail.houseLatitude),
-          lng: Number(employeeDetail.houseLongitude),
-          subtitle: placeParts,
-          type: "house",
-          employeeId: employeeDetail.id,
-          tooltipLines: [], // Simplified - no detailed address
-        };
-
-        setSelectedEmployeeMarkers([houseMarker]);
+        const houseLat = Number(employeeDetail.houseLatitude);
+        const houseLng = Number(employeeDetail.houseLongitude);
         
-        // Smart centering: if both live and house locations exist, center between them
-        if (liveMarker) {
-          // Calculate center point between live and house locations
-          const centerLat = (liveMarker.lat + Number(employeeDetail.houseLatitude)) / 2;
-          const centerLng = (liveMarker.lng + Number(employeeDetail.houseLongitude)) / 2;
-          setMapCenter([centerLat, centerLng]);
-          setMapZoom(12); // Slightly zoomed out to show both locations
+        // Validate that coordinates are not 0,0 (invalid coordinates)
+        if (houseLat !== 0 && houseLng !== 0 && houseLat !== 0.0 && houseLng !== 0.0) {
+          const placeParts = [employeeDetail.city, employeeDetail.state, employeeDetail.country]
+            .filter(Boolean)
+            .join(", ");
+
+          const houseMarker: MapMarker = {
+            id: `house-${employeeDetail.id}`,
+            name: `${employee.name}'s Home`,
+            lat: houseLat,
+            lng: houseLng,
+            subtitle: placeParts,
+            type: "house",
+            employeeId: employeeDetail.id,
+            tooltipLines: [], // Simplified - no detailed address
+          };
+
+          allMarkers.push(houseMarker);
+          console.log('Added house marker:', houseMarker);
         } else {
-          // Only house location exists, center on it
-          setMapCenter([Number(employeeDetail.houseLatitude), Number(employeeDetail.houseLongitude)]);
-          setMapZoom(13);
+          console.log('House coordinates are invalid (0,0):', {
+            houseLat,
+            houseLng,
+            employeeName: employee.name
+          });
         }
-      } else if (liveMarker) {
-        // Only live location exists, center on it
-        setMapCenter([liveMarker.lat, liveMarker.lng]);
-        setMapZoom(13);
       } else {
-        // No locations available, fallback to city coordinates
-        setMapCenter(resolveCoordinates(employee.location));
+        console.log('No house location data available:', {
+          hasDetail: !!employeeDetail,
+          houseLat: employeeDetail?.houseLatitude,
+          houseLng: employeeDetail?.houseLongitude,
+          isValidLat: employeeDetail?.houseLatitude != null && !isNaN(Number(employeeDetail.houseLatitude)),
+          isValidLng: employeeDetail?.houseLongitude != null && !isNaN(Number(employeeDetail.houseLongitude))
+        });
+      }
+
+      // Note: Live marker is already in the main markers array, so we don't need to add it here
+      // to avoid duplicate keys. The live marker will be visible through the main markers array.
+      if (liveMarker) {
+        console.log('Live marker already exists in main markers array, not adding to selected markers');
+      }
+
+      console.log('Total markers to set:', allMarkers);
+      setSelectedEmployeeMarkers(allMarkers);
+
+      // Check if employee has any location data
+      const hasLocationData = allMarkers.length > 0 || liveMarker;
+      
+      if (!hasLocationData) {
+        console.log('No location data available for employee:', employee.name);
+        // Set a special marker to indicate no location data
+        const noLocationMarker: MapMarker = {
+          id: `no-location-${employee.id}`,
+          name: `${employee.name} - Location Data Unavailable`,
+          lat: DEFAULT_MAP_CENTER[0],
+          lng: DEFAULT_MAP_CENTER[1],
+          subtitle: 'Location information not available',
+          type: "live",
+          employeeId: employee.id,
+          tooltipLines: [
+            `Employee: ${employee.name}`,
+            'Location data is not available',
+            'This could be due to:',
+            '• No recent location updates',
+            '• Location services disabled',
+            '• Data not yet synchronized'
+          ],
+        };
+        
+        setSelectedEmployeeMarkers([noLocationMarker]);
+        setMapCenter(DEFAULT_MAP_CENTER);
+        setMapZoom(5); // Wide view to show the message clearly
+        return;
+      }
+
+      // Smart centering based on available locations
+      const locations = [...allMarkers];
+
+      if (locations.length > 0) {
+        // Calculate bounds to fit all locations
+        const lats = locations.map(loc => loc.lat);
+        const lngs = locations.map(loc => loc.lng);
+        
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+        
+        const centerLat = (minLat + maxLat) / 2;
+        const centerLng = (minLng + maxLng) / 2;
+        
+        setMapCenter([centerLat, centerLng]);
+        setMapZoom(12); // Zoom to show current + home locations
+      } else if (liveMarker) {
+        // If no selected markers but live marker exists, center on live marker
+        console.log('Centering on live marker:', liveMarker);
+        setMapCenter([liveMarker.lat, liveMarker.lng]);
+        setMapZoom(15); // Zoom in closer to see the marker clearly
+      } else {
+        // Fallback to city coordinates or default center
+        const cityCoords = resolveCoordinates(employee.location);
+        setMapCenter(cityCoords);
         setMapZoom(10);
       }
     } catch (error) {
-      console.error('Failed to fetch employee house location:', error);
-      // Fallback to live marker if house location fetch fails
+      console.error("Failed to load employee details:", error);
+      // Fallback to live location if available
       if (liveMarker) {
         setMapCenter([liveMarker.lat, liveMarker.lng]);
         setMapZoom(13);
       } else {
-        setMapCenter(resolveCoordinates(employee.location));
+        // Fallback to city coordinates or default center
+        const cityCoords = resolveCoordinates(employee.location);
+        setMapCenter(cityCoords);
         setMapZoom(10);
       }
     }
@@ -524,6 +755,147 @@ export default function DashboardPage() {
     setSelectedEmployee(employee);
     setView("employeeDetail");
   }, []);
+
+  const handleShowVisitLocations = useCallback(async () => {
+    if (!highlightedEmployee) return;
+
+    try {
+      const start = format(dateRange.start, "yyyy-MM-dd");
+      const end = format(dateRange.end, "yyyy-MM-dd");
+      
+      console.log('=== VISIT LOCATIONS DEBUG ===');
+      console.log('Fetching visit stats for employee:', highlightedEmployee.id);
+      console.log('Date range:', { start, end });
+
+      const visitStats = await API.getEmployeeStatsByDateRange(highlightedEmployee.id, start, end);
+      console.log('Visit stats response:', visitStats);
+
+      const visitMarkers: MapMarker[] = [];
+
+      // Add visit locations
+      const formatDateTime = (dateStr?: string | null, timeStr?: string | null) => {
+        if (!dateStr) return "Not available";
+        const time = timeStr ? timeStr.split(".")[0] : null;
+        const normalizedTime = time && time.length === 8 ? time : time ? `${time}` : "00:00:00";
+        const dateTime = new Date(`${dateStr}T${normalizedTime ?? "00:00:00"}`);
+        if (Number.isNaN(dateTime.getTime())) {
+          return dateStr;
+        }
+        return format(dateTime, "dd MMM yyyy, hh:mm a");
+      };
+
+      const visits = visitStats?.visitDto ?? [];
+      console.log('Processing visits:', visits.length, 'visits found');
+      
+      visits.forEach((visit, index) => {
+        const lat =
+          visit.checkinLatitude ??
+          visit.visitLatitude ??
+          visit.storeLatitude;
+        const lng =
+          visit.checkinLongitude ??
+          visit.visitLongitude ??
+          visit.storeLongitude;
+
+        console.log(`Visit ${index + 1}:`, {
+          visitId: visit.id,
+          storeName: visit.storeName,
+          checkinLat: visit.checkinLatitude,
+          checkinLng: visit.checkinLongitude,
+          visitLat: visit.visitLatitude,
+          visitLng: visit.visitLongitude,
+          storeLat: visit.storeLatitude,
+          storeLng: visit.storeLongitude,
+          finalLat: lat,
+          finalLng: lng
+        });
+
+        if (lat == null || lng == null || lat === 0 || lng === 0 || lat === 0.0 || lng === 0.0) {
+          console.log(`Visit ${index + 1} skipped: No valid coordinates`, {
+            lat,
+            lng,
+            storeName: visit.storeName
+          });
+          return;
+        }
+
+        const checkIn = formatDateTime(visit.checkinDate, visit.checkinTime);
+        const checkOut =
+          visit.checkoutDate || visit.checkoutTime
+            ? formatDateTime(visit.checkoutDate, visit.checkoutTime)
+            : "Not recorded";
+        const place = [visit.city, visit.state, visit.country].filter(Boolean).join(", ");
+
+        const tooltipLines = [
+          `Store: ${visit.storeName || "N/A"}`,
+          `Employee: ${visit.employeeName || highlightedEmployee.name}`,
+          `Check-in: ${checkIn}`,
+          `Check-out: ${checkOut}`,
+          visit.purpose ? `Purpose: ${visit.purpose}` : null,
+          place ? `Address: ${place}` : null,
+        ].filter(Boolean) as string[];
+
+        const visitMarker: MapMarker = {
+          id: `visit-${visit.id}`,
+          name: visit.storeName || "Visit",
+          lat: Number(lat),
+          lng: Number(lng),
+          subtitle: `${visit.storeName || "Visit"} - ${visit.purpose || "Visit"}`,
+          type: "visit" as const,
+          employeeId: visit.employeeId,
+          tooltipLines,
+        };
+        
+        visitMarkers.push(visitMarker);
+        console.log(`Added visit marker ${index + 1}:`, visitMarker);
+      });
+
+      console.log('Total visit markers created:', visitMarkers.length);
+
+      // Add visit markers to existing markers
+      const updatedMarkers = [...selectedEmployeeMarkers, ...visitMarkers];
+      console.log('Updated markers (existing + visits):', updatedMarkers);
+      setSelectedEmployeeMarkers(updatedMarkers);
+      setShowVisitLocations(true);
+
+      // Recalculate map bounds to include visit locations
+      const liveMarker = markers.find(m => Number(m.id) === highlightedEmployee.id);
+      const allLocations = [...updatedMarkers];
+      if (liveMarker) {
+        allLocations.push(liveMarker);
+      }
+
+      if (allLocations.length > 0) {
+        const lats = allLocations.map(loc => loc.lat);
+        const lngs = allLocations.map(loc => loc.lng);
+        
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+        
+        const centerLat = (minLat + maxLat) / 2;
+        const centerLng = (minLng + maxLng) / 2;
+        
+        // Calculate zoom level based on the spread of locations
+        const latDiff = maxLat - minLat;
+        const lngDiff = maxLng - minLng;
+        const maxDiff = Math.max(latDiff, lngDiff);
+        
+        // Adjust zoom level based on the spread of locations
+        let zoomLevel = 11;
+        if (maxDiff > 1) zoomLevel = 8; // Very spread out
+        else if (maxDiff > 0.5) zoomLevel = 9; // Moderately spread out
+        else if (maxDiff > 0.1) zoomLevel = 10; // Close together
+        else zoomLevel = 12; // Very close together
+        
+        setMapCenter([centerLat, centerLng]);
+        setMapZoom(zoomLevel);
+      }
+    } catch (error) {
+      console.error("Failed to load visit locations:", error);
+    }
+  }, [highlightedEmployee, dateRange.start, dateRange.end, markers, selectedEmployeeMarkers]);
 
   const handleMarkerClick = useCallback(async (marker: MapMarker) => {
     // If it's a live location marker, find the corresponding employee and show their house location
@@ -542,101 +914,8 @@ export default function DashboardPage() {
     }
   }, [employeeList]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadSupplementaryMarkers = async () => {
-      if (!highlightedEmployee || !token) {
-        setSelectedEmployeeMarkers([]);
-        return;
-      }
-
-      try {
-        const start = format(dateRange.start, "yyyy-MM-dd");
-        const end = format(dateRange.end, "yyyy-MM-dd");
-
-        const [employeeDetail, visitStats] = await Promise.all([
-          API.getEmployeeById(highlightedEmployee.id),
-          API.getEmployeeStatsByDateRange(highlightedEmployee.id, start, end),
-        ]);
-
-        const supplemental: MapMarker[] = [];
-
-        // Note: House location is now handled in handleEmployeeSelect to show immediately
-        // This effect now only handles visit markers
-
-        const formatDateTime = (dateStr?: string | null, timeStr?: string | null) => {
-          if (!dateStr) return "Not available";
-          const time = timeStr ? timeStr.split(".")[0] : null;
-          const normalizedTime = time && time.length === 8 ? time : time ? `${time}` : "00:00:00";
-          const dateTime = new Date(`${dateStr}T${normalizedTime ?? "00:00:00"}`);
-          if (Number.isNaN(dateTime.getTime())) {
-            return dateStr;
-          }
-          return format(dateTime, "dd MMM yyyy, hh:mm a");
-        };
-
-        const visits = visitStats?.visitDto ?? [];
-        visits.forEach((visit) => {
-          const lat =
-            visit.checkinLatitude ??
-            visit.visitLatitude ??
-            visit.storeLatitude;
-          const lng =
-            visit.checkinLongitude ??
-            visit.visitLongitude ??
-            visit.storeLongitude;
-
-          if (lat == null || lng == null) {
-            return;
-          }
-
-          const checkIn = formatDateTime(visit.checkinDate, visit.checkinTime);
-          const checkOut =
-            visit.checkoutDate || visit.checkoutTime
-              ? formatDateTime(visit.checkoutDate, visit.checkoutTime)
-              : "Not recorded";
-          const place = [visit.city, visit.state, visit.country].filter(Boolean).join(", ");
-
-          const tooltipLines = [
-            `Store: ${visit.storeName || "N/A"}`,
-            `Employee: ${visit.employeeName || highlightedEmployee.name}`,
-            `Check-in: ${checkIn}`,
-            `Check-out: ${checkOut}`,
-            visit.purpose ? `Purpose: ${visit.purpose}` : null,
-            place ? `Address: ${place}` : null,
-          ].filter(Boolean) as string[];
-
-          supplemental.push({
-            id: `visit-${visit.id}`,
-            name: visit.storeName || "Visit",
-            lat: Number(lat),
-            lng: Number(lng),
-            subtitle: `${visit.storeName || "Visit"} - ${visit.purpose || "Visit"}`,
-            type: "visit",
-            employeeId: visit.employeeId,
-            tooltipLines,
-          });
-        });
-
-        if (!cancelled) {
-          // Append visit markers to existing markers (which include house location)
-          setSelectedEmployeeMarkers(prev => [...prev, ...supplemental]);
-        }
-      } catch (error) {
-        console.error("Failed to load selected employee map data:", error);
-        if (!cancelled) {
-          setSelectedEmployeeMarkers([]);
-        }
-      }
-    };
-
-    loadSupplementaryMarkers();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [highlightedEmployee?.id, highlightedEmployee?.name, dateRange.start, dateRange.end, token]);
+  // Note: All employee location loading is now handled in handleEmployeeSelect
+  // This effect is no longer needed since we load all locations immediately
 
   return (
     <div className="space-y-8">
@@ -677,18 +956,80 @@ export default function DashboardPage() {
               Back
             </Button>
           )}
-          <Select value={selectedDateRange} onValueChange={setSelectedDateRange}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Select date range" />
-            </SelectTrigger>
-            <SelectContent>
-              {dateRanges.map((range) => (
-                <SelectItem key={range.value} value={range.value}>
-                  {range.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={selectedDateRange} onValueChange={handleDateRangeChange}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select date range" />
+              </SelectTrigger>
+              <SelectContent>
+                {dateRanges.map((range) => (
+                  <SelectItem key={range.value} value={range.value}>
+                    {range.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {showCustomDatePicker && (
+              <div className="flex items-center gap-2">
+                <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-[140px] justify-start text-left font-normal">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {customStartDate ? format(customStartDate, 'MMM dd, yyyy') : 'Start date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <SpacedCalendar
+                      mode="single"
+                      selected={customStartDate}
+                      onSelect={(date) => {
+                        setCustomStartDate(date);
+                        setIsStartDatePopoverOpen(false);
+                      }}
+                      disabled={(date) => date > new Date() || date < new Date('1900-01-01') || (customEndDate ? date > customEndDate : false)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                
+                <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-[140px] justify-start text-left font-normal">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {customEndDate ? format(customEndDate, 'MMM dd, yyyy') : 'End date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <SpacedCalendar
+                      mode="single"
+                      selected={customEndDate}
+                      onSelect={(date) => {
+                        setCustomEndDate(date);
+                        setIsEndDatePopoverOpen(false);
+                      }}
+                      disabled={(date) => date > new Date() || date < new Date('1900-01-01') || (customStartDate ? date < customStartDate : false)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                
+                <Button 
+                  onClick={handleCustomDateApply}
+                  disabled={!customStartDate || !customEndDate}
+                  size="sm"
+                >
+                  Apply
+                </Button>
+              </div>
+            )}
+            {isDateRangeLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading...</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -808,12 +1149,15 @@ export default function DashboardPage() {
                 setMapZoom(DEFAULT_MAP_ZOOM);
                 setHighlightedEmployee(null);
                 setSelectedEmployeeMarkers([]);
+                setShowVisitLocations(false);
               }}
               mapCenter={mapCenter}
               mapZoom={mapZoom}
               onMarkerClick={handleMarkerClick as unknown as (marker: Record<string, unknown>) => void}
               onEmployeeSelect={handleEmployeeSelect as unknown as (employee: Record<string, unknown>) => void}
               employeeList={employeeList}
+              showVisitLocations={showVisitLocations}
+              onShowVisitLocations={handleShowVisitLocations}
             />
           )}
 
@@ -830,6 +1174,18 @@ export default function DashboardPage() {
           )}
         </>
       )}
+
+      <DailyPricingModal
+        open={isPricingModalOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setIsPricingModalOpen(true);
+          } else {
+            handlePricingModalDismiss();
+          }
+        }}
+        onCreateSuccess={handlePricingModalDismiss}
+      />
     </div>
   );
 }

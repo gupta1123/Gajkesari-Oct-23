@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { API, type EmployeeUserDto } from '@/lib/api';
+import { isManagerRoleValue } from '@/lib/auth';
 
 interface CustomerData {
   id?: number;
@@ -67,7 +68,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
     const fetchEmployees = async () => {
       try {
         // Check if user is a manager
-        const isManager = userRole === 'ROLE_MANAGER';
+        const isManager = isManagerRoleValue(userRole);
         
         if (isManager && userData?.employeeId) {
           // For managers, fetch only their field officers

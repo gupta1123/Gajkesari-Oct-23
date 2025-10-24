@@ -27,7 +27,7 @@ const ACTIVITY_TABS = [
   { value: 'daily-pricing', label: 'Daily Pricing', icon: 'fas fa-tags' },
 ];
 
-const VISIT_FILTER_OPTIONS = ['today', 'yesterday', 'last-2-days', 'this-month', 'last-month'] as const;
+const VISIT_FILTER_OPTIONS = ['today', 'yesterday', 'last-2-days', 'this-week', 'this-month', 'last-month'] as const;
 type VisitFilterOption = typeof VISIT_FILTER_OPTIONS[number];
 const VISIT_FILTER_SET = new Set<string>(VISIT_FILTER_OPTIONS);
 
@@ -270,9 +270,14 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
         twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
         startDate = twoDaysAgo.toISOString().split('T')[0];
         endDate = now.toISOString().split('T')[0];
+      } else if (visitFilter === 'this-week') {
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay()); // Start from Sunday
+        startDate = startOfWeek.toISOString().split('T')[0];
+        endDate = now.toISOString().split('T')[0]; // Cap at today
       } else if (visitFilter === 'this-month') {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+        endDate = now.toISOString().split('T')[0]; // Cap at today instead of end of month
       } else if (visitFilter === 'last-month') {
         startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
         endDate = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
@@ -285,7 +290,23 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
           },
         });
         const data = await response.json();
-        setVisits(data.visitDto);
+        const getSortTimestamp = (v: Visit): number => {
+          const datePart = (v as unknown as { checkoutDate?: string }).checkoutDate || v.checkinDate || v.visit_date;
+          const timePart = (v as unknown as { checkoutTime?: string }).checkoutTime || v.checkinTime || '23:59:59';
+          if (datePart) {
+            const dt = new Date(`${datePart}T${timePart}`);
+            const ts = dt.getTime();
+            if (!Number.isNaN(ts)) return ts;
+          }
+          const fallback = new Date(v.visit_date).getTime();
+          return Number.isNaN(fallback) ? 0 : fallback;
+        };
+
+        const sortedVisits: Visit[] = Array.isArray(data.visitDto)
+          ? [...data.visitDto].sort((a: Visit, b: Visit) => getSortTimestamp(b) - getSortTimestamp(a))
+          : [];
+
+        setVisits(sortedVisits);
         setStats(data.statsDto);
       } catch (error) {
         console.error("Error fetching visits and stats:", error);
@@ -596,6 +617,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                           <SelectItem value="today">Today</SelectItem>
                           <SelectItem value="yesterday">Yesterday</SelectItem>
                           <SelectItem value="last-2-days">Last 2 Days</SelectItem>
+                          <SelectItem value="this-week">This Week</SelectItem>
                           <SelectItem value="this-month">This Month</SelectItem>
                           <SelectItem value="last-month">Last Month</SelectItem>
                         </SelectContent>

@@ -202,6 +202,8 @@ export default function TeamSettings() {
   const [isAddTeamOpen, setIsAddTeamOpen] = useState(false);
   const [isEditTeamOpen, setIsEditTeamOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [isRemoveOfficerOpen, setIsRemoveOfficerOpen] = useState(false);
+  const [officerPendingRemoval, setOfficerPendingRemoval] = useState<{ name: string; context: "new" | "edit" } | null>(null);
   const [newTeam, setNewTeam] = useState({
     name: "",
     regionalManager: "",
@@ -287,6 +289,22 @@ export default function TeamSettings() {
     if (editingTeam) {
       setEditingTeam({...editingTeam, fieldOfficers: editingTeam.fieldOfficers.filter((o: string) => o !== officer)});
     }
+  };
+
+  const requestRemoveOfficer = (officer: string, context: "new" | "edit") => {
+    setOfficerPendingRemoval({ name: officer, context });
+    setIsRemoveOfficerOpen(true);
+  };
+
+  const confirmRemoveOfficer = () => {
+    if (!officerPendingRemoval) return;
+    if (officerPendingRemoval.context === "new") {
+      removeOfficerFromNewTeam(officerPendingRemoval.name);
+    } else {
+      removeOfficerFromEditingTeam(officerPendingRemoval.name);
+    }
+    setIsRemoveOfficerOpen(false);
+    setOfficerPendingRemoval(null);
   };
 
   return (
@@ -375,7 +393,7 @@ export default function TeamSettings() {
                       <User className="h-3 w-3" />
                       {officer}
                       <button 
-                        onClick={() => removeOfficerFromNewTeam(officer)}
+                        onClick={() => requestRemoveOfficer(officer, "new")}
                         className="ml-1 hover:bg-muted rounded-full p-0.5"
                       >
                         <X className="h-3 w-3" />
@@ -563,7 +581,7 @@ export default function TeamSettings() {
                       <User className="h-3 w-3" />
                       {officer}
                       <button 
-                        onClick={() => removeOfficerFromEditingTeam(officer)}
+                        onClick={() => requestRemoveOfficer(officer, "edit")}
                         className="ml-1 hover:bg-muted rounded-full p-0.5"
                       >
                         <X className="h-3 w-3" />
@@ -600,6 +618,28 @@ export default function TeamSettings() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Remove Field Officer */}
+      <Dialog open={isRemoveOfficerOpen} onOpenChange={setIsRemoveOfficerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove field officer?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to remove
+              {" "}
+              <span className="font-medium">{officerPendingRemoval?.name}</span>
+              {" "}
+              from this team? This will not delete the employee.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsRemoveOfficerOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={confirmRemoveOfficer}>Remove</Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

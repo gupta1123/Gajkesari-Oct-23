@@ -71,6 +71,12 @@
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
+.calendar-dates div.paid {
+    background-color: #E9D5FF;
+    color: #5B21B6;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
 .calendar-dates div.sunday {
     background-color: #ADD8E6;
     color: black;
@@ -103,6 +109,11 @@
     filter: brightness(1.1);
 }
 
+.calendar-dates div.paid:hover {
+    background-color: #D8B4FE;
+    filter: brightness(1.05);
+}
+
 .calendar-dates div.sunday:hover {
     background-color: #90caf9;
     filter: brightness(1.1);
@@ -132,7 +143,7 @@
     z-index: 10;
     bottom: 125%;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translateX(var(--tooltip-translate-x, -50%));
     opacity: 0;
     transition: opacity 0.2s ease 0.1s, visibility 0.2s ease 0.1s;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
@@ -158,7 +169,7 @@
 .calendar-dates div:hover .calendar-tooltip {
     visibility: visible !important;
     opacity: 1 !important;
-    transform: translateX(-50%) translateY(0) !important;
+    transform: translateX(var(--tooltip-translate-x, -50%)) translateY(0) !important;
     transition-delay: 0.2s;
 }
 
@@ -172,7 +183,7 @@
     content: '';
     position: absolute;
     top: 100%;
-    left: 50%;
+    left: var(--tooltip-arrow-left, 50%);
     transform: translateX(-50%);
     border-width: 6px;
     border-style: solid;
@@ -190,12 +201,12 @@
         background-color: #111827;
     }
     
-    .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday) {
+    .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.paid):not(.sunday) {
         background-color: #374151;
         color: #d1d5db;
     }
     
-    .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday):hover {
+    .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.paid):not(.sunday):hover {
         background-color: #4b5563;
     }
 }

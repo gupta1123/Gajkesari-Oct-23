@@ -4,69 +4,94 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import DailyPricingModal from '@/components/DailyPricingModal';
 
-const DailyPricingChecker = () => {
-  const { token } = useAuth();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [hasCheckedToday, setHasCheckedToday] = useState(false);
+const STORAGE_DISMISS_KEY = 'pricingModalDismissed';
 
-  const getUserRole = () => {
-    // Retrieve role from localStorage like the reference implementation
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('role') || null;
-    }
-    return null;
-  };
+const DailyPricingChecker = () => {
+  const { token, userRole } = useAuth();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [hasCheckedPricing, setHasCheckedPricing] = useState(false);
+  const [isDismissedForSession, setIsDismissedForSession] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const dismissed = sessionStorage.getItem(STORAGE_DISMISS_KEY) === 'true';
+    setIsDismissedForSession(dismissed);
+  }, []);
 
   const checkDailyPricing = useCallback(async () => {
-    if (!token || hasCheckedToday) return;
-    
+    if (!token || hasCheckedPricing || isDismissedForSession) return;
+
+    const normalizedRole = (userRole ?? '').toUpperCase();
+    const isAdmin = normalizedRole.includes('ADMIN');
+    if (!isAdmin) return;
+
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const response = await fetch(`https://api.gajkesaristeels.in/brand/getByDateRange?start=${today}&end=${today}`, {
+      const formatDate = (date: Date) => date.toISOString().split('T')[0];
+      const endDate = new Date();
+      const startDate = new Date(endDate);
+      startDate.setDate(endDate.getDate() - 1);
+
+      const url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${formatDate(startDate)}&end=${formatDate(endDate)}`;
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
       });
-      
-      if (!response.ok) return;
-      
-      const data = await response.json();
-      const gajkesariBrand = data.find((item: Record<string, unknown>) => item.brandName === 'Gajkesari');
-      
-      // Show modal if:
-      // 1. No brand found with name Gajkesari
-      // 2. OR brand not assigned to admin with employeeDto.id === 86 
-      if (!gajkesariBrand || (gajkesariBrand.employeeDto && gajkesariBrand.employeeDto.id !== 86)) {
-        const userRole = getUserRole();
-        if (userRole === 'ADMIN') {
-          setIsModalOpen(true);
-        }
+
+      if (!response.ok) {
+        setHasCheckedPricing(true);
+        return;
       }
-      
-      setHasCheckedToday(true); // Prevent multiple checks
-      
+
+      const data: Array<Record<string, unknown>> = await response.json();
+      const hasGajkesariPricing = data.some(
+        (item) => typeof item.brandName === 'string' && item.brandName.toLowerCase() === 'gajkesari'
+      );
+
+      if (!hasGajkesariPricing) {
+        setIsModalOpen(true);
+      }
+
+      setHasCheckedPricing(true);
     } catch (error) {
       console.error('Error checking daily pricing:', error);
+      setHasCheckedPricing(true);
     }
-  }, [token, hasCheckedToday]);
+  }, [token, userRole, hasCheckedPricing, isDismissedForSession]);
 
-  // Check for daily pricing once token is available
   useEffect(() => {
     checkDailyPricing();
   }, [checkDailyPricing]);
 
-  const handleCreateSuccess = () => {
-    console.log('Daily pricing created successfully');
-    // Optionally refresh App or notify other components
+  const handleDismiss = () => {
+    setIsModalOpen(false);
+    if (!isDismissedForSession) {
+      setIsDismissedForSession(true);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(STORAGE_DISMISS_KEY, 'true');
+      }
+    }
   };
 
-  return <DailyPricingModal 
-    open={isModalOpen} 
-    onOpenChange={setIsModalOpen}
-    onCreateSuccess={handleCreateSuccess}
-  />;
+  const handleCreateSuccess = () => {
+    handleDismiss();
+  };
+
+  return (
+    <DailyPricingModal
+      open={isModalOpen}
+      onOpenChange={(open) => {
+        if (open) {
+          setIsModalOpen(true);
+        } else {
+          handleDismiss();
+        }
+      }}
+      onCreateSuccess={handleCreateSuccess}
+    />
+  );
 };
 
 export default DailyPricingChecker;

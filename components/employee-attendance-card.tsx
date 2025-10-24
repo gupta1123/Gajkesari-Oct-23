@@ -71,7 +71,7 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
     halfDays: employee.halfDays,
     absentDays: employee.absent
   });
-  const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
+  // Removed Full Days Breakdown modal per requirement
 
   const handleDayClick = useCallback((date: string) => {
     if (onDateClick) {
@@ -169,7 +169,7 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-2 mb-4">
-            <button type="button" className="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg text-center w-full cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors" onClick={() => setIsBreakdownOpen(true)}>
+            <div className="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg text-center w-full">
               <div className="flex items-center justify-center mb-1">
                 <Sun className="h-4 w-4 text-green-600 dark:text-green-400" />
               </div>
@@ -178,13 +178,7 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
               </Heading>
               <Text size="xs" tone="muted" className="text-green-700 dark:text-green-400">
                 Full Days
-              </Text>
-              <div className="mt-1 text-[10px] text-muted-foreground">
-                <span className="mr-3">Sun: {breakdown.sundays}</span>
-                <span className="mr-3">Paid: {breakdown.paidLeaves}</span>
-                <span>Act: {breakdown.activities}</span>
-              </div>
-            </button>
+              </Text>            </div>
             <div className="bg-yellow-50 dark:bg-yellow-900/30 p-3 rounded-lg text-center">
               <div className="flex items-center justify-center mb-1">
                 <CloudSun className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
@@ -252,28 +246,6 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
                 No visits recorded for this day
               </Text>
             )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isBreakdownOpen} onOpenChange={setIsBreakdownOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Full Days Breakdown</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-md border p-3 text-center">
-              <div className="text-xs text-muted-foreground">Sundays</div>
-              <div className="text-xl font-semibold">{breakdown.sundays}</div>
-            </div>
-            <div className="rounded-md border p-3 text-center">
-              <div className="text-xs text-muted-foreground">Paid Leaves</div>
-              <div className="text-xl font-semibold">{breakdown.paidLeaves}</div>
-            </div>
-            <div className="rounded-md border p-3 text-center">
-              <div className="text-xs text-muted-foreground">Full Days</div>
-              <div className="text-xl font-semibold">{breakdown.fullDays}</div>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
