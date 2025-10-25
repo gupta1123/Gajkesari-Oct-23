@@ -71,6 +71,8 @@ const Teams: React.FC = () => {
     const [isViewAllModalVisible, setIsViewAllModalVisible] = useState<boolean>(false);
     const [viewAllTeamId, setViewAllTeamId] = useState<number | null>(null);
     const [officersSearch, setOfficersSearch] = useState<string>('');
+    const [isRemoveOfficerModalVisible, setIsRemoveOfficerModalVisible] = useState<boolean>(false);
+    const [officerToRemove, setOfficerToRemove] = useState<{ teamId: number; officerId: number; name: string } | null>(null);
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -313,6 +315,19 @@ const Teams: React.FC = () => {
         }
     };
 
+    const showRemoveOfficerModal = (teamId: number, officer: FieldOfficer) => {
+        const name = `${officer.firstName} ${officer.lastName}`.trim();
+        setOfficerToRemove({ teamId, officerId: officer.id, name });
+        setIsRemoveOfficerModalVisible(true);
+    };
+
+    const confirmRemoveFieldOfficer = async () => {
+        if (!officerToRemove) return;
+        await handleRemoveFieldOfficer(officerToRemove.teamId, officerToRemove.officerId);
+        setIsRemoveOfficerModalVisible(false);
+        setOfficerToRemove(null);
+    };
+
     const handleAssignCity = async () => {
         if (!newCity || !selectedOfficeManagerId || !token) return;
 
@@ -453,7 +468,7 @@ const Teams: React.FC = () => {
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="sm"
-                                                                        onClick={() => handleRemoveFieldOfficer(team.id, officer.id)}
+                                                                        onClick={() => showRemoveOfficerModal(team.id, officer)}
                                                                         className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                                         disabled={isSaving}
                                                                     >
@@ -677,7 +692,7 @@ const Teams: React.FC = () => {
                                                             variant="ghost"
                                                             size="sm"
                                                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                            onClick={() => handleRemoveFieldOfficer(team.id, officer.id)}
+                                                            onClick={() => showRemoveOfficerModal(team.id, officer)}
                                                             disabled={isSaving}
                                                         >
                                                             <X size={14} />
@@ -693,6 +708,35 @@ const Teams: React.FC = () => {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsViewAllModalVisible(false)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Confirm Remove Field Officer Modal */}
+            <Dialog open={isRemoveOfficerModalVisible} onOpenChange={setIsRemoveOfficerModalVisible}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Remove Field Officer</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-muted-foreground">
+                        Are you sure you want to remove{' '}
+                        <span className="font-medium">{officerToRemove?.name}</span>{' '}
+                        from this team? This will not delete the employee.
+                    </p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsRemoveOfficerModalVisible(false)}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={confirmRemoveFieldOfficer} disabled={isSaving}>
+                            {isSaving ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Removing...
+                                </>
+                            ) : (
+                                'Remove'
+                            )}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

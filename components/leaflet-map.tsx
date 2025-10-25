@@ -40,12 +40,14 @@ const getEmployeeColor = (employeeId: number | string): string => {
 };
 
 // Custom marker icons for different types with employee-specific colors
-const createCustomIcon = (color: string, markerType: string) => {
+const createCustomIcon = (color: string, markerType: string, order?: number) => {
   // Different shapes for different marker types
   const shape = markerType === 'house' ? 'square' : 'circle';
   // Mobile-friendly sizes - larger for touch interaction
   const size = markerType === 'house' ? '36px' : '40px';
   
+  const isVisitWithOrder = markerType === 'visit' && typeof order === 'number' && order > 0;
+
   return L.divIcon({
     className: 'custom-marker',
     html: `<div style="
@@ -60,10 +62,13 @@ const createCustomIcon = (color: string, markerType: string) => {
       justify-content: center;
       position: relative;
       font-size: 16px;
+      color: #fff;
+      font-weight: 700;
+      line-height: 1;
       cursor: pointer;
       touch-action: manipulation;
     ">
-      ${markerType === 'house' ? '🏠' : markerType === 'visit' ? '📍' : '👤'}
+      ${isVisitWithOrder ? `${order}` : (markerType === 'house' ? '🏠' : markerType === 'visit' ? '📍' : '👤')}
     </div>`,
     iconSize: markerType === 'house' ? [36, 36] : [40, 40],
     iconAnchor: markerType === 'house' ? [18, 18] : [20, 20],
@@ -79,6 +84,7 @@ interface MapMarker {
   type?: "live" | "house" | "visit";
   tooltipLines?: string[];
   employeeId?: number; // Employee ID for color assignment
+  order?: number; // Visit order number
 }
 
 interface LeafletMapProps {
@@ -136,7 +142,7 @@ const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmp
       <MapController center={center} zoom={zoom} />
       <TileLayer
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        // attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         subdomains="abcd"
         maxZoom={20}
       />
@@ -204,7 +210,7 @@ const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmp
           );
         }
         
-        const icon = createCustomIcon(employeeColor, markerType);
+        const icon = createCustomIcon(employeeColor, markerType, (m as { order?: number }).order);
         
         // Validate coordinates before rendering
         if (isNaN(m.lat) || isNaN(m.lng) || m.lat === 0 || m.lng === 0) {
@@ -278,7 +284,7 @@ const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmp
                         style={{ backgroundColor: employeeColor }}
                       >
                         {markerType === 'live' ? 'Live location' :
-                         markerType === 'house' ? 'Home location' :
+                         markerType === 'house' ? 'Home' :
                          'Location'}
                       </span>
                       {m.subtitle && (

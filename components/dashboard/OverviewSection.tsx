@@ -1,11 +1,13 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Heading, Text } from "@/components/ui/typography";
-import { Calendar, Users, MapPin, Building } from "lucide-react";
+import { Calendar, Users, MapPin, Building, Search } from "lucide-react";
 
 const LeafletMap = dynamic(() => import("@/components/leaflet-map"), { ssr: false });
 
@@ -54,6 +56,24 @@ export default function OverviewSection(props: OverviewSectionProps) {
     onShowVisitLocations,
   } = props;
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter employees based on search query
+  const filteredEmployeeList = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return employeeList;
+    }
+    
+    const query = searchQuery.toLowerCase().trim();
+    return employeeList.filter((employee) => {
+      const name = String(employee.name || "").toLowerCase();
+      const location = String(employee.location || "").toLowerCase();
+      const position = String(employee.position || "").toLowerCase();
+      
+      return name.includes(query) || location.includes(query) || position.includes(query);
+    });
+  }, [employeeList, searchQuery]);
+
   const highlightedEmployeeId =
     highlightedEmployee == null
       ? null
@@ -85,7 +105,6 @@ export default function OverviewSection(props: OverviewSectionProps) {
             <Heading as="p" size="2xl" weight="bold">
               {kpis.totalVisits}
             </Heading>
-            <Text size="xs" tone="muted">+12% from last period</Text>
           </CardContent>
         </Card>
         <Card>
@@ -97,7 +116,6 @@ export default function OverviewSection(props: OverviewSectionProps) {
             <Heading as="p" size="2xl" weight="bold">
               {kpis.activeEmployees}
             </Heading>
-            <Text size="xs" tone="muted">+3% from last period</Text>
           </CardContent>
         </Card>
         <Card>
@@ -109,7 +127,6 @@ export default function OverviewSection(props: OverviewSectionProps) {
             <Heading as="p" size="2xl" weight="bold">
               {kpis.liveLocations}
             </Heading>
-            <Text size="xs" tone="muted">+8% from last period</Text>
           </CardContent>
         </Card>
       </div>
@@ -162,7 +179,7 @@ export default function OverviewSection(props: OverviewSectionProps) {
         </div>
         <div className="flex flex-col gap-6 lg:flex-row">
           <div className="flex-1">
-            <Card className="h-[600px] overflow-hidden rounded-xl">
+            <Card className="h-[750px] overflow-hidden rounded-xl">
               <LeafletMap
                 center={mapCenter}
                 zoom={mapZoom}
@@ -180,8 +197,8 @@ export default function OverviewSection(props: OverviewSectionProps) {
           </div>
 
           <div className="w-full lg:w-96">
-            <Card className="flex h-[600px] flex-col overflow-hidden rounded-xl">
-              <CardHeader className="border-b">
+            <Card className="flex h-[750px] flex-col overflow-hidden rounded-xl">
+              <CardHeader className="border-b space-y-3">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Users className="h-5 w-5" />
                   <span>Active Employees</span>
@@ -189,10 +206,25 @@ export default function OverviewSection(props: OverviewSectionProps) {
                     {employeeList.length} online
                   </Badge>
                 </CardTitle>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder="Search employees..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
               </CardHeader>
               <CardContent className="flex-1 overflow-y-auto p-0">
                 <div className="divide-y">
-                  {employeeList.map((employee) => (
+                  {filteredEmployeeList.length === 0 ? (
+                    <div className="p-8 text-center">
+                      <Text tone="muted">No employees found matching &quot;{searchQuery}&quot;</Text>
+                    </div>
+                  ) : (
+                    filteredEmployeeList.map((employee) => (
                     <button
                       type="button"
                       key={String(employee.listId)}
@@ -235,20 +267,11 @@ export default function OverviewSection(props: OverviewSectionProps) {
                             {String(employee.visits)} visits
                           </Badge>
                         </div>
-                        {highlightedEmployee?.listId === employee.listId && !showVisitLocations && onShowVisitLocations && (
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onShowVisitLocations();
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                          >
-                            📍 Explore Journey
-                          </span>
-                        )}
+                        {/* Journey now auto-loads on click; no intermediate action needed */}
                       </div>
                     </button>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

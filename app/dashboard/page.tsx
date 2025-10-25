@@ -89,6 +89,7 @@ type MapMarker = {
   type?: "live" | "house" | "visit";
   tooltipLines?: string[];
   employeeId?: number;
+  order?: number;
 };
 
 type StateItem = { id: number; name: string; employeeCount: number; color: string };
@@ -602,43 +603,30 @@ export default function DashboardPage() {
   }, []);
 
   const handleEmployeeSelect = useCallback(async (employee: ExtendedEmployee) => {
-    console.log('=== EMPLOYEE SELECTION DEBUG ===');
+    console.log('=== EMPLOYEE SELECTION (AUTO-JOURNEY) ===');
     console.log('Selected employee:', employee);
-    
-    // Find the live marker for this employee
+
     const liveMarker = markers.find(m => Number(m.id) === employee.id);
-    console.log('Live marker found:', liveMarker);
-    
-    // Clear previous markers and reset visit locations state
+
+    // reset state and set highlight; mark journey as visible immediately to avoid intermediate UI
     setSelectedEmployeeMarkers([]);
     setHighlightedEmployee(employee);
-    setShowVisitLocations(false);
-    
-    // Load house location and handle cases where employee might not have location data
+    setShowVisitLocations(true);
+
     try {
-      console.log('Fetching employee details for ID:', employee.id);
+      // 1) Load house marker if available
       const employeeDetail = await API.getEmployeeById(employee.id);
-      console.log('Employee detail response:', employeeDetail);
-      
       const allMarkers: MapMarker[] = [];
 
-      // Add house location if available
-      if (employeeDetail && 
-          employeeDetail.houseLatitude != null && 
-          employeeDetail.houseLongitude != null &&
-          !isNaN(Number(employeeDetail.houseLatitude)) &&
-          !isNaN(Number(employeeDetail.houseLongitude))) {
-        
+      if (employeeDetail && employeeDetail.houseLatitude != null && employeeDetail.houseLongitude != null &&
+          !isNaN(Number(employeeDetail.houseLatitude)) && !isNaN(Number(employeeDetail.houseLongitude))) {
         const houseLat = Number(employeeDetail.houseLatitude);
         const houseLng = Number(employeeDetail.houseLongitude);
-        
-        // Validate that coordinates are not 0,0 (invalid coordinates)
         if (houseLat !== 0 && houseLng !== 0 && houseLat !== 0.0 && houseLng !== 0.0) {
           const placeParts = [employeeDetail.city, employeeDetail.state, employeeDetail.country]
             .filter(Boolean)
             .join(", ");
-
-          const houseMarker: MapMarker = {
+          allMarkers.push({
             id: `house-${employeeDetail.id}`,
             name: `${employee.name}'s Home`,
             lat: houseLat,
@@ -646,110 +634,107 @@ export default function DashboardPage() {
             subtitle: placeParts,
             type: "house",
             employeeId: employeeDetail.id,
-            tooltipLines: [], // Simplified - no detailed address
-          };
-
-          allMarkers.push(houseMarker);
-          console.log('Added house marker:', houseMarker);
-        } else {
-          console.log('House coordinates are invalid (0,0):', {
-            houseLat,
-            houseLng,
-            employeeName: employee.name
+            tooltipLines: [],
           });
         }
-      } else {
-        console.log('No house location data available:', {
-          hasDetail: !!employeeDetail,
-          houseLat: employeeDetail?.houseLatitude,
-          houseLng: employeeDetail?.houseLongitude,
-          isValidLat: employeeDetail?.houseLatitude != null && !isNaN(Number(employeeDetail.houseLatitude)),
-          isValidLng: employeeDetail?.houseLongitude != null && !isNaN(Number(employeeDetail.houseLongitude))
-        });
       }
 
-      // Note: Live marker is already in the main markers array, so we don't need to add it here
-      // to avoid duplicate keys. The live marker will be visible through the main markers array.
-      if (liveMarker) {
-        console.log('Live marker already exists in main markers array, not adding to selected markers');
-      }
+      // 2) Load visit markers for selected range (auto journey)
+      const start = format(dateRange.start, "yyyy-MM-dd");
+      const end = format(dateRange.end, "yyyy-MM-dd");
+      const visitStats = await API.getEmployeeStatsByDateRange(employee.id, start, end);
+      const visits = visitStats?.visitDto ?? [];
 
-      console.log('Total markers to set:', allMarkers);
-      setSelectedEmployeeMarkers(allMarkers);
+      const formatDateTime = (dateStr?: string | null, timeStr?: string | null) => {
+        if (!dateStr) return "Not available";
+        const time = timeStr ? timeStr.split(".")[0] : null;
+        const normalizedTime = time && time.length === 8 ? time : time ? `${time}` : "00:00:00";
+        const dateTime = new Date(`${dateStr}T${normalizedTime ?? "00:00:00"}`);
+        if (Number.isNaN(dateTime.getTime())) return dateStr;
+        return format(dateTime, "dd MMM yyyy, hh:mm a");
+      };
 
-      // Check if employee has any location data
-      const hasLocationData = allMarkers.length > 0 || liveMarker;
-      
-      if (!hasLocationData) {
-        console.log('No location data available for employee:', employee.name);
-        // Set a special marker to indicate no location data
-        const noLocationMarker: MapMarker = {
-          id: `no-location-${employee.id}`,
-          name: `${employee.name} - Location Data Unavailable`,
-          lat: DEFAULT_MAP_CENTER[0],
-          lng: DEFAULT_MAP_CENTER[1],
-          subtitle: 'Location information not available',
-          type: "live",
-          employeeId: employee.id,
+      const visitMarkers: MapMarker[] = [];
+      // Sort visits by time to determine order
+      const sortedVisits = [...visits].sort((a, b) => {
+        const aDate = a.checkinDate || a.visit_date || a.createdAt || '';
+        const aTime = (a.checkinTime || a.createdTime || '00:00:00').split('.')[0];
+        const bDate = b.checkinDate || b.visit_date || b.createdAt || '';
+        const bTime = (b.checkinTime || b.createdTime || '00:00:00').split('.')[0];
+        const aDT = new Date(`${aDate}T${aTime || '00:00:00'}`);
+        const bDT = new Date(`${bDate}T${bTime || '00:00:00'}`);
+        return aDT.getTime() - bDT.getTime();
+      });
+
+      sortedVisits.forEach((visit, idx) => {
+        const lat = visit.checkinLatitude ?? visit.visitLatitude ?? visit.storeLatitude;
+        const lng = visit.checkinLongitude ?? visit.visitLongitude ?? visit.storeLongitude;
+        if (lat == null || lng == null || lat === 0 || lng === 0 || lat === 0.0 || lng === 0.0) return;
+
+        const checkIn = formatDateTime(visit.checkinDate, visit.checkinTime);
+        const checkOut = visit.checkoutDate || visit.checkoutTime ? formatDateTime(visit.checkoutDate, visit.checkoutTime) : "Not recorded";
+        const place = [visit.city, visit.state, visit.country].filter(Boolean).join(", ");
+
+        visitMarkers.push({
+          id: `visit-${visit.id}`,
+          name: visit.storeName || "Visit",
+          lat: Number(lat),
+          lng: Number(lng),
+          subtitle: `${visit.storeName || "Visit"} - ${visit.purpose || "Visit"}`,
+          type: "visit",
+          employeeId: visit.employeeId,
+          order: idx + 1,
           tooltipLines: [
-            `Employee: ${employee.name}`,
-            'Location data is not available',
-            'This could be due to:',
-            '• No recent location updates',
-            '• Location services disabled',
-            '• Data not yet synchronized'
+            `Store: ${visit.storeName || "N/A"}`,
+            `Employee: ${visit.employeeName || employee.name}`,
+            `Check-in: ${checkIn}`,
+            `Check-out: ${checkOut}`,
+            ...(place ? [`Address: ${place}`] : []),
           ],
-        };
-        
-        setSelectedEmployeeMarkers([noLocationMarker]);
-        setMapCenter(DEFAULT_MAP_CENTER);
-        setMapZoom(5); // Wide view to show the message clearly
-        return;
-      }
+        });
+      });
 
-      // Smart centering based on available locations
-      const locations = [...allMarkers];
+      const updatedMarkers = [...allMarkers, ...visitMarkers];
+      setSelectedEmployeeMarkers(updatedMarkers);
 
-      if (locations.length > 0) {
-        // Calculate bounds to fit all locations
-        const lats = locations.map(loc => loc.lat);
-        const lngs = locations.map(loc => loc.lng);
-        
+      // 3) Fit map to show all current locations (house + visits + live)
+      const allLocations: Array<{ lat: number; lng: number }> = [...updatedMarkers];
+      if (liveMarker) allLocations.push(liveMarker);
+
+      if (allLocations.length > 0) {
+        const lats = allLocations.map((loc) => loc.lat);
+        const lngs = allLocations.map((loc) => loc.lng);
         const minLat = Math.min(...lats);
         const maxLat = Math.max(...lats);
         const minLng = Math.min(...lngs);
         const maxLng = Math.max(...lngs);
-        
         const centerLat = (minLat + maxLat) / 2;
         const centerLng = (minLng + maxLng) / 2;
-        
+
+        const latDiff = maxLat - minLat;
+        const lngDiff = maxLng - minLng;
+        const maxDiff = Math.max(latDiff, lngDiff);
+
+        let zoomLevel = 11;
+        if (maxDiff > 1) zoomLevel = 8;
+        else if (maxDiff > 0.5) zoomLevel = 9;
+        else if (maxDiff > 0.1) zoomLevel = 10;
+        else zoomLevel = 12;
+
         setMapCenter([centerLat, centerLng]);
-        setMapZoom(12); // Zoom to show current + home locations
+        setMapZoom(zoomLevel);
       } else if (liveMarker) {
-        // If no selected markers but live marker exists, center on live marker
-        console.log('Centering on live marker:', liveMarker);
         setMapCenter([liveMarker.lat, liveMarker.lng]);
-        setMapZoom(15); // Zoom in closer to see the marker clearly
+        setMapZoom(13);
       } else {
-        // Fallback to city coordinates or default center
         const cityCoords = resolveCoordinates(employee.location);
         setMapCenter(cityCoords);
         setMapZoom(10);
       }
     } catch (error) {
-      console.error("Failed to load employee details:", error);
-      // Fallback to live location if available
-      if (liveMarker) {
-        setMapCenter([liveMarker.lat, liveMarker.lng]);
-        setMapZoom(13);
-      } else {
-        // Fallback to city coordinates or default center
-        const cityCoords = resolveCoordinates(employee.location);
-        setMapCenter(cityCoords);
-        setMapZoom(10);
-      }
+      console.error('Failed to load employee journey:', error);
     }
-  }, [markers]);
+  }, [markers, dateRange.start, dateRange.end]);
 
   const handleEmployeeDetailSelect = useCallback((employee: Employee) => {
     setSelectedEmployee(employee);
@@ -898,21 +883,14 @@ export default function DashboardPage() {
   }, [highlightedEmployee, dateRange.start, dateRange.end, markers, selectedEmployeeMarkers]);
 
   const handleMarkerClick = useCallback(async (marker: MapMarker) => {
-    // If it's a live location marker, find the corresponding employee and show their house location
     if (marker.type === 'live') {
       const employeeId = Number(marker.id);
       const employee = employeeList.find(emp => emp.id === employeeId);
-      
       if (employee) {
-        // Set the highlighted employee to trigger the loadSupplementaryMarkers effect
-        setHighlightedEmployee(employee);
-        
-        // Center the map on the clicked marker
-        setMapCenter([marker.lat, marker.lng]);
-        setMapZoom(13);
+        await handleEmployeeSelect(employee as ExtendedEmployee);
       }
     }
-  }, [employeeList]);
+  }, [employeeList, handleEmployeeSelect]);
 
   // Note: All employee location loading is now handled in handleEmployeeSelect
   // This effect is no longer needed since we load all locations immediately
