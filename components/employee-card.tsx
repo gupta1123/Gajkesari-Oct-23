@@ -1,6 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin, Clock, User } from "lucide-react";
-import { format } from "date-fns";
+import { MapPin, User } from "lucide-react";
 
 interface Employee {
   id: number;
@@ -36,12 +35,6 @@ export default function EmployeeCard({ employee, onClick }: EmployeeCardProps) {
           <div className="flex items-center gap-1 text-sm">
             <MapPin className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">{employee.location}</span>
-          </div>
-          <div className="flex items-center gap-1 text-sm">
-            <Clock className="h-3 w-3 text-muted-foreground" />
-            <span className="text-muted-foreground">
-              Last updated: {format(new Date(employee.lastUpdated), "h:mm a")}
-            </span>
           </div>
           {employee.totalVisits !== undefined && (
             <div className="flex items-center gap-1 text-sm">

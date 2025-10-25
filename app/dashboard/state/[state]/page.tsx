@@ -63,13 +63,15 @@ export default function StateDetailPage({ params }: { params: Promise<{ state: s
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {mockEmployees.map((employee) => (
-          <EmployeeCard 
-            key={employee.id} 
-            employee={employee} 
-            onClick={() => handleEmployeeSelect(employee)}
-          />
-        ))}
+        {mockEmployees
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((employee) => (
+            <EmployeeCard 
+              key={employee.id} 
+              employee={employee} 
+              onClick={() => handleEmployeeSelect(employee)}
+            />
+          ))}
       </div>
     </div>
   );
