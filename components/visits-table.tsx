@@ -72,6 +72,12 @@ const buildEmployeeFilterName = (employee: EmployeeUserDto): string => {
   return (primary || secondary || fallback).trim();
 };
 
+const deriveVisitStatus = (visit: Pick<VisitDto, "checkinDate" | "checkinTime" | "checkoutDate" | "checkoutTime">): "Scheduled" | "Completed" => {
+  const hasCheckin = Boolean(visit.checkinDate && visit.checkinTime);
+  const hasCheckout = Boolean(visit.checkoutDate && visit.checkoutTime);
+  return hasCheckin && hasCheckout ? "Completed" : "Scheduled";
+};
+
 export default function VisitsTable() {
   const { userRole, userData, currentUser, teamId, correctedRoleFlags } = useAuth();
   const router = useRouter();
@@ -532,7 +538,7 @@ export default function VisitsTable() {
           executive: v.employeeName,
           employeeId: v.employeeId,
           date: v.visit_date,
-          status: v.checkinTime ? 'Completed' : 'Scheduled',
+          status: deriveVisitStatus(v),
           purpose: v.purpose ?? undefined,
           visitStart: v.checkinTime ?? undefined,
           visitEnd: v.checkoutTime ?? undefined,
@@ -619,7 +625,7 @@ export default function VisitsTable() {
     const lines = [headers.map(csvEscape).join(',')];
 
     for (const r of rowsForCsv) {
-      const status = r.checkinTime ? 'Completed' : 'Scheduled';
+      const status = r.status ?? 'Scheduled';
       const lastUpdated = r.lastUpdated ?? '';
       const line = [
         r.customerName,
@@ -725,7 +731,7 @@ export default function VisitsTable() {
         executive: v.employeeName,
         employeeId: v.employeeId,
         date: v.visit_date,
-        status: v.checkinTime ? 'Completed' : 'Scheduled',
+        status: deriveVisitStatus(v),
         purpose: v.purpose ?? undefined,
         visitStart: v.checkinTime ?? undefined,
         visitEnd: v.checkoutTime ?? undefined,
