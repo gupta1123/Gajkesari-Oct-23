@@ -32,6 +32,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import AddTeam from "@/components/AddTeam";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API } from "@/lib/api";
+import { useAuth } from "@/components/auth-provider";
+import { isManagerRoleValue, normalizeRoleValue } from "@/lib/auth";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 interface User {
@@ -127,17 +129,19 @@ const [editingUsername, setEditingUsername] = useState<{ id: number; username: s
 const [deleteCandidate, setDeleteCandidate] = useState<User | null>(null);
 const [isDeletingUser, setIsDeletingUser] = useState(false);
 
-  // Get auth data from localStorage instead of Redux
-  const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
-  const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null;
-  const employeeId = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
+  const { token, userRole, userData, currentUser } = useAuth();
+  const employeeId = userData?.employeeId ? String(userData.employeeId) : (typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null);
   const officeManagerId = typeof window !== 'undefined' ? localStorage.getItem('officeManagerId') : null;
+  const normalizedRole = normalizeRoleValue(userRole);
+  const authorityRole = normalizeRoleValue(currentUser?.authorities?.[0]?.authority ?? null);
+  const isAdminUser = normalizedRole === 'ADMIN' || normalizedRole === 'ROLE_ADMIN' || authorityRole === 'ADMIN' || authorityRole === 'ROLE_ADMIN';
+  const isManagerUser = !isAdminUser && (isManagerRoleValue(userRole) || isManagerRoleValue(authorityRole));
 
   const fetchEmployees = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      if (role === 'MANAGER') {
+      if (isManagerUser) {
         const response = await fetch(`https://api.gajkesaristeels.in/employee/team/getbyEmployee?id=${employeeId}`, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -180,7 +184,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     } finally {
       setIsLoading(false);
     }
-  }, [token, role, employeeId]);
+  }, [token, employeeId, isManagerUser]);
 
   // Hydrate filters/paging
   useEffect(() => {
@@ -404,7 +408,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     if (token && isHydrated) {
       fetchEmployees();
     }
-  }, [token, role, employeeId, isHydrated, fetchEmployees]);
+  }, [token, employeeId, isHydrated, fetchEmployees]);
 
   // Helper functions
   const getInitials = (firstName: string, lastName: string) => {
