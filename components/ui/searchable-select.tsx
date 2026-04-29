@@ -25,6 +25,9 @@ interface SearchableSelectProps {
   hideTrigger?: boolean;
   // Use an external element as the anchor for positioning the dropdown
   anchorRef?: React.RefObject<HTMLElement | null>;
+  onSearchChange?: (searchTerm: string) => void;
+  loading?: boolean;
+  loadingMessage?: string;
 }
 
 const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -39,6 +42,9 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   openOnSignal,
   hideTrigger = false,
   anchorRef,
+  onSearchChange,
+  loading = false,
+  loadingMessage = "Loading...",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -160,6 +166,16 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     setSearchTerm("");
     setFocusedIndex(-1);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !onSearchChange) return;
+
+    const timeoutId = window.setTimeout(() => {
+      onSearchChange(searchTerm.trim());
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isOpen, searchTerm, onSearchChange]);
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -312,7 +328,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
             className="overflow-y-auto"
             style={{ maxHeight }}
           >
-            {filteredOptions.length > 0 ? (
+            {loading ? (
+              <div className="px-3 py-2 text-sm text-muted-foreground text-center">
+                {loadingMessage}
+              </div>
+            ) : filteredOptions.length > 0 ? (
               filteredOptions.map((option, index) => (
                 <button
                   key={option.value}

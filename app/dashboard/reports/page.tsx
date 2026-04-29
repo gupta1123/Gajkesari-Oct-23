@@ -51,6 +51,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import NewCustomersReport from "@/components/NewCustomersReport";
+import SalesPerformanceReport from "@/components/SalesPerformanceReport";
+import MonthlyTargetPage from "@/app/dashboard/reports/monthly-target/page";
 import dayjs from 'dayjs';
 
 interface AttendanceStats {
@@ -395,9 +397,11 @@ const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="fieldOfficerReport" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-6">
+        <TabsList className="mb-6 flex w-full flex-wrap gap-2 h-auto">
           <TabsTrigger value="fieldOfficerReport">Field Officer Visit Report</TabsTrigger>
           <TabsTrigger value="newCustomers">New Customers Report</TabsTrigger>
+          <TabsTrigger value="salesPerformance">Sales Performance Report</TabsTrigger>
+          <TabsTrigger value="monthlyTarget">Monthly Target Report</TabsTrigger>
         </TabsList>
         
         <TabsContent value="fieldOfficerReport" className="space-y-6">
@@ -603,7 +607,7 @@ const ReportsPage: React.FC = () => {
                                         <TableHeader>{summaryHeader}</TableHeader>
                                         <TableBody><TableRow>{summaryRow}</TableRow></TableBody>
                 </Table>
-              </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -709,6 +713,14 @@ const ReportsPage: React.FC = () => {
         
         <TabsContent value="newCustomers" className="space-y-6">
           <NewCustomersReport />
+        </TabsContent>
+
+        <TabsContent value="salesPerformance" className="space-y-6">
+          <SalesPerformanceReport />
+        </TabsContent>
+
+        <TabsContent value="monthlyTarget" className="space-y-6">
+          <MonthlyTargetPage />
         </TabsContent>
       </Tabs>
     </div>

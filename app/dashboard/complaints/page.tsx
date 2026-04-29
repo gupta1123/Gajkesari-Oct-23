@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import ReactSelect, { type SingleValue, type StylesConfig } from 'react-select';
 import { format, subDays, differenceInDays } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
@@ -323,12 +324,20 @@ const Complaints = () => {
         }
     }, [token]);
 
-    const fetchStores = useCallback(async (employeeId?: number, searchTerm: string = '', page: number = 0, size: number = 50, sortBy: string = 'storeName', sortOrder: string = 'asc') => {
+    const fetchStores = useCallback(async (employeeId?: number, searchTerm: string = '', page: number = 0, size: number = 500, sortBy: string = 'storeName', sortOrder: string = 'asc') => {
         if (!token || !employeeId) return;
         
         setIsStoresLoading(true);
         try {
-            const url = `https://api.gajkesaristeels.in/store/getStoreNamesByEmployee?employeeId=${employeeId}&searchTerm=${searchTerm}&page=${page}&size=${size}&sortBy=${sortBy}&sortOrder=${sortOrder}`;
+            const params = new URLSearchParams({
+                employeeId: employeeId.toString(),
+                searchTerm,
+                page: page.toString(),
+                size: size.toString(),
+                sortBy,
+                sortOrder,
+            });
+            const url = `https://api.gajkesaristeels.in/store/getStoreNamesByEmployee?${params.toString()}`;
             
             const response = await fetch(url, {
                 headers: {
@@ -470,6 +479,63 @@ const Complaints = () => {
         })).sort((a, b) => a.label.localeCompare(b.label));
         setStoreOptions(options);
     }, [stores]);
+
+    const selectedStoreOption = useMemo(
+        () => storeOptions.find((option) => option.value === selectedStore[0]) ?? null,
+        [selectedStore, storeOptions]
+    );
+
+    const storeSelectStyles: StylesConfig<SearchableSelectOption, false> = {
+        control: (base, state) => ({
+            ...base,
+            minHeight: 40,
+            borderRadius: 6,
+            backgroundColor: 'hsl(var(--background))',
+            borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--input))',
+            boxShadow: state.isFocused ? '0 0 0 1px hsl(var(--ring))' : 'none',
+            '&:hover': {
+                borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--input))',
+            },
+        }),
+        valueContainer: (base) => ({ ...base, paddingLeft: 12, paddingRight: 8 }),
+        singleValue: (base) => ({ ...base, color: 'hsl(var(--foreground))' }),
+        placeholder: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
+        input: (base) => ({ ...base, color: 'hsl(var(--foreground))' }),
+        indicatorSeparator: (base) => ({ ...base, backgroundColor: 'hsl(var(--border))' }),
+        dropdownIndicator: (base) => ({
+            ...base,
+            color: 'hsl(var(--muted-foreground))',
+            '&:hover': { color: 'hsl(var(--foreground))' },
+        }),
+        clearIndicator: (base) => ({
+            ...base,
+            color: 'hsl(var(--muted-foreground))',
+            '&:hover': { color: 'hsl(var(--foreground))' },
+        }),
+        menu: (base) => ({
+            ...base,
+            backgroundColor: 'hsl(var(--popover))',
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 6,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+            overflow: 'hidden',
+            zIndex: 99999,
+        }),
+        menuList: (base) => ({ ...base, paddingTop: 4, paddingBottom: 4, maxHeight: 220 }),
+        option: (base, state) => ({
+            ...base,
+            backgroundColor: state.isSelected
+                ? 'hsl(var(--accent))'
+                : state.isFocused
+                    ? 'hsl(var(--muted))'
+                    : 'transparent',
+            color: 'hsl(var(--foreground))',
+            cursor: 'pointer',
+            fontSize: 14,
+        }),
+        noOptionsMessage: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
+        loadingMessage: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
+    };
 
     const createTask = async () => {
         if (!token) return;
@@ -627,6 +693,10 @@ const Complaints = () => {
                 storeName: ''
             });
         }
+    };
+
+    const handleStoreOptionSelect = (option: SingleValue<SearchableSelectOption>) => {
+        handleStoreSelect(option ? [option.value] : []);
     };
 
     // Reset form function
@@ -1093,18 +1163,24 @@ const Complaints = () => {
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="storeId">Store</Label>
-                                    <SearchableSelect
+                                    <ReactSelect
                                         options={storeOptions}
-                                        value={selectedStore}
-                                        onChange={handleStoreSelect}
+                                        value={selectedStoreOption}
+                                        onChange={handleStoreOptionSelect}
                                         placeholder={
                                             isStoresLoading ? "Loading stores..." : 
                                             !newTask.assignedToId ? "Select employee first" : 
                                             "Select a store"
                                         }
-                                        searchPlaceholder="Search stores..."
                                         className="w-[280px]"
-                                        disabled={isStoresLoading || !newTask.assignedToId}
+                                        classNamePrefix="select"
+                                        styles={storeSelectStyles}
+                                        isSearchable
+                                        isClearable
+                                        isDisabled={!newTask.assignedToId}
+                                        isLoading={isStoresLoading}
+                                        backspaceRemovesValue
+                                        noOptionsMessage={() => "No matching stores found"}
                                     />
           </div>
                                 <div className="flex justify-between mt-4">

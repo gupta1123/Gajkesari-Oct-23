@@ -16,7 +16,7 @@ import {
 } from 'chart.js';
 import 'chartjs-adapter-moment';
 import { Chart } from 'react-chartjs-2';
-import Select from 'react-select';
+import Select, { type InputActionMeta, type StylesConfig } from 'react-select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -52,9 +52,15 @@ type MonthlyData = {
     totalVisitCount: number;
 };
 
+type StoreOption = {
+    value: number;
+    label: string;
+    city: string;
+};
+
 const SalesPerformanceReport: React.FC = () => {
-    const [stores, setStores] = useState<{ value: number; label: string; city: string }[]>([]);
-    const [selectedStore, setSelectedStore] = useState<{ value: number; label: string; city: string } | null>(null);
+    const [stores, setStores] = useState<StoreOption[]>([]);
+    const [selectedStore, setSelectedStore] = useState<StoreOption | null>(null);
     const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
 
     const [loading, setLoading] = useState(false);
@@ -63,8 +69,8 @@ const SalesPerformanceReport: React.FC = () => {
     const [endDate, setEndDate] = useState(moment().format('YYYY-MM-DD'));
     const [storeNameFilter, setStoreNameFilter] = useState('');
     const [cityFilter, setCityFilter] = useState('');
-    const [currentPage, setCurrentPage] = useState(0);
-    const [totalPages, setTotalPages] = useState(0);
+    const [storeSearchQuery, setStoreSearchQuery] = useState('');
+    const [storeSelectInput, setStoreSelectInput] = useState('');
 
     const { token } = useAuth();
 
@@ -74,9 +80,9 @@ const SalesPerformanceReport: React.FC = () => {
                 'https://api.gajkesaristeels.in/store/filteredValues',
                 {
                     params: {
-                        storeName: storeNameFilter,
+                        storeName: storeSearchQuery || storeNameFilter,
                         city: cityFilter,
-                        page: currentPage,
+                        page: 0,
                         size: 10,
                         sort: 'storeName,asc'
                     },
@@ -90,7 +96,6 @@ const SalesPerformanceReport: React.FC = () => {
                     city: store.city
                 }));
                 setStores(storeOptions);
-                setTotalPages(response.data.totalPages);
             } else {
                 setError('Unexpected API response structure');
             }
@@ -98,7 +103,7 @@ const SalesPerformanceReport: React.FC = () => {
             console.error('Error fetching stores:', error);
             setError('Failed to fetch stores');
         }
-    }, [token, storeNameFilter, cityFilter, currentPage]);
+    }, [token, storeNameFilter, cityFilter, storeSearchQuery]);
 
     useEffect(() => {
         if (token) {
@@ -303,8 +308,88 @@ const SalesPerformanceReport: React.FC = () => {
         },
     };
 
-    const handleStoreSelect = (selected: { value: number; label: string; city: string } | null) => {
+    const storeSelectStyles: StylesConfig<StoreOption, false> = {
+        control: (base, state) => ({
+            ...base,
+            minHeight: 46,
+            borderRadius: 8,
+            backgroundColor: 'hsl(var(--background))',
+            borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--border))',
+            boxShadow: state.isFocused ? '0 0 0 1px hsl(var(--ring))' : 'none',
+            '&:hover': {
+                borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--border))',
+            },
+        }),
+        valueContainer: (base) => ({
+            ...base,
+            paddingLeft: 12,
+            paddingRight: 8,
+        }),
+        singleValue: (base) => ({
+            ...base,
+            color: 'hsl(var(--foreground))',
+        }),
+        placeholder: (base) => ({
+            ...base,
+            color: 'hsl(var(--muted-foreground))',
+        }),
+        input: (base) => ({
+            ...base,
+            color: 'hsl(var(--foreground))',
+        }),
+        indicatorSeparator: (base) => ({
+            ...base,
+            backgroundColor: 'hsl(var(--border))',
+        }),
+        dropdownIndicator: (base) => ({
+            ...base,
+            color: 'hsl(var(--muted-foreground))',
+            '&:hover': { color: 'hsl(var(--foreground))' },
+        }),
+        menu: (base) => ({
+            ...base,
+            backgroundColor: 'hsl(var(--popover))',
+            border: '1px solid hsl(var(--border))',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+            borderRadius: 8,
+            overflow: 'hidden',
+            zIndex: 60,
+        }),
+        menuList: (base) => ({
+            ...base,
+            paddingTop: 4,
+            paddingBottom: 4,
+        }),
+        option: (base, state) => ({
+            ...base,
+            backgroundColor: state.isSelected
+                ? 'hsl(var(--accent))'
+                : state.isFocused
+                    ? 'hsl(var(--muted))'
+                    : 'transparent',
+            color: 'hsl(var(--foreground))',
+            cursor: 'pointer',
+            fontSize: 14,
+        }),
+        noOptionsMessage: (base) => ({
+            ...base,
+            color: 'hsl(var(--muted-foreground))',
+        }),
+    };
+
+    const handleStoreSelect = (selected: StoreOption | null) => {
         setSelectedStore(selected);
+        setStoreSelectInput('');
+        setStoreSearchQuery('');
+    };
+
+    const handleStoreSearchInput = (inputValue: string, actionMeta: InputActionMeta) => {
+        if (actionMeta.action !== 'input-change') {
+            return storeSelectInput;
+        }
+        setStoreSelectInput(inputValue);
+        setStoreSearchQuery(inputValue);
+        return inputValue;
     };
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -317,11 +402,6 @@ const SalesPerformanceReport: React.FC = () => {
         const { name, value } = e.target;
         if (name === 'storeName') setStoreNameFilter(value);
         if (name === 'city') setCityFilter(value);
-        setCurrentPage(0);
-    };
-
-    const handlePageChange = (newPage: number) => {
-        setCurrentPage(newPage);
     };
 
     return (
@@ -353,15 +433,17 @@ const SalesPerformanceReport: React.FC = () => {
                                 options={stores}
                                 value={selectedStore}
                                 onChange={handleStoreSelect}
+                                onInputChange={handleStoreSearchInput}
+                                inputValue={storeSelectInput}
                                 className="basic-single"
                                 classNamePrefix="select"
                                 placeholder="Select Store"
+                                styles={storeSelectStyles}
+                                isSearchable
+                                isClearable
+                                backspaceRemovesValue
+                                noOptionsMessage={() => "No matching stores found"}
                             />
-                            <div className="flex justify-between items-center mt-2">
-                                <Button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 0} size="sm">Previous</Button>
-                                <span className="text-sm">Page {currentPage + 1} of {totalPages}</span>
-                                <Button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages - 1} size="sm">Next</Button>
-                            </div>
                         </div>
                         <div className="space-y-2">
                             <label className="block text-sm font-medium">Date Range</label>
