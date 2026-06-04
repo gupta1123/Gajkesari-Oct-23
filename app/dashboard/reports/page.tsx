@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import ReactSelect, { type SingleValue, type StylesConfig } from 'react-select';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -41,14 +42,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import NewCustomersReport from "@/components/NewCustomersReport";
 import SalesPerformanceReport from "@/components/SalesPerformanceReport";
@@ -114,6 +107,11 @@ interface Employee {
     fullMonthSalary?: number | null;
     status?: string | null; 
 }
+
+type FieldOfficerOption = {
+    value: string;
+    label: string;
+};
 
 interface VisitDetail {
     avgIntentLevel: number;
@@ -185,8 +183,6 @@ const ReportsPage: React.FC = () => {
     const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
     const [detailsError, setDetailsError] = useState<string | null>(null);
     const [selectedCustomerTypeForDetails, setSelectedCustomerTypeForDetails] = useState<string | null>(null);
-    const [employeeSearchTerm, setEmployeeSearchTerm] = useState<string>("");
-    const searchInputRef = useRef<HTMLInputElement>(null);
     const [dateRangeError, setDateRangeError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -382,11 +378,70 @@ const ReportsPage: React.FC = () => {
         setIsEndDatePopoverOpen(false);
     };
     
-    const selectedEmployeeName = fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName + ' ' + fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName || "Select Field Officer";
+    const fieldOfficerOptions = useMemo<FieldOfficerOption[]>(() => {
+        return fieldOfficers.map((employee) => ({
+            value: employee.id.toString(),
+            label: `${employee.firstName} ${employee.lastName}`,
+        }));
+    }, [fieldOfficers]);
 
-    const filteredFieldOfficers = fieldOfficers.filter(officer => 
-        `${officer.firstName} ${officer.lastName}`.toLowerCase().includes(employeeSearchTerm.toLowerCase())
-    );
+    const selectedFieldOfficerOption = useMemo(() => {
+        return fieldOfficerOptions.find((option) => option.value === selectedEmployeeId) ?? null;
+    }, [fieldOfficerOptions, selectedEmployeeId]);
+
+    const selectedEmployeeName = selectedFieldOfficerOption?.label || "Select Field Officer";
+
+    const fieldOfficerSelectStyles: StylesConfig<FieldOfficerOption, false> = {
+        control: (base, state) => ({
+            ...base,
+            minHeight: 40,
+            borderRadius: 6,
+            backgroundColor: 'hsl(var(--background))',
+            borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--input))',
+            boxShadow: state.isFocused ? '0 0 0 1px hsl(var(--ring))' : 'none',
+            '&:hover': {
+                borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--input))',
+            },
+        }),
+        valueContainer: (base) => ({ ...base, paddingLeft: 12, paddingRight: 8 }),
+        singleValue: (base) => ({ ...base, color: 'hsl(var(--foreground))' }),
+        placeholder: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
+        input: (base) => ({ ...base, color: 'hsl(var(--foreground))' }),
+        indicatorSeparator: (base) => ({ ...base, backgroundColor: 'hsl(var(--border))' }),
+        dropdownIndicator: (base) => ({
+            ...base,
+            color: 'hsl(var(--muted-foreground))',
+            '&:hover': { color: 'hsl(var(--foreground))' },
+        }),
+        clearIndicator: (base) => ({
+            ...base,
+            color: 'hsl(var(--muted-foreground))',
+            '&:hover': { color: 'hsl(var(--foreground))' },
+        }),
+        menu: (base) => ({
+            ...base,
+            backgroundColor: 'hsl(var(--popover))',
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 6,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+            overflow: 'hidden',
+            zIndex: 60,
+        }),
+        menuList: (base) => ({ ...base, paddingTop: 4, paddingBottom: 4, maxHeight: 240 }),
+        option: (base, state) => ({
+            ...base,
+            backgroundColor: state.isSelected
+                ? 'hsl(var(--accent))'
+                : state.isFocused
+                    ? 'hsl(var(--muted))'
+                    : 'transparent',
+            color: 'hsl(var(--foreground))',
+            cursor: 'pointer',
+            fontSize: 14,
+        }),
+        noOptionsMessage: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
+        loadingMessage: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
+    };
 
   const formatDateRange = () => {
         if (!startDate) return "Select date range";
@@ -421,49 +476,23 @@ const ReportsPage: React.FC = () => {
                             ) : employeesError ? (
                                 <div className="text-destructive text-sm">Error loading officers</div>
                             ) : (
-                                <DropdownMenu modal={false}>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" id="employeeSelectTrigger" className="w-full justify-between">
-                                            {selectedEmployeeId && fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId) 
-                                                ? `${fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName} ${fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName}` 
-                                                : "Select Field Officer"}
-                                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent className="w-full">
-                                        <div className="p-2">
-                                            <Input 
-                                                ref={searchInputRef}
-                                                placeholder="Search officer..."
-                                                value={employeeSearchTerm}
-                                                onChange={(e) => {
-                                                    const newValue = e.target.value;
-                                                    setEmployeeSearchTerm(newValue);
-                                                    setTimeout(() => {
-                                                        if (searchInputRef.current && document.activeElement !== searchInputRef.current) {
-                                                             searchInputRef.current.focus();
-                                                        }
-                                                    }, 0);
-                                                }}
-                                                className="w-full mb-2 h-8"
-                                            />
-      </div>
-                                        <DropdownMenuRadioGroup value={selectedEmployeeId} onValueChange={(value) => {
-                                            setSelectedEmployeeId(value);
-                                            setEmployeeSearchTerm("");
-                                        }}>
-                                            {filteredFieldOfficers.length === 0 ? (
-                                                <DropdownMenuRadioItem value="" disabled>
-                                                    No matching officers
-                                                </DropdownMenuRadioItem>
-                                            ) : filteredFieldOfficers.map(officer => (
-                                                <DropdownMenuRadioItem key={officer.id} value={officer.id.toString()}>
-                                                    {`${officer.firstName} ${officer.lastName}`}
-                                                </DropdownMenuRadioItem>
-                                            ))}
-                                        </DropdownMenuRadioGroup>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                <ReactSelect
+                                    inputId="employeeSelectTrigger"
+                                    className="w-full"
+                                    classNamePrefix="field-officer-select"
+                                    placeholder="Select Field Officer"
+                                    options={fieldOfficerOptions}
+                                    value={selectedFieldOfficerOption}
+                                    onChange={(option: SingleValue<FieldOfficerOption>) => {
+                                        setSelectedEmployeeId(option?.value ?? '');
+                                    }}
+                                    styles={fieldOfficerSelectStyles}
+                                    isSearchable
+                                    isClearable
+                                    isDisabled={fieldOfficerOptions.length === 0}
+                                    noOptionsMessage={() => "No matching officers"}
+                                    menuPlacement="auto"
+                                />
                             )}
             </div>
             
