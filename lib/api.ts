@@ -2,7 +2,7 @@
 // Use direct API calls to https://api.gajkesaristeels.in
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 const SECONDARY_API_BASE_URL = 'https://api.gajkesaristeels.in';
-const DISTANCE_RECALCULATION_API_URL = 'http://ec2-3-88-111-83.compute-1.amazonaws.com:8081/attendance-log/updateDistanceTravelledForEmployeesWithOlaMaps';
+const DISTANCE_RECALCULATION_API_URL = `${API_BASE_URL}/attendance-log/updateDistanceTravelledForEmployeesWithOlaMaps`;
 
 // Types based on API responses from api.md
 export interface EmployeeDto {
