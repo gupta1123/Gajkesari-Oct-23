@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -77,6 +78,16 @@ const StatusBadge = ({ status, isSunday }: { status: string; isSunday: boolean }
         </Badge>
     );
 };
+
+const DistanceIssueNote = ({ href }: { href: string }) => (
+    <p className="text-xs leading-relaxed text-amber-600">
+        Minus distance may be incorrect. Recalculate it from{" "}
+        <Link href={href} className="font-medium underline underline-offset-2">
+            Distance Recalculation
+        </Link>
+        .
+    </p>
+);
 
 // --- Main Component ---
 const DailyBreakdown: React.FC = () => {
@@ -276,6 +287,17 @@ const DailyBreakdown: React.FC = () => {
     const selectedEmployeeLabel = selectedEmployee
         ? employeeOptions.find(e => e.id.toString() === selectedEmployee)?.name || "Select employee"
         : "Select employee";
+    const distanceRecalculationHref = useMemo(() => {
+        const params = new URLSearchParams({ tab: "distanceRecalculation" });
+        if (selectedEmployee) params.set("employeeIds", selectedEmployee);
+        if (startDate) params.set("startDate", startDate);
+        if (endDate) params.set("endDate", endDate);
+        return `/dashboard/settings?${params.toString()}`;
+    }, [endDate, selectedEmployee, startDate]);
+    const hasNegativeDistance = useMemo(
+        () => dailyBreakdownData.some((day) => day.carDistanceKm + day.bikeDistanceKm < 0),
+        [dailyBreakdownData]
+    );
     const totals = useMemo(() => {
         return dailyBreakdownData.reduce(
             (acc, day) => {
@@ -295,8 +317,17 @@ const DailyBreakdown: React.FC = () => {
         <div className="relative space-y-6 pb-24">
             <Card className="border-0 shadow-sm bg-background">
                 <CardHeader className="pb-4">
-                    <CardTitle className="text-xl md:text-2xl font-semibold">Attendance & Breakdown</CardTitle>
-                    <p className="text-sm text-muted-foreground">Manage daily attendance and view salary calculations</p>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            <CardTitle className="text-xl md:text-2xl font-semibold">Attendance & Breakdown</CardTitle>
+                            <p className="text-sm text-muted-foreground">Manage daily attendance and view salary calculations</p>
+                        </div>
+                        {hasNegativeDistance && (
+                            <div className="max-w-xs rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left dark:border-amber-900/40 dark:bg-amber-950/20">
+                                <DistanceIssueNote href={distanceRecalculationHref} />
+                            </div>
+                        )}
+                    </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
                     {/* Filters - (Keeping your existing layout compact) */}
@@ -394,6 +425,7 @@ const DailyBreakdown: React.FC = () => {
                                 {dailyBreakdownData.map((day) => {
                                     const key = getRecordKey(day.date, day.employeeId);
                                     const isSelected = selectedRecords.has(key);
+                                    const totalDistance = day.carDistanceKm + day.bikeDistanceKm;
                                     return (
                                         <div key={key} 
                                             className={cn(
@@ -417,7 +449,12 @@ const DailyBreakdown: React.FC = () => {
                                                 <div className="grid grid-cols-2 gap-y-1 text-sm text-muted-foreground">
                                                     <div>Visits: <span className="text-foreground font-medium">{day.completedVisits}</span></div>
                                                     <div>Travel: <span className="text-foreground font-medium">{formatCurrency(day.travelAllowance)}</span></div>
-                                                    <div>Distance: <span className="text-foreground font-medium">{day.carDistanceKm.toFixed(1)} km</span></div>
+                                                    <div className="col-span-2">
+                                                        Distance:{" "}
+                                                        <span className={cn("font-medium", totalDistance < 0 ? "text-amber-600" : "text-foreground")}>
+                                                            {totalDistance.toFixed(1)} km
+                                                        </span>
+                                                    </div>
                                                     <div>DA: <span className="text-foreground font-medium">{formatCurrency(day.dailyDearnessAllowance)}</span></div>
                                                 </div>
                                             </div>
@@ -452,6 +489,7 @@ const DailyBreakdown: React.FC = () => {
                                         {dailyBreakdownData.map((day) => {
                                             const key = getRecordKey(day.date, day.employeeId);
                                             const isSelected = selectedRecords.has(key);
+                                            const totalDistance = day.carDistanceKm + day.bikeDistanceKm;
                                             return (
                                                 <TableRow key={key} className={cn(isSelected && "bg-primary/5")}>
                                                     <TableCell>
@@ -464,7 +502,11 @@ const DailyBreakdown: React.FC = () => {
                                                     <TableCell className="text-right">{formatCurrency(day.baseEarned)}</TableCell>
                                                     <TableCell className="text-right">{formatCurrency(day.travelAllowance)}</TableCell>
                                                     <TableCell className="text-right">{formatCurrency(day.dailyDearnessAllowance)}</TableCell>
-                                                    <TableCell className="text-right">{(day.carDistanceKm + day.bikeDistanceKm).toFixed(1)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className={cn(totalDistance < 0 && "text-amber-600")}>
+                                                            {totalDistance.toFixed(1)}
+                                                        </div>
+                                                    </TableCell>
                                                     <TableCell className="text-right font-bold">{formatCurrency(day.totalDailySalary)}</TableCell>
                                                 </TableRow>
                                             );

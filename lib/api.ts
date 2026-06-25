@@ -2,6 +2,7 @@
 // Use direct API calls to https://api.gajkesaristeels.in
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 const SECONDARY_API_BASE_URL = 'https://api.gajkesaristeels.in';
+const DISTANCE_RECALCULATION_API_URL = 'http://ec2-3-88-111-83.compute-1.amazonaws.com:8081/attendance-log/updateDistanceTravelledForEmployeesWithOlaMaps';
 
 // Types based on API responses from api.md
 export interface EmployeeDto {
@@ -426,6 +427,24 @@ export interface CurrentUserDto {
   enabled: boolean;
 }
 
+export interface DailyBreakdownDto {
+  date: string;
+  employeeName: string;
+  employeeId: number;
+  dailyDearnessAllowance: number;
+  travelAllowance: number;
+  totalDailySalary: number;
+  dayType: string;
+  completedVisits: number;
+  dayOfWeek: string;
+  hasAttendance: boolean;
+  isSunday: boolean;
+  bikeDistanceKm: number;
+  carDistanceKm: number;
+  dailyBaseSalary: number;
+  baseEarned: number;
+}
+
 // API Service Class
 export class API {
   private baseUrl: string;
@@ -463,6 +482,14 @@ export class API {
 
   static async getAttendanceByDate(date: string): Promise<AttendanceLogItem[]> {
     return apiService.getAttendanceForRange(date, date);
+  }
+
+  static async recalculateDistanceForEmployeesWithOlaMaps(employeeIds: number[], startDate: string, endDate: string): Promise<string> {
+    return apiService.recalculateDistanceForEmployeesWithOlaMaps(employeeIds, startDate, endDate);
+  }
+
+  static async getDailyBreakdown(employeeId: number, startDate: string, endDate: string): Promise<DailyBreakdownDto[]> {
+    return apiService.getDailyBreakdown(employeeId, startDate, endDate);
   }
 
 
@@ -778,6 +805,64 @@ Please check your internet connection and try again.`);
     }
   }
 
+  private async makeTextRequest(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<string> {
+    const isAbsoluteEndpoint = /^https?:\/\//i.test(endpoint);
+    const url = isAbsoluteEndpoint ? endpoint : `${this.baseUrl}${endpoint}`;
+    const headers = await this.getHeaders();
+    const config: RequestInit = {
+      ...options,
+      headers: {
+        ...headers,
+        ...options.headers,
+      },
+    };
+
+    console.log('🌐 Making text API request:', {
+      url,
+      method: config.method || 'GET',
+      headers: config.headers,
+      hasToken: !!this.token,
+    });
+
+    try {
+      const response = await fetch(url, config);
+      const text = await response.text();
+
+      if (!response.ok) {
+        const preview = text ? ` Body: ${text.slice(0, 200)}` : '';
+        throw new Error(`API request failed: ${response.status} ${response.statusText}.${preview}`);
+      }
+
+      return text;
+    } catch (error) {
+      console.error(`🚨 Text API request failed for ${endpoint}:`, error);
+      console.error('🌐 Request details:', {
+        url,
+        method: config.method || 'GET',
+        hasToken: !!this.token,
+        tokenPreview: this.token ? `${this.token.substring(0, 20)}...` : 'No token',
+      });
+
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        if (retryCount < 2) {
+          console.log(`🔄 Retrying text request (attempt ${retryCount + 1}/2)...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+          return this.makeTextRequest(endpoint, options, retryCount + 1);
+        }
+
+        throw new Error(`Network error: Unable to connect to API server at ${this.baseUrl}. This could be due to:
+- API server is down or unreachable
+- Network connectivity issues
+- CORS policy blocking the request
+- Authentication token expired
+
+Please check your internet connection and try again.`);
+      }
+
+      throw error;
+    }
+  }
+
   // Employee APIs
 
 
@@ -955,6 +1040,22 @@ Please check your internet connection and try again.`);
 
   async getAttendanceForEmployeeAndRange(employeeId: number, startDate: string, endDate: string): Promise<AttendanceStats[]> {
     return this.makeRequest<AttendanceStats[]>(`/attendance-log/getForEmployeeAndRange?employeeId=${employeeId}&start=${startDate}&end=${endDate}`);
+  }
+
+  async recalculateDistanceForEmployeesWithOlaMaps(employeeIds: number[], startDate: string, endDate: string): Promise<string> {
+    const employeeIdsParam = employeeIds.join(',');
+    return this.makeTextRequest(
+      `${DISTANCE_RECALCULATION_API_URL}?employeeIds=${employeeIdsParam}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+      {
+        method: 'PUT',
+      }
+    );
+  }
+
+  async getDailyBreakdown(employeeId: number, startDate: string, endDate: string): Promise<DailyBreakdownDto[]> {
+    return this.makeRequest<DailyBreakdownDto[]>(
+      `/salary-calculation/daily-breakdown?employeeId=${employeeId}&startDate=${startDate}&endDate=${endDate}`
+    );
   }
 
   // Report APIs
