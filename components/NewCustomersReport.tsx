@@ -19,6 +19,9 @@ import axios from 'axios';
 import { format, parse, eachMonthOfInterval, startOfMonth, endOfMonth } from 'date-fns';
 import { useAuth } from '@/components/auth-provider';
 import { Calendar as CalendarIcon, UserCheck, UserX, RefreshCw } from 'lucide-react';
+import { API } from '@/lib/api';
+import { hasManagerPrivileges } from '@/lib/auth';
+import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 
 // Register ChartJS components
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
@@ -65,7 +68,7 @@ const NewCustomersReport = () => {
     const [isDarkMode, setIsDarkMode] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
-    const { token } = useAuth();
+    const { token, userRole, currentUser, userData } = useAuth();
 
     // --- Effects ---
     useEffect(() => {
@@ -82,7 +85,7 @@ const NewCustomersReport = () => {
         if (token) {
             fetchEmployees();
         }
-    }, [token]);
+    }, [token, userRole, currentUser, userData?.employeeId]);
 
     useEffect(() => {
         if (token && startDate && endDate) {
@@ -96,7 +99,21 @@ const NewCustomersReport = () => {
             const response = await axios.get<Employee[]>('https://api.gajkesaristeels.in/employee/getAll', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            const fieldOfficers = response.data.filter(emp => emp.role === "Field Officer");
+            const isManager = hasManagerPrivileges(userRole, currentUser);
+            let scopedFieldOfficerIds: Set<number> | null = null;
+
+            if (isManager) {
+                if (!userData?.employeeId) {
+                    scopedFieldOfficerIds = new Set();
+                } else {
+                    const teamData = await API.getTeamByEmployee(userData.employeeId);
+                    scopedFieldOfficerIds = new Set(getUniqueFieldOfficersFromTeams(teamData).map((officer) => officer.id));
+                }
+            }
+
+            const fieldOfficers = response.data
+                .filter(emp => emp.role === "Field Officer")
+                .filter(emp => scopedFieldOfficerIds === null || scopedFieldOfficerIds.has(emp.id));
             const employeeOptions = fieldOfficers
                 .map((emp: Employee) => ({
                     value: emp.id,
@@ -138,13 +155,17 @@ const NewCustomersReport = () => {
     // --- Calculations ---
     const filteredReportData = useMemo(() => {
         const excludedEmployeeNames = excludedEmployees.map(emp => emp.label);
+        const allowedEmployeeNames = new Set(employees.map(emp => emp.label));
         return Object.fromEntries(
             Object.entries(reportData).map(([month, data]) => [
                 month,
-                data.filter(item => !excludedEmployeeNames.includes(item.employeeName))
+                data.filter(item =>
+                    allowedEmployeeNames.has(item.employeeName) &&
+                    !excludedEmployeeNames.includes(item.employeeName)
+                )
             ])
         );
-    }, [reportData, excludedEmployees]);
+    }, [reportData, excludedEmployees, employees]);
 
     const calculatedPerformers = useMemo(() => {
         const aggregatedData = Object.values(filteredReportData).flat().reduce((acc: Record<string, number>, curr) => {

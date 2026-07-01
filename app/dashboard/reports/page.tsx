@@ -47,6 +47,9 @@ import NewCustomersReport from "@/components/NewCustomersReport";
 import SalesPerformanceReport from "@/components/SalesPerformanceReport";
 import MonthlyTargetPage from "@/app/dashboard/reports/monthly-target/page";
 import dayjs from 'dayjs';
+import { API } from '@/lib/api';
+import { hasManagerPrivileges } from '@/lib/auth';
+import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 
 interface AttendanceStats {
     absences: number;
@@ -157,7 +160,7 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 6, de
 }
 
 const ReportsPage: React.FC = () => {
-    const { token } = useAuth();
+    const { token, userRole, currentUser, userData } = useAuth();
 
     const [fieldOfficers, setFieldOfficers] = useState<Employee[]>([]);
     const [employeesLoading, setEmployeesLoading] = useState<boolean>(true);
@@ -205,8 +208,21 @@ const ReportsPage: React.FC = () => {
                 const allEmployees: Employee[] = await allEmployeesResponse.json();
                 const inactiveEmployees: Employee[] = await inactiveEmployeesResponse.json();
                 const inactiveEmployeeIds = new Set(inactiveEmployees.map(emp => emp.id));
+                const isManager = hasManagerPrivileges(userRole, currentUser);
+                let scopedFieldOfficerIds: Set<number> | null = null;
+
+                if (isManager) {
+                    if (!userData?.employeeId) {
+                        scopedFieldOfficerIds = new Set();
+                    } else {
+                        const teamData = await API.getTeamByEmployee(userData.employeeId);
+                        scopedFieldOfficerIds = new Set(getUniqueFieldOfficersFromTeams(teamData).map((officer) => officer.id));
+                    }
+                }
+
                 const activeFieldOfficers = allEmployees
                     .filter(emp => emp.role === 'Field Officer' && !inactiveEmployeeIds.has(emp.id))
+                    .filter(emp => scopedFieldOfficerIds === null || scopedFieldOfficerIds.has(emp.id))
                     .sort((a, b) => {
                         const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
                         const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
@@ -215,8 +231,10 @@ const ReportsPage: React.FC = () => {
                         return 0;
                     });
                 setFieldOfficers(activeFieldOfficers);
-                if (activeFieldOfficers.length > 0 && !selectedEmployeeId) {
+                if (activeFieldOfficers.length > 0 && (!selectedEmployeeId || !activeFieldOfficers.some(emp => emp.id.toString() === selectedEmployeeId))) {
                     setSelectedEmployeeId(activeFieldOfficers[0].id.toString());
+                } else if (activeFieldOfficers.length === 0) {
+                    setSelectedEmployeeId('');
                 }
             } catch (err) {
                 setEmployeesError((err as Error).message || 'Could not fetch employee data.');
@@ -226,7 +244,7 @@ const ReportsPage: React.FC = () => {
             }
         };
         if (token) fetchAllEmployeeData();
-    }, [token]);
+    }, [token, userRole, currentUser, userData?.employeeId, selectedEmployeeId]);
 
     useEffect(() => {
         const now = new Date();

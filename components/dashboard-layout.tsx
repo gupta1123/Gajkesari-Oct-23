@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import Topbar from "@/components/topbar";
 import {
   DropdownMenu,
@@ -92,6 +92,7 @@ const allSidebarCategories = [
 
 // Manager allowed pages
 const managerAllowedPages = [
+  "/dashboard",
   "/dashboard/customers",
   "/dashboard/enquiries", 
   "/dashboard/complaints",
@@ -158,6 +159,21 @@ export default function DashboardLayout({
 
   // Check if user is manager
   const isManager = hasManagerPrivileges(userRole, currentUser);
+
+  useEffect(() => {
+    if (!isManager) return;
+
+    const isAllowedManagerPath = managerAllowedPages.some((allowedPath) => {
+      if (allowedPath === "/dashboard") {
+        return pathname === allowedPath;
+      }
+      return pathname === allowedPath || pathname.startsWith(`${allowedPath}/`);
+    });
+
+    if (!isAllowedManagerPath) {
+      router.replace("/dashboard");
+    }
+  }, [isManager, pathname, router]);
 
   const toggleCategory = (categoryName: string) => {
     setOpenCategories(prev => ({

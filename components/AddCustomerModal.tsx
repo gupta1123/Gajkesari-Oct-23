@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { API, type EmployeeUserDto } from '@/lib/api';
 import { isManagerRoleValue } from '@/lib/auth';
+import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Search, Check } from 'lucide-react';
 
@@ -109,8 +110,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         if (isManager && userData?.employeeId) {
           // For managers, fetch only their field officers
           const teamData = await API.getTeamByEmployee(Number(userData.employeeId));
-          const fieldOfficers = teamData.flatMap(team => team.fieldOfficers);
-          setEmployees(fieldOfficers);
+          setEmployees(getUniqueFieldOfficersFromTeams(teamData));
         } else {
           // For admins, fetch all employees
           const data = await API.getAllEmployees();
@@ -118,7 +118,12 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         }
       } catch (error) {
         console.error('Error fetching employees:', error);
-        // Fallback to all employees if team fetch fails
+        const isManager = isManagerRoleValue(userRole);
+        if (isManager) {
+          setEmployees([]);
+          return;
+        }
+
         try {
           const data = await API.getAllEmployees();
           setEmployees(data);

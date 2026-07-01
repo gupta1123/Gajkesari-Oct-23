@@ -35,6 +35,7 @@ import AddCustomerModal from "@/components/AddCustomerModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
 import { isManagerRoleValue, normalizeRoleValue, getCorrectedRoleFlags } from "@/lib/auth";
+import { getTeamIds, getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 import { formatDateToUserFriendly } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
@@ -107,6 +108,8 @@ function CustomerListContent() {
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
     const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
     const [teamId, setTeamId] = useState<number | null>(null);
+    const [teamIds, setTeamIds] = useState<number[]>([]);
+    const [scopedEmployees, setScopedEmployees] = useState<EmployeeUserDto[]>([]);
     const [teamLoading, setTeamLoading] = useState(false);
     const [teamError, setTeamError] = useState<string | null>(null);
     const [isRoleDetermined, setIsRoleDetermined] = useState(false);
@@ -269,8 +272,13 @@ function CustomerListContent() {
         mobileSelectedEmployeeId,
     ]);
 
+    const employeesForOptions = useMemo(
+        () => (isManager || isFieldOfficer ? scopedEmployees : employees),
+        [employees, isFieldOfficer, isManager, scopedEmployees]
+    );
+
     const employeeOptions = useMemo<SearchableOption<{ fullName: string }>[]>(() => {
-        const base = employees.map((employee) => {
+        const base = employeesForOptions.map((employee) => {
             const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim();
             const identifier = employee.userDto?.employeeId ?? null;
             const fallbackName =
@@ -287,7 +295,7 @@ function CustomerListContent() {
         base.sort((a, b) => a.label.localeCompare(b.label));
 
         return [{ value: "all", label: "All Field Officers" }, ...base];
-    }, [employees]);
+    }, [employeesForOptions]);
 
     useEffect(() => {
         if (employees.length === 0) {
@@ -381,19 +389,23 @@ function CustomerListContent() {
             try {
                 const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
                 
-                // Get the first team ID (assuming manager/field officer has one primary team)
                 if (teamData.length > 0) {
-                    setTeamId(teamData[0].id);
+                    const accessibleTeamIds = getTeamIds(teamData);
+                    setTeamIds(accessibleTeamIds);
+                    setTeamId(accessibleTeamIds[0] ?? null);
+                    setScopedEmployees(getUniqueFieldOfficersFromTeams(teamData));
                 } else {
                     setTeamError('No team data found for this user');
-                    // Fallback to hardcoded team ID
-                    setTeamId(6);
+                    setTeamId(null);
+                    setTeamIds([]);
+                    setScopedEmployees([]);
                 }
             } catch (err) {
                 console.error('Failed to load team data:', err);
                 setTeamError('Failed to load team data');
-                // Fallback to hardcoded team ID if API fails
-                setTeamId(6);
+                setTeamId(null);
+                setTeamIds([]);
+                setScopedEmployees([]);
             } finally {
                 setTeamLoading(false);
                 // Mark role as determined after team data is loaded (or failed)
@@ -465,31 +477,94 @@ function CustomerListContent() {
             }
 
             // For managers and field officers, wait until teamId is available
-            if ((isManager || isFieldOfficer) && (teamId === null || teamId === undefined)) return;
+            if ((isManager || isFieldOfficer) && teamIds.length === 0) return;
             
             let data: StoreResponse;
             
             if (isManager) {
                 // For managers, use team-based API call only
-                if (!teamId) {
+                if (teamIds.length === 0) {
                     console.log('Manager role detected but no teamId available, skipping API call');
                     setCustomers([]);
                     setTotalPages(1);
                     return;
                 }
-                console.log('Manager API call for team:', teamId);
-                data = await API.getStoresForTeam(teamId, currentPage - 1, pageSize);
+                console.log('Manager API call for teams:', teamIds);
+                if (teamIds.length === 1) {
+                    data = await API.getStoresForTeam(teamIds[0], currentPage - 1, pageSize);
+                } else {
+                    const responses = await Promise.all(teamIds.map((id) => API.getStoresForTeam(id, 0, 1000)));
+                    const uniqueStores = new Map<number, StoreDto>();
+                    responses.flatMap((response) => response.content ?? []).forEach((store) => {
+                        uniqueStores.set(store.storeId, store);
+                    });
+                    const getStoreSortValue = (store: StoreDto): string | number | null | undefined => {
+                        switch (sortColumn) {
+                            case 'ownerFirstName':
+                                return [store.clientFirstName, store.clientLastName].filter(Boolean).join(' ');
+                            case 'visitCount':
+                                return store.totalVisitCount;
+                            case 'lastVisitDate':
+                                return store.lastVisitDate;
+                            case 'storeName':
+                                return store.storeName;
+                            case 'city':
+                                return store.city;
+                            case 'state':
+                                return store.state;
+                            case 'primaryContact':
+                                return store.primaryContact;
+                            case 'monthlySale':
+                                return store.monthlySale;
+                            case 'intent':
+                                return store.intent;
+                            case 'employeeName':
+                                return store.employeeName;
+                            case 'clientType':
+                                return store.clientType;
+                            default:
+                                return store.storeName;
+                        }
+                    };
+                    const allStores = Array.from(uniqueStores.values()).sort((a, b) => {
+                        const aValue = String(getStoreSortValue(a) ?? '').toLowerCase();
+                        const bValue = String(getStoreSortValue(b) ?? '').toLowerCase();
+                        return sortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+                    });
+                    const startIndex = (currentPage - 1) * pageSize;
+                    const paginatedStores = allStores.slice(startIndex, startIndex + pageSize);
+                    data = {
+                        content: paginatedStores,
+                        pageable: {
+                            pageNumber: currentPage - 1,
+                            pageSize,
+                            sort: { empty: false, sorted: true, unsorted: false },
+                            offset: startIndex,
+                            paged: true,
+                            unpaged: false,
+                        },
+                        totalPages: Math.max(1, Math.ceil(allStores.length / pageSize)),
+                        totalElements: allStores.length,
+                        last: startIndex + pageSize >= allStores.length,
+                        size: pageSize,
+                        number: currentPage - 1,
+                        sort: { empty: false, sorted: true, unsorted: false },
+                        numberOfElements: paginatedStores.length,
+                        first: currentPage <= 1,
+                        empty: paginatedStores.length === 0,
+                    };
+                }
                 console.log('Manager API response:', data);
             } else if (isFieldOfficer) {
                 // For field officers, use team-based API call only
-                if (!teamId) {
+                if (teamIds.length === 0) {
                     console.log('Field Officer role detected but no teamId available, skipping API call');
                     setCustomers([]);
                     setTotalPages(1);
                     return;
                 }
-                console.log('Field Officer API call for team:', teamId);
-                data = await API.getStoresForTeam(teamId, currentPage - 1, pageSize);
+                console.log('Field Officer API call for team:', teamIds[0]);
+                data = await API.getStoresForTeam(teamIds[0], currentPage - 1, pageSize);
                 console.log('Field Officer API response:', data);
             } else if (isAdmin) {
                 // For admins, use the original API logic
@@ -565,7 +640,7 @@ function CustomerListContent() {
             return;
         }
         fetchFilteredCustomers();
-    }, [isStateHydrated, isRoleDetermined, desktopFilters, currentPage, pageSize, sortColumn, sortDirection, teamId, birthdayToday]);
+    }, [isStateHydrated, isRoleDetermined, desktopFilters, currentPage, pageSize, sortColumn, sortDirection, teamIds, birthdayToday]);
 
     const openDeleteModal = (customerId: string) => {
         setSelectedCustomerId(customerId);

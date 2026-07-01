@@ -31,6 +31,7 @@ import DailyPricingModal from "@/components/DailyPricingModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { isManagerRoleValue, getCorrectedRoleFlags } from "@/lib/auth";
+import { getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 
 
 const DEFAULT_MAP_CENTER: [number, number] = [22.5726, 88.3639];
@@ -438,47 +439,39 @@ export default function DashboardPage() {
     } catch {}
   }, [view, selectedState, selectedEmployee]);
 
-  // Load team members for managers - use teamId from auth context if available
+  // Load all scoped team members for managers. Never fall back to all employees for manager access.
   useEffect(() => {
     const loadTeamMembers = async () => {
       if (!isManager) return;
-      
-      // If we have teamId from auth context, use it to fetch team data
-      if (teamId) {
-        try {
-          console.log('Loading team members using teamId from auth context:', teamId);
-          const teamData: TeamDataDto = await API.getTeamById(teamId);
-          const teamMemberIds = teamData.fieldOfficers.map(fo => fo.id);
-          
-          // Filter employees to only show team members
-          const filteredEmployees = employees.filter(emp => 
-            teamMemberIds.includes(emp.id)
-          );
-          setTeamMembers(filteredEmployees);
-          console.log('Team members loaded:', filteredEmployees.length);
-        } catch (err) {
-          console.error('Failed to load team members using teamId:', err);
-          setError('Failed to load team members');
-        }
-      } else if (userData?.employeeId) {
-        // Fallback: fetch team data by employeeId
+
+      if (userData?.employeeId) {
         try {
           console.log('Loading team members using employeeId:', userData.employeeId);
           const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
-          const teamMemberIds = teamData.flatMap(team => 
-            team.fieldOfficers.map(fo => fo.id)
-          );
-          
-          // Filter employees to only show team members
-          const filteredEmployees = employees.filter(emp => 
-            teamMemberIds.includes(emp.id)
-          );
+          const teamMemberIds = new Set(getUniqueFieldOfficersFromTeams(teamData).map((fo) => fo.id));
+          const filteredEmployees = employees.filter((emp) => teamMemberIds.has(emp.id));
           setTeamMembers(filteredEmployees);
           console.log('Team members loaded:', filteredEmployees.length);
         } catch (err) {
           console.error('Failed to load team members:', err);
           setError('Failed to load team members');
+          setTeamMembers([]);
         }
+      } else if (teamId) {
+        try {
+          console.log('Loading team members using teamId from auth context:', teamId);
+          const teamData: TeamDataDto = await API.getTeamById(teamId);
+          const teamMemberIds = new Set((teamData.fieldOfficers ?? []).map((fo) => fo.id));
+          const filteredEmployees = employees.filter((emp) => teamMemberIds.has(emp.id));
+          setTeamMembers(filteredEmployees);
+          console.log('Team members loaded:', filteredEmployees.length);
+        } catch (err) {
+          console.error('Failed to load team members using teamId:', err);
+          setError('Failed to load team members');
+          setTeamMembers([]);
+        }
+      } else {
+        setTeamMembers([]);
       }
     };
     
@@ -517,7 +510,7 @@ export default function DashboardPage() {
   // Get employees based on user role
   const displayEmployees = useMemo(() => {
     if (isManager) {
-      return teamMembers.length > 0 ? teamMembers : employees; // Fallback to all employees if team not loaded yet
+      return teamMembers;
     }
     return employees; // Admin sees all employees
   }, [isManager, teamMembers, employees]);

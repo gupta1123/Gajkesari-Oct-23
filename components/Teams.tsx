@@ -30,6 +30,7 @@ import {
     Plus,
     Search
 } from 'lucide-react';
+import { buildCityOptions, mergeCityOptions, normalizeCityKey } from '@/lib/city-options';
 
 interface Team {
     id: number;
@@ -48,6 +49,7 @@ interface FieldOfficer {
     lastName: string;
     role: string;
     status: string;
+    teamId?: number | null;
 }
 
 const Teams: React.FC = () => {
@@ -118,6 +120,12 @@ const Teams: React.FC = () => {
                 .sort((a, b) => sortByNameAsc(a.officeManager, b.officeManager));
 
             setTeams(sortedTeams);
+            setAvailableCities((prev) =>
+                mergeCityOptions(
+                    prev,
+                    buildCityOptions(sortedTeams.flatMap((team) => team.officeManager.assignedCity ?? []))
+                )
+            );
             setIsDataAvailable(sortedTeams.length > 0);
         } catch (error) {
             setError(error instanceof Error ? error.message : 'An unknown error occurred');
@@ -142,11 +150,7 @@ const Teams: React.FC = () => {
             }
 
             const data = await response.json();
-            const sortedCities = data
-                .filter((city: string) => city && city.trim() !== '') // Filter out empty cities
-                .sort((a: string, b: string) => a.localeCompare(b))
-                .map((city: string) => ({ value: city, label: city }));
-            setAvailableCities(sortedCities);
+            setAvailableCities((prev) => mergeCityOptions(prev, buildCityOptions(data)));
         } catch (error) {
             console.error('Error fetching cities:', error);
         }
@@ -157,7 +161,7 @@ const Teams: React.FC = () => {
 
         try {
             const promises = cities.map(city =>
-                fetch(`https://api.gajkesaristeels.in/employee/getFieldOfficerByCity?city=${city}`, {
+                fetch(`https://api.gajkesaristeels.in/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                     },
@@ -172,7 +176,7 @@ const Teams: React.FC = () => {
             });
             const currentTeam = teams.find(team => team.officeManager.id === officeManagerId);
             const currentTeamMemberIds = currentTeam ? currentTeam.fieldOfficers.map(officer => officer.id) : [];
-            // Filter out inactive field officers and those already in the team
+            // Show already-assigned officers, but keep them disabled in the picker.
             const availableFieldOfficers = allFieldOfficers.filter((officer: FieldOfficer) => 
                 officer.status !== 'inactive' && !currentTeamMemberIds.includes(officer.id)
             );
@@ -292,6 +296,10 @@ const Teams: React.FC = () => {
 
     const handleAddFieldOfficer = async () => {
         if (!selectedTeamId || selectedFieldOfficers.length === 0 || !token) return;
+        const unassignedSelectedFieldOfficers = selectedFieldOfficers.filter((id) =>
+            fieldOfficers.some((officer) => officer.id === id && officer.teamId == null)
+        );
+        if (unassignedSelectedFieldOfficers.length === 0) return;
 
         setIsSaving(true);
         setModalError(null); // Clear previous errors
@@ -305,7 +313,7 @@ const Teams: React.FC = () => {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        fieldOfficers: selectedFieldOfficers,
+                        fieldOfficers: unassignedSelectedFieldOfficers,
                     }),
                 }
             );
@@ -379,22 +387,6 @@ const Teams: React.FC = () => {
             .join(' ');
     };
 
-    // Get all cities assigned to other teams (excluding current team)
-    const assignedCitiesFromOtherTeams = useMemo(() => {
-        const allAssignedCities = new Set<string>();
-        teams.forEach(team => {
-            // Exclude cities from the current team being edited
-            if (currentTeamId && team.id === currentTeamId) {
-                return;
-            }
-            // Add all cities assigned to other teams
-            team.officeManager.assignedCity.forEach(city => {
-                allAssignedCities.add(city);
-            });
-        });
-        return Array.from(allAssignedCities);
-    }, [teams, currentTeamId]);
-
     const filteredCities = useMemo(() => {
         const query = citySearchTerm.trim().toLowerCase();
         let filtered = availableCities;
@@ -404,14 +396,28 @@ const Teams: React.FC = () => {
             filtered = filtered.filter((city) => city.label.toLowerCase().includes(query));
         }
         
-        // Filter out cities already assigned to other teams
-        filtered = filtered.filter((city) => !assignedCitiesFromOtherTeams.includes(city.value));
-        
-        // Filter out cities already assigned to the current team
-        filtered = filtered.filter((city) => !assignedCities.includes(city.value));
+        const assignedCityKeys = new Set(assignedCities.map(normalizeCityKey));
+        filtered = filtered.filter((city) => !assignedCityKeys.has(normalizeCityKey(city.value)));
         
         return filtered;
-    }, [availableCities, citySearchTerm, assignedCitiesFromOtherTeams, assignedCities]);
+    }, [availableCities, citySearchTerm, assignedCities]);
+
+    const cityAssignments = useMemo(() => {
+        const assignments = new Map<string, string[]>();
+
+        teams.forEach((team) => {
+            const managerName =
+                [team.officeManager.firstName, team.officeManager.lastName].filter(Boolean).join(' ').trim() ||
+                `Team ${team.id}`;
+            team.officeManager.assignedCity.forEach((city) => {
+                const key = city.trim().toLowerCase();
+                if (!key) return;
+                assignments.set(key, Array.from(new Set([...(assignments.get(key) ?? []), managerName])));
+            });
+        });
+
+        return assignments;
+    }, [teams]);
 
     const cityTriggerLabel = useMemo(() => {
         if (selectedCities.length === 0) return "Select cities";
@@ -807,6 +813,11 @@ const Teams: React.FC = () => {
                                                             >
                                                                 {toSentenceCase(city.label)}
                                                             </label>
+                                                            {(cityAssignments.get(normalizeCityKey(city.value)) ?? []).length > 0 && (
+                                                                <Badge variant="outline" className="max-w-[130px] truncate text-[10px] font-normal">
+                                                                    Assigned to {(cityAssignments.get(normalizeCityKey(city.value)) ?? []).join(', ')}
+                                                                </Badge>
+                                                            )}
                                                         </div>
                                                     ))}
                                             </div>
@@ -875,28 +886,58 @@ const Teams: React.FC = () => {
                                     <div className="text-sm text-muted-foreground py-4 text-center">
                                         No available field officers found
                                     </div>
-                                ) : (
-                                    fieldOfficers.map((officer) => (
-                                        <div key={officer.id} className="flex items-center space-x-2">
-                                            <div className="flex items-center w-full">
-                                                <Checkbox
-                                                    id={`officer-${officer.id}`}
-                                                    checked={selectedFieldOfficers.includes(officer.id)}
-                                                    onCheckedChange={(checked) => {
-                                                        setSelectedFieldOfficers(prev =>
-                                                            checked
-                                                                ? [...prev, officer.id]
-                                                                : prev.filter(id => id !== officer.id)
-                                                        );
-                                                    }}
-                                                />
-                                                <Label htmlFor={`officer-${officer.id}`} className="ml-2 text-sm text-foreground">
-                                                    {`${officer.firstName} ${officer.lastName} (${officer.role})`}
-                                                </Label>
+                                ) : (() => {
+                                    const unassignedOfficers = fieldOfficers.filter((officer) => officer.teamId == null);
+                                    const assignedOfficers = fieldOfficers.filter((officer) => officer.teamId != null);
+
+                                    return (
+                                        <div className="space-y-4">
+                                            <div className="space-y-2">
+                                                <div className="text-xs font-medium text-muted-foreground">Unassigned</div>
+                                                {unassignedOfficers.length === 0 ? (
+                                                    <div className="text-xs text-muted-foreground">No unassigned officers found</div>
+                                                ) : unassignedOfficers.map((officer) => (
+                                                    <div key={officer.id} className="flex items-center space-x-2">
+                                                        <div className="flex items-center w-full">
+                                                            <Checkbox
+                                                                id={`officer-${officer.id}`}
+                                                                checked={selectedFieldOfficers.includes(officer.id)}
+                                                                onCheckedChange={(checked) => {
+                                                                    setSelectedFieldOfficers(prev =>
+                                                                        checked
+                                                                            ? [...prev, officer.id]
+                                                                            : prev.filter(id => id !== officer.id)
+                                                                    );
+                                                                }}
+                                                            />
+                                                            <Label htmlFor={`officer-${officer.id}`} className="ml-2 text-sm text-foreground">
+                                                                {`${officer.firstName} ${officer.lastName} (${officer.role})`}
+                                                            </Label>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="space-y-2 border-t pt-3">
+                                                <div className="text-xs font-medium text-muted-foreground">Already Assigned</div>
+                                                {assignedOfficers.length === 0 ? (
+                                                    <div className="text-xs text-muted-foreground">No assigned officers found</div>
+                                                ) : assignedOfficers.map((officer) => (
+                                                    <div key={officer.id} className="flex items-center justify-between gap-2 opacity-80">
+                                                        <div className="flex min-w-0 items-center">
+                                                            <Checkbox id={`officer-assigned-${officer.id}`} checked={false} disabled />
+                                                            <Label htmlFor={`officer-assigned-${officer.id}`} className="ml-2 truncate text-sm text-muted-foreground">
+                                                                {`${officer.firstName} ${officer.lastName} (${officer.role})`}
+                                                            </Label>
+                                                        </div>
+                                                        <Badge variant="outline" className="shrink-0 text-xs">
+                                                            Team {officer.teamId}
+                                                        </Badge>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
-                                    ))
-                                )}
+                                    );
+                                })()}
                             </div>
                         </div>
                         {modalError && (
@@ -911,7 +952,11 @@ const Teams: React.FC = () => {
                         </Button>
                         <Button 
                             onClick={handleAddFieldOfficer} 
-                            disabled={selectedFieldOfficers.length === 0 || isSaving}
+                            disabled={
+                                selectedFieldOfficers.filter((id) =>
+                                    fieldOfficers.some((officer) => officer.id === id && officer.teamId == null)
+                                ).length === 0 || isSaving
+                            }
                         >
                             {isSaving ? (
                                 <>

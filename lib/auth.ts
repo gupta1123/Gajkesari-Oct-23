@@ -16,6 +16,11 @@ export const isManagerRoleValue = (value: string | null | undefined): boolean =>
   return normalized === 'MANAGER' ||
     normalized === 'ROLE MANAGER' ||
     normalized === 'ROLE_MANAGER' ||
+    normalized === 'REGIONAL MANAGER' ||
+    normalized === 'REGIONAL_MANAGER' ||
+    normalized === 'ROLE REGIONAL MANAGER' ||
+    normalized === 'ROLE_REGIONAL MANAGER' ||
+    normalized === 'ROLE_REGIONAL_MANAGER' ||
     normalized === 'OFFICE MANAGER' ||
     normalized === 'OFFICE_MANAGER' ||
     normalized === 'ROLE OFFICE MANAGER' ||
@@ -30,6 +35,28 @@ export const hasManagerPrivileges = (userRole: string | null, currentUser?: Curr
 
   const authorities = currentUser?.authorities ?? [];
   return authorities.some((auth) => isManagerRoleValue(auth.authority));
+};
+
+export const isAdminSetupRoleValue = (value: string | null | undefined): boolean => {
+  const normalized = normalizeRoleValue(value);
+  return normalized === 'ADMIN' ||
+    normalized === 'ROLE ADMIN' ||
+    normalized === 'ROLE_ADMIN' ||
+    normalized === 'OWNER' ||
+    normalized === 'ROLE OWNER' ||
+    normalized === 'ROLE_OWNER' ||
+    normalized === 'DEVELOPER' ||
+    normalized === 'ROLE DEVELOPER' ||
+    normalized === 'ROLE_DEVELOPER';
+};
+
+export const hasAdminSetupPrivileges = (userRole: string | null, currentUser?: CurrentUserDto | null): boolean => {
+  if (isAdminSetupRoleValue(userRole)) {
+    return true;
+  }
+
+  const authorities = currentUser?.authorities ?? [];
+  return authorities.some((auth) => isAdminSetupRoleValue(auth.authority));
 };
 
 /**

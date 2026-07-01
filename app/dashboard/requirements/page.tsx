@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { API, type TeamDataDto } from '@/lib/api';
 import { hasManagerPrivileges } from '@/lib/auth';
+import { getTeamIds, getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sortBy, uniqBy } from 'lodash';
 import { Button } from "@/components/ui/button";
@@ -106,6 +107,7 @@ const Requirements = () => {
     const [selectedStatus, setSelectedStatus] = useState<string>('');
     const [taskToUpdate, setTaskToUpdate] = useState<number | null>(null);
     const [teamId, setTeamId] = useState<number | null>(null);
+    const [teamIds, setTeamIds] = useState<number[]>([]);
     const [isManager, setIsManager] = useState(false);
     const [teamMembers, setTeamMembers] = useState<Employee[]>([]);
     const [isTabLoading, setIsTabLoading] = useState(false);
@@ -145,27 +147,27 @@ const Requirements = () => {
                 const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
                 
                 if (teamData && teamData.length > 0) {
-                    const team = teamData[0];
-                    const teamId = team.id;
-                    setTeamId(teamId);
-                    console.log('Team ID loaded:', teamId);
-                    
-                    // Load team members for assignment dropdown
-                    const teamMemberIds = team.fieldOfficers.map(fo => fo.id);
-                    console.log('Team member IDs:', teamMemberIds);
-                    
-                    // Filter all employees to only show team members
-                    const filteredTeamMembers = allEmployees.filter(emp => 
-                        teamMemberIds.includes(emp.id)
-                    );
+                    const accessibleTeamIds = getTeamIds(teamData);
+                    setTeamIds(accessibleTeamIds);
+                    setTeamId(accessibleTeamIds[0] ?? null);
+                    console.log('Team IDs loaded:', accessibleTeamIds);
+
+                    const teamMemberIds = new Set(getUniqueFieldOfficersFromTeams(teamData).map((fo) => fo.id));
+                    const filteredTeamMembers = allEmployees.filter((emp) => teamMemberIds.has(emp.id));
                     setTeamMembers(filteredTeamMembers);
                     console.log('Team members loaded:', filteredTeamMembers.length);
                 } else {
                     console.warn('No team data found for manager');
+                    setTeamId(null);
+                    setTeamIds([]);
+                    setTeamMembers([]);
                     setErrorMessage('No team data found for this manager');
                 }
             } catch (err) {
                 console.error('Failed to load team data:', err);
+                setTeamId(null);
+                setTeamIds([]);
+                setTeamMembers([]);
                 setErrorMessage('Failed to load team data');
             }
         };
@@ -225,7 +227,7 @@ const Requirements = () => {
         if (!token) return;
         
         // For managers, wait until we have teamId
-        if (isManager && !teamId) {
+        if (isManager && teamIds.length === 0) {
             console.log('⏳ Manager detected but no teamId yet - waiting for team data');
             return;
         }
@@ -237,10 +239,50 @@ const Requirements = () => {
             let url: string;
             
             // Use different API endpoints based on user role
-            if (isManager && teamId) {
-                // For managers, use team-based API with teamId
-                url = `https://api.gajkesaristeels.in/task/getByTeam?id=${teamId}`;
-                console.log('Using MANAGER API:', url, 'Team ID:', teamId);
+            if (isManager) {
+                const responses = await Promise.all(teamIds.map((id) =>
+                    fetch(`https://api.gajkesaristeels.in/task/getByTeam?id=${id}`, {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                    })
+                ));
+
+                const failedResponse = responses.find((response) => !response.ok);
+                if (failedResponse) {
+                    const errorText = await failedResponse.text();
+                    throw new Error(`API request failed: ${failedResponse.status} ${errorText}`);
+                }
+
+                const payloads = await Promise.all(responses.map((response) => response.json()));
+                const uniqueTasks = new Map<number, Record<string, unknown>>();
+                payloads.flatMap((payload) => Array.isArray(payload) ? payload : []).forEach((task) => {
+                    uniqueTasks.set(Number(task.id) || uniqueTasks.size, task);
+                });
+                const data = Array.from(uniqueTasks.values());
+                const tasksArray = data
+                    .filter((task: Record<string, unknown>) => task.taskType === 'requirement')
+                    .map((task: Record<string, unknown>) => ({
+                        id: Number(task.id) || 0,
+                        taskTitle: String(task.taskTitle || ''),
+                        taskDesciption: String(task.taskDesciption || task.taskDescription || ''),
+                        dueDate: String(task.dueDate || ''),
+                        assignedToId: Number(task.assignedToId) || 0,
+                        assignedToName: String(task.assignedToName || 'Unknown'),
+                        assignedById: Number(task.assignedById) || 0,
+                        status: String(task.status || ''),
+                        priority: String(task.priority || ''),
+                        category: String(task.category || ''),
+                        storeId: Number(task.storeId) || 0,
+                        storeName: String(task.storeName || ''),
+                        storeCity: String(task.storeCity || ''),
+                        taskType: String(task.taskType || ''),
+                    } as Task))
+                    .sort((a: Task, b: Task) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
+
+                setTasks(tasksArray);
+                setIsLoading(false);
+                return;
             } else {
                 // For admins, use date-based API
                 const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
@@ -290,7 +332,7 @@ const Requirements = () => {
             console.error('Error fetching tasks:', error);
             setIsLoading(false);
         }
-    }, [token, userRole, userData, isManager, teamId, filters.startDate, filters.endDate]);
+    }, [token, userRole, userData, isManager, teamIds, filters.startDate, filters.endDate]);
 
     const fetchEmployees = useCallback(async () => {
         if (!token) return;
@@ -368,7 +410,7 @@ const Requirements = () => {
     }, [fetchEmployees]);
 
     // Get employees for assignment dropdown based on user role
-    const assignmentEmployees = isManager && teamMembers.length > 0 ? teamMembers : allEmployees;
+    const assignmentEmployees = isManager ? teamMembers : allEmployees;
 
     useEffect(() => {
         if (isModalOpen) {
@@ -389,7 +431,7 @@ const Requirements = () => {
 
     // Populate employee options for SearchableSelect
     useEffect(() => {
-        const assignmentEmployees = isManager && teamMembers.length > 0 ? teamMembers : allEmployees;
+        const assignmentEmployees = isManager ? teamMembers : allEmployees;
         const options = assignmentEmployees.map(emp => ({
             value: emp.id.toString(),
             label: `${emp.firstName} ${emp.lastName}`

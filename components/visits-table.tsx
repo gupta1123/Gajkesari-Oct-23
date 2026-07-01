@@ -37,6 +37,7 @@ import { API, type VisitDto, type VisitResponse, type EmployeeUserDto, type Team
 import { format as formatDate } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { hasManagerPrivileges, getCorrectedRoleFlags } from "@/lib/auth";
+import { getTeamIds, getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 import { formatTimeTo12Hour, formatDateToUserFriendly, formatLastUpdated } from "@/lib/utils";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 
@@ -140,6 +141,7 @@ export default function VisitsTable() {
   // Role-based state
   const [isManager, setIsManager] = useState(false);
   const [teamMembers, setTeamMembers] = useState<EmployeeUserDto[]>([]);
+  const [managerTeamIds, setManagerTeamIds] = useState<number[]>([]);
   // Use teamId from auth context as primary source, with local state as fallback
   const authTeamId = teamId; // from useAuth hook
   const [localTeamId, setLocalTeamId] = useState<number | null>(null);
@@ -257,7 +259,7 @@ export default function VisitsTable() {
 
   const employeeOptions = useMemo<SearchableOption[]>(() => {
     // For managers, use team members (field officers); for admins, use all employees
-    const employeesToUse = isManager && teamMembers.length > 0 ? teamMembers : employees;
+    const employeesToUse = isManager ? teamMembers : employees;
     
     const base = employeesToUse.map((employee) => {
       const identifier = employee.userDto?.employeeId ?? null;
@@ -339,33 +341,25 @@ export default function VisitsTable() {
     checkUserRole();
   }, [userRole, currentUser, teamId, correctedRoleFlags]);
 
-  // Use teamId from auth context if available, otherwise fetch it
+  // Use all team data for managers. Do not widen manager filters to all employees.
   useEffect(() => {
     const loadTeamMembers = async () => {
-      // If teamId is already available from auth context, use it (preferred)
-      if (authTeamId) {
-        console.log('Using teamId from auth context:', authTeamId);
-        setLocalTeamId(authTeamId);
-        return;
-      }
-
-      // Otherwise, fetch it if user is a manager (fallback for edge cases)
       if (!isManager || !userData?.employeeId) return;
 
       try {
         console.log('Loading team members for manager employee ID:', userData.employeeId);
         const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
-        console.log('Team data received:', teamData);
-        console.log('Team data structure:', JSON.stringify(teamData, null, 2));
         
         if (teamData && teamData.length > 0) {
-          // Extract team ID from the first team (assuming manager has one team)
-          const firstTeam = teamData[0];
-          setLocalTeamId(firstTeam.id);
-          console.log('Team ID set to:', firstTeam.id);
+          const accessibleTeamIds = getTeamIds(teamData);
+          setManagerTeamIds(accessibleTeamIds);
+          setLocalTeamId(accessibleTeamIds[0] ?? null);
+          setTeamMembers(getUniqueFieldOfficersFromTeams(teamData));
+          console.log('Team IDs set to:', accessibleTeamIds);
         } else {
           console.log('No team data found for manager');
           setLocalTeamId(null);
+          setManagerTeamIds([]);
           setTeamMembers([]);
         }
       } catch (err) {
@@ -373,19 +367,23 @@ export default function VisitsTable() {
         console.error('Error details:', (err as Error).message, (err as Error).stack);
         setError('Failed to load team members');
         setLocalTeamId(null);
+        setManagerTeamIds([]);
         setTeamMembers([]);
       }
     };
 
     if (isManager && userData?.employeeId) {
       loadTeamMembers();
+    } else if (isManager && authTeamId) {
+      setLocalTeamId(authTeamId);
+      setManagerTeamIds([authTeamId]);
     }
   }, [isManager, userData?.employeeId, authTeamId]);
 
-  // Fetch field officers from team endpoint for managers
+  // Fallback field-officer load only when employeeId-based team data is unavailable.
   useEffect(() => {
     const loadFieldOfficers = async () => {
-      if (!isManager || !effectiveTeamId) return;
+      if (!isManager || !effectiveTeamId || userData?.employeeId) return;
 
       try {
         console.log('Loading field officers for team ID:', effectiveTeamId);
@@ -435,17 +433,17 @@ export default function VisitsTable() {
       }
     };
 
-    if (isManager && effectiveTeamId) {
+    if (isManager && effectiveTeamId && !userData?.employeeId) {
       loadFieldOfficers();
     }
-  }, [isManager, effectiveTeamId]);
+  }, [isManager, effectiveTeamId, userData?.employeeId]);
 
   useEffect(() => {
     if (!isStateHydrated) return;
     if (!startDate || !endDate) return;
     
     // For managers, wait until we have teamId
-    if (isManager && !effectiveTeamId) {
+    if (isManager && managerTeamIds.length === 0) {
       console.log('⏳ Manager detected but no teamId yet - waiting for team data');
       return;
     }
@@ -453,7 +451,7 @@ export default function VisitsTable() {
     const startStr = formatDate(startDate, 'yyyy-MM-dd');
     const endStr = formatDate(endDate, 'yyyy-MM-dd');
     // For managers, use team members; for admins, use all employees
-    const employeesToSearch = isManager && teamMembers.length > 0 ? teamMembers : employees;
+    const employeesToSearch = isManager ? teamMembers : employees;
     const selectedEmployee = selectedExecutive !== 'all'
       ? employeesToSearch.find(emp => String(emp.id) === selectedExecutive)
       : undefined;
@@ -475,7 +473,7 @@ export default function VisitsTable() {
           storeName: storeNameFilter,
           purpose: purposeFilter,
           isManager,
-          teamId: effectiveTeamId,
+          teamIds: managerTeamIds,
           teamMemberCount: teamMembers.length,
           userRole: userRole,
           currentUserAuthorities: currentUser?.authorities,
@@ -487,7 +485,7 @@ export default function VisitsTable() {
         // Use team-specific API for managers, regular API for admins
         console.log('🔍 API Selection Debug:', {
           isManager,
-          teamId: effectiveTeamId,
+          teamIds: managerTeamIds,
           userRole,
           currentUserAuthorities: currentUser?.authorities,
           userDataEmployeeId: userData?.employeeId,
@@ -495,22 +493,68 @@ export default function VisitsTable() {
           employeeName: employeeNameFilter
         });
 
-        if (isManager && effectiveTeamId) {
+        if (isManager && managerTeamIds.length > 0) {
           console.log('🔵 MANAGER DETECTED - Using team-specific API');
-          console.log('Team ID:', effectiveTeamId);
+          console.log('Team IDs:', managerTeamIds);
           console.log('API Endpoint: /visit/getForTeam');
-          response = await API.getVisitsForTeam(
-            effectiveTeamId,
-            startStr,
-            endStr,
-            currentPage,
-            pageSize,
-            'visitDate,desc',
-            purposeFilter,
-            undefined, // priority filter
-            storeNameFilter,
-            employeeNameFilter
-          );
+          if (managerTeamIds.length === 1) {
+            response = await API.getVisitsForTeam(
+              managerTeamIds[0],
+              startStr,
+              endStr,
+              currentPage,
+              pageSize,
+              'visitDate,desc',
+              purposeFilter,
+              undefined,
+              storeNameFilter,
+              employeeNameFilter
+            );
+          } else {
+            const responses = await Promise.all(managerTeamIds.map((id) =>
+              API.getVisitsForTeam(
+                id,
+                startStr,
+                endStr,
+                0,
+                1000,
+                'visitDate,desc',
+                purposeFilter,
+                undefined,
+                storeNameFilter,
+                employeeNameFilter
+              )
+            ));
+            const uniqueVisits = new Map<number, VisitDto>();
+            responses.flatMap((item) => item.content ?? []).forEach((visit) => {
+              uniqueVisits.set(visit.id, visit);
+            });
+            const allVisits = Array.from(uniqueVisits.values()).sort((a, b) =>
+              String(b.visit_date ?? '').localeCompare(String(a.visit_date ?? ''))
+            );
+            const startIndex = currentPage * pageSize;
+            const paginatedVisits = allVisits.slice(startIndex, startIndex + pageSize);
+            response = {
+              content: paginatedVisits,
+              pageable: {
+                pageNumber: currentPage,
+                pageSize,
+                sort: { empty: false, sorted: true, unsorted: false },
+                offset: startIndex,
+                paged: true,
+                unpaged: false,
+              },
+              totalPages: Math.max(1, Math.ceil(allVisits.length / pageSize)),
+              totalElements: allVisits.length,
+              last: startIndex + pageSize >= allVisits.length,
+              size: pageSize,
+              number: currentPage,
+              sort: { empty: false, sorted: true, unsorted: false },
+              numberOfElements: paginatedVisits.length,
+              first: currentPage === 0,
+              empty: paginatedVisits.length === 0,
+            };
+          }
         } else {
           console.log('🟢 ADMIN DETECTED - Using regular API');
           console.log('Reason:', !isManager ? 'Not a manager' : 'No teamId');
@@ -572,7 +616,7 @@ export default function VisitsTable() {
       }
     };
     run();
-  }, [isStateHydrated, startDate, endDate, selectedPurpose, customerName, currentPage, pageSize, isManager, effectiveTeamId, selectedExecutive, employees]);
+  }, [isStateHydrated, startDate, endDate, selectedPurpose, customerName, currentPage, pageSize, isManager, managerTeamIds, selectedExecutive, employees, teamMembers]);
 
   // Reset to first page when filters change
   useEffect(() => {
@@ -663,15 +707,17 @@ export default function VisitsTable() {
       const size = 200;
       let page = 0;
       let all: VisitDto[] = [];
-      const employeesToSearch = isManager && teamMembers.length > 0 ? teamMembers : employees;
+      const employeesToSearch = isManager ? teamMembers : employees;
       const selectedEmployee = selectedExecutive !== 'all'
         ? employeesToSearch.find(emp => String(emp.id) === selectedExecutive)
         : undefined;
       const employeeNameFilter = selectedEmployee ? buildEmployeeFilterName(selectedEmployee) : undefined;
 
-      const first = isManager && effectiveTeamId
-        ? await API.getVisitsForTeam(
-            effectiveTeamId,
+      if (isManager) {
+        for (const teamAccessId of managerTeamIds) {
+          page = 0;
+          const first = await API.getVisitsForTeam(
+            teamAccessId,
             startStr,
             endStr,
             page,
@@ -681,22 +727,13 @@ export default function VisitsTable() {
             undefined,
             customerName.trim() !== '' ? customerName : undefined,
             employeeNameFilter
-          )
-        : await API.getVisitsByDateSortedOld(
-            startStr,
-            endStr,
-            page,
-            size,
-            'id,desc',
-            employeeNameFilter
           );
-      all = all.concat(first.content || []);
-      const total = first.totalPages || 1;
+          all = all.concat(first.content || []);
+          const total = first.totalPages || 1;
 
-      for (page = 1; page < total; page++) {
-        const res = isManager && effectiveTeamId
-          ? await API.getVisitsForTeam(
-              effectiveTeamId,
+          for (page = 1; page < total; page++) {
+            const res = await API.getVisitsForTeam(
+              teamAccessId,
               startStr,
               endStr,
               page,
@@ -706,17 +743,36 @@ export default function VisitsTable() {
               undefined,
               customerName.trim() !== '' ? customerName : undefined,
               employeeNameFilter
-            )
-          : await API.getVisitsByDateSortedOld(
-              startStr,
-              endStr,
-              page,
-              size,
-              'id,desc',
-              employeeNameFilter
             );
-        all = all.concat(res.content || []);
+            all = all.concat(res.content || []);
+          }
+        }
+      } else {
+        const first = await API.getVisitsByDateSortedOld(
+          startStr,
+          endStr,
+          page,
+          size,
+          'id,desc',
+          employeeNameFilter
+        );
+        all = all.concat(first.content || []);
+        const total = first.totalPages || 1;
+
+        for (page = 1; page < total; page++) {
+          const res = await API.getVisitsByDateSortedOld(
+            startStr,
+            endStr,
+            page,
+            size,
+            'id,desc',
+            employeeNameFilter
+          );
+          all = all.concat(res.content || []);
+        }
       }
+
+      all = Array.from(new Map(all.map((visit) => [visit.id, visit])).values());
 
       // Filter visits based on role
       if (isManager && teamMembers.length > 0) {
@@ -789,7 +845,7 @@ export default function VisitsTable() {
           <div className="mb-4 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
             Loading visits data...
           </div>
-        ) : isManager && !effectiveTeamId ? (
+        ) : isManager && managerTeamIds.length === 0 ? (
           <div className="mb-4 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-3">
             🔵 Manager detected - Loading team data...
           </div>

@@ -33,7 +33,8 @@ import AddTeam from "@/components/AddTeam";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
-import { isManagerRoleValue, normalizeRoleValue } from "@/lib/auth";
+import { hasAdminSetupPrivileges, isManagerRoleValue, normalizeRoleValue } from "@/lib/auth";
+import { getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 interface User {
@@ -96,7 +97,7 @@ function EmployeeList() {
   const searchParamsString = searchParams.toString();
 
   const [users, setUsers] = useState<User[]>([]);
-  const [teamData, setTeamData] = useState<TeamData | null>(null);
+  const [teamData, setTeamData] = useState<TeamData[] | null>(null);
   const [officeManager, setOfficeManager] = useState<OfficeManager | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +131,7 @@ const [deleteCandidate, setDeleteCandidate] = useState<User | null>(null);
 const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const { token, userRole, userData, currentUser } = useAuth();
+  const canManageTeamSetup = hasAdminSetupPrivileges(userRole, currentUser);
   const employeeId = userData?.employeeId ? String(userData.employeeId) : (typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null);
   const officeManagerId = typeof window !== 'undefined' ? localStorage.getItem('officeManagerId') : null;
   const normalizedRole = normalizeRoleValue(userRole);
@@ -157,9 +159,9 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
           throw new Error('No team data found for the manager');
         }
 
-        const team = teamData[0];
-        setTeamData(team);
-        setUsers(team.fieldOfficers.map((user: User) => ({ ...user, userName: user.userDto?.username || "" })));
+        setTeamData(teamData);
+        const scopedFieldOfficers = getUniqueFieldOfficersFromTeams(teamData);
+        setUsers(scopedFieldOfficers.map((user: User) => ({ ...user, userName: user.userDto?.username || "" })));
       } else {
         const response = await fetch('https://api.gajkesaristeels.in/employee/getAll', {
           headers: {
@@ -594,7 +596,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
               </DropdownMenuContent>
             </DropdownMenu>
             
-            <AddTeam />
+            {canManageTeamSetup && <AddTeam />}
             
             <Button 
               onClick={() => {

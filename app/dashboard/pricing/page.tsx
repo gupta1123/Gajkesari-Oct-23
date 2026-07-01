@@ -28,6 +28,7 @@ import { Loader, CalendarIcon } from "lucide-react";
 import { API, type TeamDataDto } from "@/lib/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SpacedCalendar } from "@/components/ui/spaced-calendar";
+import { getTeamIds } from "@/lib/team-access";
 
 interface Brand {
     id: number;
@@ -57,8 +58,7 @@ const PricingPage = () => {
     const [showGajkesariRate, setShowGajkesariRate] = useState(false);
     const [fieldOfficers, setFieldOfficers] = useState<string[]>([]);
     const [selectedFieldOfficer, setSelectedFieldOfficer] = useState("all");
-    const [teamId, setTeamId] = useState<number | null>(null);
-    const [teamData, setTeamData] = useState<TeamDataDto[]>([]);
+    const [teamIds, setTeamIds] = useState<number[]>([]);
     const [teamLoading, setTeamLoading] = useState(false);
     const [teamError, setTeamError] = useState<string | null>(null);
 
@@ -69,11 +69,13 @@ const PricingPage = () => {
     const [isAdmin, setIsAdmin] = useState(false);
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
     const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
+    const [isRoleDetermined, setIsRoleDetermined] = useState(false);
 
     // Fetch current user data to determine role
     useEffect(() => {
         const fetchCurrentUser = async () => {
             if (!token) return;
+            setIsRoleDetermined(false);
             
             try {
                 const response = await fetch('https://api.gajkesaristeels.in/user/manage/current-user', {
@@ -111,6 +113,8 @@ const PricingPage = () => {
                 }
             } catch (error) {
                 console.error('Error fetching current user:', error);
+            } finally {
+                setIsRoleDetermined(true);
             }
         };
 
@@ -127,21 +131,18 @@ const PricingPage = () => {
             
             try {
                 const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
-                setTeamData(teamData);
                 
-                // Get the first team ID (assuming manager/field officer has one primary team)
                 if (teamData.length > 0) {
-                    setTeamId(teamData[0].id);
+                    const accessibleTeamIds = getTeamIds(teamData);
+                    setTeamIds(accessibleTeamIds);
                 } else {
                     setTeamError('No team data found for this user');
-                    // Fallback to hardcoded team ID
-                    setTeamId(51);
+                    setTeamIds([]);
                 }
             } catch (err) {
                 console.error('Failed to load team data:', err);
                 setTeamError('Failed to load team data');
-                // Fallback to hardcoded team ID if API fails
-                setTeamId(51);
+                setTeamIds([]);
             } finally {
                 setTeamLoading(false);
             }
@@ -151,10 +152,12 @@ const PricingPage = () => {
     }, [isManager, isFieldOfficer, userData?.employeeId]);
 
     useEffect(() => {
+        if (!isRoleDetermined) return;
         fetchData();
-    }, [selectedCity, selectedDate, teamId]);
+    }, [selectedCity, selectedDate, teamIds, isRoleDetermined, isAdmin, isManager, isFieldOfficer]);
 
     const fetchData = async () => {
+        if (!isRoleDetermined) return;
         setIsLoading(true);
         await Promise.all([fetchBrandData(), fetchPreviousDayData()]);
         setIsLoading(false);
@@ -162,42 +165,39 @@ const PricingPage = () => {
 
     const fetchBrandData = useCallback(async () => {
         if (!token) return;
-        
-   
-        if ((isManager || isFieldOfficer) && (teamId === null || teamId === undefined)) return;
+        if ((isManager || isFieldOfficer) && teamIds.length === 0) return;
         
         try {
             const formattedStartDate = format(new Date(selectedDate), 'yyyy-MM-dd');
             const formattedEndDate = format(new Date(selectedDate), 'yyyy-MM-dd');
 
-            console.log('fetchBrandData - isManager:', isManager, 'teamId:', teamId);
+            console.log('fetchBrandData - isManager:', isManager, 'teamIds:', teamIds);
 
-            let url: string;
-            
-            if (isManager && teamId !== null) {
-                // For managers, use team-based API call
-                url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
-                console.log('Manager API call:', url);
-            } else if (isAdmin) {
-                // For admins, use the original API call
-                url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
-                console.log('Admin API call:', url);
-            } else if (isFieldOfficer) {
-                // For field officers, use team-based API call (same as manager for now)
-                url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
-                console.log('Field Officer API call:', url);
+            let data: Brand[];
+
+            if (isManager || isFieldOfficer) {
+                const responses = await Promise.all(teamIds.map(async (id) => {
+                    const url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${id}&start=${formattedStartDate}&end=${formattedEndDate}`;
+                    console.log('Team pricing API call:', url);
+                    const response = await fetch(url, {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                    });
+                    return response.json() as Promise<Brand[]>;
+                }));
+                data = Array.from(new Map(responses.flat().map((brand) => [brand.id, brand])).values());
             } else {
-                // Default to admin API call
-                url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
-                console.log('Default (Admin) API call:', url);
+                const url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
+                console.log(isAdmin ? 'Admin API call:' : 'Default (Admin) API call:', url);
+                const response = await fetch(url, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+                data = await response.json();
             }
 
-            const response = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data: Brand[] = await response.json();
             setBrandData(data);
 
             const uniqueCities = Array.from(new Set(data.map(brand =>
@@ -228,48 +228,45 @@ const PricingPage = () => {
             setGajkesariRate(0);
             setShowGajkesariRate(false);
         }
-    }, [selectedDate, token, selectedCity, isManager, teamId]);
+    }, [selectedDate, token, selectedCity, isAdmin, isManager, isFieldOfficer, teamIds]);
 
     const fetchPreviousDayData = useCallback(async () => {
         if (!token) return;
-        
-       
-        if ((isManager || isFieldOfficer) && (teamId === null || teamId === undefined)) return;
+        if ((isManager || isFieldOfficer) && teamIds.length === 0) return;
         
         const previousDay = format(new Date(new Date(selectedDate).getTime() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
         try {
-            let url: string;
-            
-            if (isManager && teamId !== null) {
-                // For managers, use team-based API call
-                url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${teamId}&start=${previousDay}&end=${previousDay}`;
-                console.log('Manager Previous Day API call:', url);
-            } else if (isAdmin) {
-                // For admins, use the original API call
-                url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${previousDay}&end=${previousDay}`;
-                console.log('Admin Previous Day API call:', url);
-            } else if (isFieldOfficer) {
+            let data: Brand[];
 
-                url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${teamId}&start=${previousDay}&end=${previousDay}`;
-                console.log('Field Officer Previous Day API call:', url);
+            if (isManager || isFieldOfficer) {
+                const responses = await Promise.all(teamIds.map(async (id) => {
+                    const url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${id}&start=${previousDay}&end=${previousDay}`;
+                    console.log('Team Previous Day API call:', url);
+                    const response = await fetch(url, {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                    });
+                    return response.json() as Promise<Brand[]>;
+                }));
+                data = Array.from(new Map(responses.flat().map((brand) => [brand.id, brand])).values());
             } else {
-                // Default to admin API call
-                url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${previousDay}&end=${previousDay}`;
-                console.log('Default (Admin) Previous Day API call:', url);
+                const url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${previousDay}&end=${previousDay}`;
+                console.log(isAdmin ? 'Admin Previous Day API call:' : 'Default (Admin) Previous Day API call:', url);
+                const response = await fetch(url, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+                data = await response.json();
             }
 
-            const response = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data: Brand[] = await response.json();
             setPreviousDayData(data);
         } catch (error) {
             console.error('Error fetching previous day data:', error);
             setPreviousDayData([]);
         }
-    }, [selectedDate, token, isManager, teamId]);
+    }, [selectedDate, token, isAdmin, isManager, isFieldOfficer, teamIds]);
 
     const filteredBrands = brandData.filter(brand => {
         const cityMatch = selectedCity === "all" || (brand.brandName.toLowerCase() === 'gajkesari' ? brand.city === selectedCity : brand.employeeDto?.city === selectedCity);
@@ -344,8 +341,8 @@ const PricingPage = () => {
                                 {(isManager || isFieldOfficer) && (
                                     <p>
                                         {teamLoading ? 'Loading team data...' : 
-                                         teamError ? `Error: ${teamError} (Using fallback Team ID: ${teamId})` :
-                                         teamId ? `Team-based view (Team ID: ${teamId})` : 
+                                         teamError ? `Error: ${teamError}` :
+                                         teamIds.length > 0 ? `Team-based view (Team IDs: ${teamIds.join(', ')})` : 
                                          'No team data available'}
                                     </p>
                                 )}

@@ -18,6 +18,7 @@ import {
 import { useAuth } from '@/components/auth-provider';
 import { isManagerRoleValue, normalizeRoleValue } from '@/lib/auth';
 import { API, type TeamDataDto } from '@/lib/api';
+import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 
 // UI Components
 import { Card } from '@/components/ui/card';
@@ -71,6 +72,7 @@ export default function ApprovalsPage() {
     const [isManager, setIsManager] = useState(false);
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
     const [teamId, setTeamId] = useState<number | null>(null);
+    const [teamMemberIds, setTeamMemberIds] = useState<number[]>([]);
 
     // --- 1. Initial Data Loading ---
     useEffect(() => {
@@ -101,9 +103,11 @@ export default function ApprovalsPage() {
             if ((!isManager && !isFieldOfficer) || !userData?.employeeId) return;
             try {
                 const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
-                setTeamId(teamData.length > 0 ? teamData[0].id : 6);
+                setTeamId(teamData.length > 0 ? teamData[0].id : null);
+                setTeamMemberIds(getUniqueFieldOfficersFromTeams(teamData).map((officer) => officer.id));
             } catch (err) {
-                setTeamId(6); // Fallback
+                setTeamId(null);
+                setTeamMemberIds([]);
             }
         };
         loadTeamData();
@@ -111,7 +115,7 @@ export default function ApprovalsPage() {
 
     useEffect(() => {
         if (token) fetchRequests();
-    }, [token, teamId]);
+    }, [token, teamId, teamMemberIds, isManager, isFieldOfficer, userData?.employeeId]);
 
     // --- 2. API Logic ---
     const fetchRequests = async () => {
@@ -139,8 +143,10 @@ export default function ApprovalsPage() {
             */
             // --------------------------------------------------------------------------------
 
-            // Using real data:
-            setRequests(data);
+            const scopedData = isManager || isFieldOfficer
+                ? data.filter((request) => teamMemberIds.includes(request.employeeId) || request.employeeId === userData?.employeeId)
+                : data;
+            setRequests(scopedData);
             setError(null);
         } catch (err) {
             setError('Failed to fetch requests.');
