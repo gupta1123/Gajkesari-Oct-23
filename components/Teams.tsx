@@ -572,7 +572,14 @@ const Teams: React.FC = () => {
     };
 
     const handleSaveManagers = async () => {
-        if (!selectedTeamId || selectedManagerIds.length === 0 || !token) return;
+        if (!selectedTeamId || !token) return;
+
+        const selectedTeam = teams.find((team) => team.id === selectedTeamId);
+        const existingManagerIds = selectedTeam ? getTeamManagers(selectedTeam).map((manager) => manager.id) : [];
+        // This endpoint replaces the manager list, so adding one manager must keep the existing managers too.
+        const managerIdsForPayload = Array.from(new Set([...existingManagerIds, ...selectedManagerIds]));
+
+        if (managerIdsForPayload.length === 0) return;
 
         setIsSaving(true);
         setModalError(null);
@@ -586,7 +593,7 @@ const Teams: React.FC = () => {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        officeManagers: selectedManagerIds,
+                        officeManagers: managerIdsForPayload,
                     }),
                 }
             );
