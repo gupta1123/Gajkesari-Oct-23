@@ -1,4 +1,6 @@
 // Authentication service for WebSalesV3
+import { teamHasManager } from './team-access';
+
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 const SECONDARY_API_BASE_URL = 'https://api.gajkesaristeels.in';
 const LOGIN_ENDPOINT = `${API_BASE_URL}/user/token`;
@@ -417,14 +419,15 @@ export const authService = {
             tokenManager.setTeamId(teamId);
             console.log('✅ TeamId fetched successfully:', teamId);
             
-            // Determine if user is manager or field officer based on team data
-            // Manager: team.office.id matches employeeId (they are the office manager)
+            // Determine if user is manager or field officer based on team data.
+            // Manager: employeeId is present in the multi-manager officeManagers list
+            // or one of the legacy compatibility manager fields.
             // Field Officer: employeeId is in the fieldOfficers array
             let isManager = false;
             let isFieldOfficer = false;
             
             for (const team of teamData) {
-              if (team.office?.id === userRoleData.employeeId) {
+              if (teamHasManager(team, userRoleData.employeeId)) {
                 isManager = true;
                 break;
               }

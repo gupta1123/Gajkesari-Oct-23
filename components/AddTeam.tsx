@@ -6,15 +6,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import type { SearchableSelectOption } from "@/components/ui/searchable-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/components/auth-provider";
 import { hasAdminSetupPrivileges } from "@/lib/auth";
 import { buildCityOptions, mergeCityOptions, normalizeCityKey } from "@/lib/city-options";
+import { getTeamManagers } from "@/lib/team-access";
 
 interface Employee {
     id: number;
@@ -34,6 +35,7 @@ interface OfficeManager {
     email: string;
     deleted?: boolean;
     role?: string;
+    isOfficeManager?: boolean;
 }
 
 interface CityOption extends SearchableSelectOption {
@@ -42,16 +44,42 @@ interface CityOption extends SearchableSelectOption {
 
 interface TeamSummary {
     id: number;
+    office?: {
+        id: number;
+        firstName?: string;
+        lastName?: string;
+        assignedCity?: string[];
+    } | null;
     officeManager?: {
         id: number;
         firstName?: string;
         lastName?: string;
         assignedCity?: string[];
-    };
+    } | null;
+    officeManagers?: Array<{
+        id: number;
+        firstName?: string;
+        lastName?: string;
+        assignedCity?: string[];
+    }> | null;
 }
 
 // Using SearchableSelectOption from the imported component
 const createCityOption = (city: string): CityOption => ({ value: city, label: city, assignedTo: [] });
+
+type TeamSummaryManager = NonNullable<TeamSummary["officeManager"]>;
+
+const getTeamManagersFromSummaries = (teams: TeamSummary[]) => {
+    const byId = new Map<number, TeamSummaryManager>();
+
+    teams.forEach((team) => {
+        getTeamManagers(team).forEach((manager) => {
+            byId.set(manager.id, manager);
+        });
+    });
+
+    return Array.from(byId.values());
+};
 
 const AddTeam = () => {
     const { token: authToken, userRole, currentUser } = useAuth();
@@ -132,18 +160,19 @@ const AddTeam = () => {
             console.log('Teams data:', teamsData);
 
             const teams = teamsData as TeamSummary[];
-            const assignedManagerIds = teams.map((team) => team.officeManager?.id).filter((id): id is number => typeof id === 'number');
+            const assignedManagerIds = getTeamManagersFromSummaries(teams).map((manager) => manager.id);
             console.log('Assigned manager IDs:', assignedManagerIds);
 
             const assignments: Record<string, string[]> = {};
             teams.forEach((team) => {
-                const manager = team.officeManager;
-                if (!manager?.assignedCity) return;
-                const managerName = [manager.firstName, manager.lastName].filter(Boolean).join(' ').trim() || `Team ${team.id}`;
-                manager.assignedCity.forEach((city) => {
-                    const key = normalizeCityKey(city);
-                    if (!key) return;
-                    assignments[key] = Array.from(new Set([...(assignments[key] ?? []), managerName]));
+                getTeamManagers(team).forEach((manager) => {
+                    if (!manager?.assignedCity) return;
+                    const managerName = [manager.firstName, manager.lastName].filter(Boolean).join(' ').trim() || `Team ${team.id}`;
+                    manager.assignedCity.forEach((city) => {
+                        const key = normalizeCityKey(city);
+                        if (!key) return;
+                        assignments[key] = Array.from(new Set([...(assignments[key] ?? []), managerName]));
+                    });
                 });
             });
             setCityAssignments(assignments);
@@ -153,19 +182,19 @@ const AddTeam = () => {
                 createCityOption
             );
             const assignedCityOptions = buildCityOptions<CityOption>(
-                teams.flatMap((team) => team.officeManager?.assignedCity ?? []),
+                teams.flatMap((team) => getTeamManagers(team).flatMap((manager) => manager.assignedCity ?? [])),
                 createCityOption
             );
             setCities((prev) => mergeCityOptions(prev, employeeCityOptions, assignedCityOptions));
             
             const deletedManagerIds = allEmployeesData
-                .filter((employee: OfficeManager) => (employee.role === "Manager" || employee.role === "Office Manager") && employee.deleted)
+                .filter((employee: OfficeManager) => employee.isOfficeManager === true && employee.deleted)
                 .map((employee: OfficeManager) => employee.id);
             console.log('Deleted manager IDs:', deletedManagerIds);
             
             const availableManagers = allEmployeesData
                 .filter((employee: OfficeManager) =>
-                    (employee.role === "Manager" || employee.role === "Office Manager") &&
+                    employee.isOfficeManager === true &&
                     !assignedManagerIds.includes(employee.id) &&
                     !deletedManagerIds.includes(employee.id)
                 )
@@ -182,7 +211,7 @@ const AddTeam = () => {
             console.log('First manager example:', availableManagers[0]);
             setOfficeManagers(availableManagers);
         } catch (error) {
-            console.error("Error fetching Regional managers:", error);
+            console.error("Error fetching managers:", error);
         }
     }, [token]);
    
@@ -300,8 +329,8 @@ const AddTeam = () => {
         fetchEmployeesByCities(selectedCities);
     }, [fetchEmployeesByCities, isModalOpen, selectedCities, token]);
 
-    const assignCitiesToManager = async (managerId: number) => {
-        await Promise.all(selectedCities.map(async (city) => {
+    const assignCitiesToManagers = async (managerIds: number[]) => {
+        await Promise.all(managerIds.flatMap((managerId) => selectedCities.map(async (city) => {
             const response = await fetch(
                 `https://api.gajkesaristeels.in/employee/assignCity?id=${managerId}&city=${encodeURIComponent(city)}`,
                 {
@@ -315,7 +344,7 @@ const AddTeam = () => {
             if (!response.ok) {
                 throw new Error(`Failed to assign city ${city}`);
             }
-        }));
+        })));
     };
 
     const handleCreateTeam = async () => {
@@ -357,9 +386,18 @@ const AddTeam = () => {
                 return;
             }
 
-            const managerId = parseInt(selectedOfficeManager[0], 10);
+            const managerIds = selectedOfficeManager
+                .map((id) => parseInt(id, 10))
+                .filter((id) => Number.isFinite(id));
+
+            if (managerIds.length === 0) {
+                console.log('No valid office managers selected');
+                return;
+            }
+
             const requestBody = {
-                officeManager: managerId,
+                officeManager: managerIds[0],
+                officeManagers: managerIds,
                 fieldOfficers: activeSelected,
             };
             
@@ -380,7 +418,7 @@ const AddTeam = () => {
             console.log('Team creation response status:', response.status);
             
             if (response.status === 200) {
-                await assignCitiesToManager(managerId);
+                await assignCitiesToManagers(managerIds);
                 console.log('Team created successfully');
                 setIsModalOpen(false);
                 resetForm();
@@ -444,23 +482,54 @@ const AddTeam = () => {
                         {/* Left Pane: Manager and Cities */}
                         <div className="space-y-6">
                             <div>
-                                <Label htmlFor="officeManager">Regional Manager</Label>
-                                <div className="mt-1 w-full">
-                                    <Select
-                                        value={selectedOfficeManager[0] ?? ""}
-                                        onValueChange={(val) => setSelectedOfficeManager(val ? [val] : [])}
-                                        disabled={officeManagers.length === 0}
-                                    >
-                                        <SelectTrigger className="w-full">
-                                            <SelectValue placeholder="Select regional manager" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {officeManagers.map((m) => (
-                                                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                <Label htmlFor="officeManager">Managers</Label>
+                                <div className="mt-2 rounded-md border">
+                                    <ScrollArea className="h-44">
+                                        {officeManagers.length === 0 ? (
+                                            <div className="p-4 text-sm text-muted-foreground">
+                                                No available managers
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-1 p-2">
+                                                {officeManagers.map((manager) => {
+                                                    const checked = selectedOfficeManager.includes(manager.value);
+                                                    return (
+                                                        <label
+                                                            key={manager.value}
+                                                            htmlFor={`office-manager-${manager.value}`}
+                                                            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50"
+                                                        >
+                                                            <Checkbox
+                                                                id={`office-manager-${manager.value}`}
+                                                                checked={checked}
+                                                                onCheckedChange={(isChecked) => {
+                                                                    setSelectedOfficeManager((prev) =>
+                                                                        isChecked
+                                                                            ? Array.from(new Set([...prev, manager.value]))
+                                                                            : prev.filter((id) => id !== manager.value)
+                                                                    );
+                                                                }}
+                                                            />
+                                                            <span className="text-sm">{manager.label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </ScrollArea>
                                 </div>
+                                {selectedOfficeManager.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        {selectedOfficeManager.map((managerId) => {
+                                            const manager = officeManagers.find((item) => item.value === managerId);
+                                            return (
+                                                <Badge key={managerId} variant="secondary" className="text-xs">
+                                                    {manager?.label ?? `Manager ${managerId}`}
+                                                </Badge>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
                             <div>

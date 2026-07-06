@@ -16,10 +16,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { 
     UserPlus, 
-    ChevronLeft, 
-    ChevronRight, 
     MapPin, 
     X, 
     Trash2, 
@@ -28,19 +32,30 @@ import {
     Building2,
     Loader2,
     Plus,
-    Search
+    Search,
+    ChevronDown
 } from 'lucide-react';
 import { buildCityOptions, mergeCityOptions, normalizeCityKey } from '@/lib/city-options';
+import { getPrimaryTeamManager, getTeamAssignedCities, getTeamManagers } from '@/lib/team-access';
 
 interface Team {
     id: number;
-    officeManager: {
-        id: number;
-        firstName: string | null;
-        lastName: string | null;
-        assignedCity: string[];
-    };
+    office?: TeamManager | null;
+    officeManager?: TeamManager | null;
+    officeManagers?: TeamManager[] | null;
     fieldOfficers: FieldOfficer[];
+}
+
+interface TeamManager {
+    id: number;
+    firstName: string | null;
+    lastName: string | null;
+    assignedCity?: string[] | null;
+    role?: string | null;
+    city?: string | null;
+    email?: string | null;
+    deleted?: boolean;
+    isOfficeManager?: boolean;
 }
 
 interface FieldOfficer {
@@ -81,9 +96,24 @@ const Teams: React.FC = () => {
     const [modalError, setModalError] = useState<string | null>(null);
     const [isManageCitiesModalVisible, setIsManageCitiesModalVisible] = useState<boolean>(false);
     const [currentTeamId, setCurrentTeamId] = useState<number | null>(null);
+    const [isManagersModalVisible, setIsManagersModalVisible] = useState<boolean>(false);
+    const [allOfficeManagers, setAllOfficeManagers] = useState<TeamManager[]>([]);
+    const [selectedManagerIds, setSelectedManagerIds] = useState<number[]>([]);
+    const [managerSearchTerm, setManagerSearchTerm] = useState("");
+    const [isLoadingManagers, setIsLoadingManagers] = useState(false);
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+
+    const sortByNameAsc = (a: { firstName?: string | null; lastName?: string | null }, b: { firstName?: string | null; lastName?: string | null }) => {
+        const nameA = `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim().toLowerCase();
+        const nameB = `${b.firstName ?? ''} ${b.lastName ?? ''}`.trim().toLowerCase();
+        return nameA.localeCompare(nameB);
+    };
+
+    const getManagerName = (manager: { id: number; firstName?: string | null; lastName?: string | null }) => {
+        return [manager.firstName, manager.lastName].filter(Boolean).join(' ').trim() || `Manager ${manager.id}`;
+    };
 
     const fetchTeams = useCallback(async () => {
         if (!token) {
@@ -105,25 +135,20 @@ const Teams: React.FC = () => {
             }
 
             const data = await response.json();
-            const sortByNameAsc = (a: { firstName?: string | null; lastName?: string | null }, b: { firstName?: string | null; lastName?: string | null }) => {
-                const nameA = `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim().toLowerCase();
-                const nameB = `${b.firstName ?? ''} ${b.lastName ?? ''}`.trim().toLowerCase();
-                return nameA.localeCompare(nameB);
-            };
 
             // Ensure both teams and their officers are sorted by name ASC
             const sortedTeams: Team[] = (data as Team[])
                 .map((team) => ({
                     ...team,
-                    fieldOfficers: [...team.fieldOfficers].sort((a, b) => sortByNameAsc(a, b)),
+                    fieldOfficers: [...(team.fieldOfficers ?? [])].sort((a, b) => sortByNameAsc(a, b)),
                 }))
-                .sort((a, b) => sortByNameAsc(a.officeManager, b.officeManager));
+                .sort((a, b) => sortByNameAsc(getPrimaryTeamManager(a) ?? { firstName: '', lastName: '' }, getPrimaryTeamManager(b) ?? { firstName: '', lastName: '' }));
 
             setTeams(sortedTeams);
             setAvailableCities((prev) =>
                 mergeCityOptions(
                     prev,
-                    buildCityOptions(sortedTeams.flatMap((team) => team.officeManager.assignedCity ?? []))
+                    buildCityOptions(sortedTeams.flatMap((team) => getTeamAssignedCities(team)))
                 )
             );
             setIsDataAvailable(sortedTeams.length > 0);
@@ -156,7 +181,54 @@ const Teams: React.FC = () => {
         }
     }, [token]);
 
-    const fetchFieldOfficersByCities = async (cities: string[], officeManagerId: number) => {
+    const fetchOfficeManagers = useCallback(async (editingTeamId?: number | null) => {
+        if (!token) return;
+
+        setIsLoadingManagers(true);
+        try {
+            const [employeesResponse, teamsResponse] = await Promise.all([
+                fetch('https://api.gajkesaristeels.in/employee/getAll', {
+                    headers: { Authorization: `Bearer ${token}` },
+                }),
+                fetch('https://api.gajkesaristeels.in/employee/team/getAll', {
+                    headers: { Authorization: `Bearer ${token}` },
+                }),
+            ]);
+
+            if (!employeesResponse.ok) {
+                throw new Error('Failed to fetch managers');
+            }
+            if (!teamsResponse.ok) {
+                throw new Error('Failed to fetch team assignments');
+            }
+
+            const employeesData = await employeesResponse.json();
+            const teamsData = (await teamsResponse.json()) as Team[];
+            const currentTeam = teamsData.find((team) => team.id === editingTeamId);
+            const currentManagerIds = new Set(getTeamManagers(currentTeam ?? { id: 0 }).map((manager) => manager.id));
+            const assignedElsewhereIds = new Set(
+                teamsData
+                    .filter((team) => team.id !== editingTeamId)
+                    .flatMap((team) => getTeamManagers(team).map((manager) => manager.id))
+            );
+
+            const managers = (employeesData as TeamManager[])
+                .filter((employee) => {
+                    if (employee.isOfficeManager !== true || employee.deleted) return false;
+                    return currentManagerIds.has(employee.id) || !assignedElsewhereIds.has(employee.id);
+                })
+                .sort(sortByNameAsc);
+
+            setAllOfficeManagers(managers);
+        } catch (error) {
+            console.error('Error fetching managers:', error);
+            setModalError(error instanceof Error ? error.message : 'Error fetching managers');
+        } finally {
+            setIsLoadingManagers(false);
+        }
+    }, [token]);
+
+    const fetchFieldOfficersByCities = async (cities: string[], teamId: number) => {
         if (!token) return;
 
         try {
@@ -174,7 +246,7 @@ const Teams: React.FC = () => {
                 const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
                 return nameA.localeCompare(nameB);
             });
-            const currentTeam = teams.find(team => team.officeManager.id === officeManagerId);
+            const currentTeam = teams.find(team => team.id === teamId);
             const currentTeamMemberIds = currentTeam ? currentTeam.fieldOfficers.map(officer => officer.id) : [];
             // Show already-assigned officers, but keep them disabled in the picker.
             const availableFieldOfficers = allFieldOfficers.filter((officer: FieldOfficer) => 
@@ -227,25 +299,39 @@ const Teams: React.FC = () => {
     const showEditModal = (team: Team) => {
         setError(null); // Clear any background errors when opening modal
         setModalError(null); // Clear any previous modal errors
+        const primaryManager = getPrimaryTeamManager(team);
+        const teamCities = getTeamAssignedCities(team);
         setSelectedTeamId(team.id);
-        setSelectedOfficeManagerId(team.officeManager.id);
-        setAssignedCities(team.officeManager.assignedCity);
+        setSelectedOfficeManagerId(primaryManager?.id ?? null);
+        setAssignedCities(teamCities);
         fetchCities();
-        fetchFieldOfficersByCities(team.officeManager.assignedCity, team.officeManager.id);
+        fetchFieldOfficersByCities(teamCities, team.id);
         setIsEditModalVisible(true);
     };
 
     const showManageCitiesModal = (team: Team) => {
         setError(null); // Clear any background errors when opening modal
         setModalError(null); // Clear any previous modal errors
-        setSelectedOfficeManagerId(team.officeManager.id);
-        setAssignedCities(team.officeManager.assignedCity);
+        const primaryManager = getPrimaryTeamManager(team);
+        setSelectedOfficeManagerId(primaryManager?.id ?? null);
+        setAssignedCities(primaryManager?.assignedCity ?? []);
         setCurrentTeamId(team.id); // Track current team ID to exclude its cities from "other teams"
         setSelectedCities([]);
         setCitySearchTerm('');
         setIsCityPopoverOpen(false);
         fetchCities();
         setIsManageCitiesModalVisible(true);
+    };
+
+    const showManagersModal = async (team: Team) => {
+        setError(null);
+        setModalError(null);
+        setSelectedTeamId(team.id);
+        setCurrentTeamId(team.id);
+        setSelectedManagerIds(getTeamManagers(team).map((manager) => manager.id));
+        setManagerSearchTerm('');
+        setIsManagersModalVisible(true);
+        await fetchOfficeManagers(team.id);
     };
 
     const handleRemoveCity = (city: string) => {
@@ -341,7 +427,7 @@ const Teams: React.FC = () => {
         setIsSaving(true);
         try {
             const response = await fetch(`https://api.gajkesaristeels.in/employee/team/deleteFieldOfficer?id=${teamId}`, {
-                method: 'DELETE',
+                method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
@@ -406,13 +492,13 @@ const Teams: React.FC = () => {
         const assignments = new Map<string, string[]>();
 
         teams.forEach((team) => {
-            const managerName =
-                [team.officeManager.firstName, team.officeManager.lastName].filter(Boolean).join(' ').trim() ||
-                `Team ${team.id}`;
-            team.officeManager.assignedCity.forEach((city) => {
-                const key = city.trim().toLowerCase();
-                if (!key) return;
-                assignments.set(key, Array.from(new Set([...(assignments.get(key) ?? []), managerName])));
+            getTeamManagers(team).forEach((manager) => {
+                const managerName = getManagerName(manager);
+                (manager.assignedCity ?? []).forEach((city) => {
+                    const key = city.trim().toLowerCase();
+                    if (!key) return;
+                    assignments.set(key, Array.from(new Set([...(assignments.get(key) ?? []), managerName])));
+                });
             });
         });
 
@@ -470,9 +556,6 @@ const Teams: React.FC = () => {
             // Reload teams data to reflect the change
             await fetchTeams();
             
-            // Update field officers list with new cities
-            await fetchFieldOfficersByCities(updatedCities, selectedOfficeManagerId);
-            
             setSelectedCities([]);
             setCitySearchTerm('');
             setModalError(null);
@@ -487,6 +570,57 @@ const Teams: React.FC = () => {
             setIsSaving(false);
         }
     };
+
+    const handleSaveManagers = async () => {
+        if (!selectedTeamId || selectedManagerIds.length === 0 || !token) return;
+
+        setIsSaving(true);
+        setModalError(null);
+        try {
+            const response = await fetch(
+                `https://api.gajkesaristeels.in/employee/team/editOfficeManager?id=${selectedTeamId}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        officeManagers: selectedManagerIds,
+                    }),
+                }
+            );
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Failed to update managers');
+                throw new Error(errorText || 'Failed to update managers');
+            }
+
+            await fetchTeams();
+            setIsManagersModalVisible(false);
+            setSelectedManagerIds([]);
+            setManagerSearchTerm('');
+            setModalError(null);
+        } catch (error) {
+            console.error('Error updating managers:', error);
+            setModalError(error instanceof Error ? error.message : 'Error updating managers');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const currentTeamManagers = useMemo(() => {
+        const team = teams.find((item) => item.id === currentTeamId);
+        return team ? getTeamManagers(team).sort(sortByNameAsc) : [];
+    }, [teams, currentTeamId]);
+
+    const filteredOfficeManagers = useMemo(() => {
+        const query = managerSearchTerm.trim().toLowerCase();
+        if (!query) return allOfficeManagers;
+        return allOfficeManagers.filter((manager) =>
+            getManagerName(manager).toLowerCase().includes(query)
+        );
+    }, [allOfficeManagers, managerSearchTerm]);
 
     const handlePageChange = (teamId: number, newPage: number) => {
         setCurrentPage(prev => ({ ...prev, [teamId]: newPage }));
@@ -537,21 +671,54 @@ const Teams: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     {teams.map((team) => {
                                         const visibleOfficers = team.fieldOfficers.slice(0, 3);
+                                        const managers = getTeamManagers(team).sort(sortByNameAsc);
+                                        const primaryManager = managers[0] ?? null;
+                                        const assignedTeamCities = getTeamAssignedCities(team);
 
                                         return (
                                             <Card key={team.id} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
                                                 <CardContent className="p-5 md:p-4">
                                                     <div className="flex justify-between items-start mb-4">
-                                                        <div className="flex items-center">
-                                                            <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mr-3 text-base font-semibold">
-                                                                {getInitials(team.officeManager?.firstName, team.officeManager?.lastName)}
+                                                        <div className="flex min-w-0 items-center">
+                                                            <div
+                                                                className="mr-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
+                                                                title={primaryManager ? getManagerName(primaryManager) : 'No manager assigned'}
+                                                            >
+                                                                {primaryManager
+                                                                    ? getInitials(primaryManager.firstName ?? null, primaryManager.lastName ?? null) || '?'
+                                                                    : '?'}
                                                             </div>
-                                                            <div>
-                                                                <h3 className="text-base font-semibold text-foreground">
-                                                                    {team.officeManager?.firstName ?? 'N/A'} {team.officeManager?.lastName ?? 'N/A'}
-                                                                </h3>
+                                                            <div className="min-w-0">
+                                                                <div className="flex min-w-0 items-center gap-1.5">
+                                                                    <h3 className="truncate text-base font-semibold text-foreground">
+                                                                        {primaryManager ? getManagerName(primaryManager) : 'No manager assigned'}
+                                                                    </h3>
+                                                                    {managers.length > 1 && (
+                                                                        <DropdownMenu>
+                                                                            <DropdownMenuTrigger asChild>
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="h-6 shrink-0 gap-1 rounded-full px-2 text-xs"
+                                                                                >
+                                                                                    +{managers.length - 1}
+                                                                                    <ChevronDown className="h-3 w-3" />
+                                                                                    <span className="sr-only">Show managers</span>
+                                                                                </Button>
+                                                                            </DropdownMenuTrigger>
+                                                                            <DropdownMenuContent align="start" className="w-56">
+                                                                                {managers.map((manager) => (
+                                                                                    <DropdownMenuItem key={manager.id} className="cursor-default">
+                                                                                        {getManagerName(manager)}
+                                                                                    </DropdownMenuItem>
+                                                                                ))}
+                                                                            </DropdownMenuContent>
+                                                                        </DropdownMenu>
+                                                                    )}
+                                                                </div>
                                                                 <p className="text-sm text-muted-foreground">
-                                                                    Regional Manager
+                                                                    {managers.length <= 1 ? 'Manager' : `${managers.length} Managers`}
                                                                 </p>
                                                             </div>
                                                         </div>
@@ -566,12 +733,15 @@ const Teams: React.FC = () => {
                                                     </div>
                                                     
                                                     <div className="flex flex-wrap gap-2 mb-4">
-                                                        {team.officeManager.assignedCity.map((city, index) => (
+                                                        {assignedTeamCities.map((city, index) => (
                                                             <Badge key={index} variant="secondary" className="flex items-center text-xs md:text-[11px]">
                                                                 <Building2 size={12} className="mr-1 text-foreground" />
                                                                 {city}
                                                             </Badge>
                                                         ))}
+                                                        {assignedTeamCities.length === 0 && (
+                                                            <Badge variant="outline" className="text-xs">No cities assigned</Badge>
+                                                        )}
                                                     </div>
                                                     
                                                     <div className="space-y-3">
@@ -624,7 +794,15 @@ const Teams: React.FC = () => {
                                                     </div>
 
                                                     <div className={`${team.fieldOfficers.length > 0 ? 'mt-4 pt-4 border-t' : 'mt-2'}`}> 
-                                                        <div className="grid grid-cols-2 gap-2">
+                                                        <div className="grid grid-cols-3 gap-2">
+                                                            <Button
+                                                                variant="outline"
+                                                                className="h-10 text-sm font-medium"
+                                                                onClick={() => showManagersModal(team)}
+                                                            >
+                                                                <Users size={16} className="mr-2" />
+                                                                Managers
+                                                            </Button>
                                                             <Button
                                                                 variant="outline"
                                                                 className="h-10 text-sm font-medium"
@@ -693,6 +871,120 @@ const Teams: React.FC = () => {
                 </DialogContent>
             </Dialog>
 
+            {/* Edit Managers Modal */}
+            <Dialog open={isManagersModalVisible} onOpenChange={(open) => {
+                setIsManagersModalVisible(open);
+                if (!open) {
+                    setModalError(null);
+                    setSelectedManagerIds([]);
+                    setManagerSearchTerm('');
+                    setCurrentTeamId(null);
+                }
+            }}>
+                <DialogContent className="sm:max-w-[560px]">
+                    <DialogHeader>
+                        <DialogTitle>Manage Managers</DialogTitle>
+                        <p className="text-sm text-muted-foreground mt-1">Select the full manager list for this team</p>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                placeholder="Search managers..."
+                                value={managerSearchTerm}
+                                onChange={(event) => setManagerSearchTerm(event.target.value)}
+                                className="pl-9"
+                            />
+                        </div>
+
+                        <div className="rounded-md border">
+                            <ScrollArea className="h-72">
+                                {isLoadingManagers ? (
+                                    <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Loading managers...
+                                    </div>
+                                ) : filteredOfficeManagers.length === 0 ? (
+                                    <div className="p-6 text-center text-sm text-muted-foreground">
+                                        No available managers found
+                                    </div>
+                                ) : (
+                                    <div className="space-y-1 p-2">
+                                        {filteredOfficeManagers.map((manager) => {
+                                            const checked = selectedManagerIds.includes(manager.id);
+                                            return (
+                                                <label
+                                                    key={manager.id}
+                                                    htmlFor={`team-manager-${manager.id}`}
+                                                    className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-muted/50"
+                                                >
+                                                    <div className="flex min-w-0 items-center gap-2">
+                                                        <Checkbox
+                                                            id={`team-manager-${manager.id}`}
+                                                            checked={checked}
+                                                            onCheckedChange={(isChecked) => {
+                                                                setSelectedManagerIds((prev) =>
+                                                                    isChecked
+                                                                        ? Array.from(new Set([...prev, manager.id]))
+                                                                        : prev.filter((id) => id !== manager.id)
+                                                                );
+                                                            }}
+                                                        />
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-medium">{getManagerName(manager)}</p>
+                                                            <p className="truncate text-xs text-muted-foreground">{manager.role ?? 'Manager'}</p>
+                                                        </div>
+                                                    </div>
+                                                    {(manager.assignedCity ?? []).length > 0 && (
+                                                        <Badge variant="outline" className="shrink-0 text-xs">
+                                                            {(manager.assignedCity ?? []).length} cities
+                                                        </Badge>
+                                                    )}
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </ScrollArea>
+                        </div>
+
+                        {selectedManagerIds.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {selectedManagerIds.map((managerId) => {
+                                    const manager = allOfficeManagers.find((item) => item.id === managerId);
+                                    return (
+                                        <Badge key={managerId} variant="secondary" className="text-xs">
+                                            {manager ? getManagerName(manager) : `Manager ${managerId}`}
+                                        </Badge>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {modalError && (
+                            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                                <p><strong>Error:</strong> {modalError}</p>
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsManagersModalVisible(false)} disabled={isSaving}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleSaveManagers} disabled={selectedManagerIds.length === 0 || isSaving || isLoadingManagers}>
+                            {isSaving ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Saving...
+                                </>
+                            ) : (
+                                'Save Managers'
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Manage Cities Modal */}
             <Dialog open={isManageCitiesModalVisible} onOpenChange={(open) => {
                 setIsManageCitiesModalVisible(open);
@@ -711,6 +1003,28 @@ const Teams: React.FC = () => {
                         <p className="text-sm text-muted-foreground mt-1">Add or remove cities assigned to this team</p>
                     </DialogHeader>
                     <div className="space-y-4">
+                        {currentTeamManagers.length > 1 && (
+                            <div>
+                                <Label className="text-sm font-medium text-foreground mb-2 block">Manager</Label>
+                                <div className="flex flex-wrap gap-2">
+                                    {currentTeamManagers.map((manager) => (
+                                        <Button
+                                            key={manager.id}
+                                            type="button"
+                                            variant={selectedOfficeManagerId === manager.id ? "default" : "outline"}
+                                            size="sm"
+                                            onClick={() => {
+                                                setSelectedOfficeManagerId(manager.id);
+                                                setAssignedCities(manager.assignedCity ?? []);
+                                                setSelectedCities([]);
+                                            }}
+                                        >
+                                            {getManagerName(manager)}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <div>
                             <Label className="text-sm font-medium text-foreground mb-2 block">Assigned Cities</Label>
                             {assignedCities.length > 0 ? (

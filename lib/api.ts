@@ -405,13 +405,24 @@ export interface EmployeeStatsWithVisits {
   visitDto: VisitDto[];
 }
 
+export interface TeamManagerDto {
+  id: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  role?: string | null;
+  assignedCity?: string[] | null;
+  city?: string | null;
+  email?: string | null;
+  deleted?: boolean;
+}
+
 export interface TeamDataDto {
   id: number;
-  office: {
-    id: number;
-    firstName: string;
-    lastName: string;
-  };
+  // Legacy aliases can still appear on older or compatibility payloads.
+  office?: TeamManagerDto | null;
+  officeManager?: TeamManagerDto | null;
+  // Full multi-manager list from the new backend contract.
+  officeManagers?: TeamManagerDto[] | null;
   fieldOfficers: EmployeeUserDto[];
 }
 

@@ -65,11 +65,21 @@ interface User {
 
 interface TeamData {
   id: number;
-  office: {
+  office?: {
     id: number;
     firstName: string;
     lastName: string;
-  };
+  } | null;
+  officeManager?: {
+    id: number;
+    firstName: string;
+    lastName: string;
+  } | null;
+  officeManagers?: Array<{
+    id: number;
+    firstName?: string | null;
+    lastName?: string | null;
+  }> | null;
   fieldOfficers: User[];
 }
 
