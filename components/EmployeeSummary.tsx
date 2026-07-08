@@ -5,7 +5,7 @@ import { CheckedState } from "@radix-ui/react-checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CalendarIcon, Search, Users, ChevronDown, Download } from "lucide-react";
+import { Loader2, CalendarIcon, Search, Users, ChevronDown, Download, MoreHorizontal } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from 'framer-motion';
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface SummaryData {
     employeeName: string;
@@ -24,17 +26,17 @@ interface SummaryData {
     presentDays: number;
     fullDays: number;
     baseSalary: number;
-    carDistanceKm: number;
     employeeId: number;
     absentDays: number;
     travelAllowance: number;
     halfDayThreshold: number;
     totalSalary: number;
     halfDays: number;
-    bikeDistanceKm: number;
     approvedExpenses: number;
     startDate: string;
     dearnessAllowance: number;
+    salaryAdjustmentAmount?: number | null;
+    adjustedTotalSalary?: number | null;
 }
 
 interface EmployeeOption {
@@ -47,6 +49,42 @@ interface Employee {
     firstName: string;
     lastName: string;
 }
+
+const toFiniteNumber = (value: number | string | null | undefined): number => {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : 0;
+};
+
+const getFullCalendarMonthRange = (dateValue: string) => {
+    const match = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+        return null;
+    }
+
+    const lastDay = new Date(year, month, 0).getDate();
+    const monthValue = String(month).padStart(2, "0");
+    return {
+        start: `${year}-${monthValue}-01`,
+        end: `${year}-${monthValue}-${String(lastDay).padStart(2, "0")}`,
+    };
+};
+
+const getFullMonthError = (startDate: string, endDate: string) => {
+    const monthRange = getFullCalendarMonthRange(startDate);
+    if (!monthRange) {
+        return "Please select a valid month.";
+    }
+
+    if (monthRange.start !== startDate || monthRange.end !== endDate) {
+        return `Select a full calendar month (${monthRange.start} to ${monthRange.end}) to view and edit adjustments.`;
+    }
+
+    return null;
+};
 
 const EmployeeSummary: React.FC = () => {
     const [summaryData, setSummaryData] = useState<SummaryData[]>([]);
@@ -62,6 +100,11 @@ const EmployeeSummary: React.FC = () => {
     const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [employeesLoading, setEmployeesLoading] = useState(false);
+    const [adjustmentEmployee, setAdjustmentEmployee] = useState<SummaryData | null>(null);
+    const [adjustmentAmountInput, setAdjustmentAmountInput] = useState("");
+    const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
+    const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
+    const [isApplyingAdjustment, setIsApplyingAdjustment] = useState(false);
 
     const handleClearEmployeeSelection = () => {
         setSelectedEmployeeIds([]);
@@ -157,6 +200,133 @@ const EmployeeSummary: React.FC = () => {
             style: 'currency',
             currency: 'INR'
         }).format(amount);
+    };
+
+    const activeFullMonthError = getFullMonthError(startDate, endDate);
+    const isFullMonthSelected = !activeFullMonthError;
+
+    const getSalaryAdjustmentAmount = (employee: SummaryData) => toFiniteNumber(employee.salaryAdjustmentAmount);
+
+    const getAdjustedTotalSalary = (employee: SummaryData) => {
+        const regularTotalSalary = toFiniteNumber(employee.totalSalary);
+        const adjustmentAmount = getSalaryAdjustmentAmount(employee);
+        if (employee.adjustedTotalSalary == null) {
+            return regularTotalSalary + adjustmentAmount;
+        }
+
+        return toFiniteNumber(employee.adjustedTotalSalary);
+    };
+
+    const renderTotalSalary = (employee: SummaryData) => {
+        const adjustmentAmount = isFullMonthSelected ? getSalaryAdjustmentAmount(employee) : 0;
+        const adjustedTotalSalary = isFullMonthSelected ? getAdjustedTotalSalary(employee) : toFiniteNumber(employee.totalSalary);
+        const hasAdjustment = Math.abs(adjustmentAmount) > 0;
+
+        return (
+            <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                    <span className="font-bold">{formatCurrency(adjustedTotalSalary)}</span>
+                    {hasAdjustment && (
+                        <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-medium text-emerald-700 border-emerald-300 bg-emerald-50">
+                            Adjusted
+                        </Badge>
+                    )}
+                </div>
+                {hasAdjustment && (
+                    <span className="text-xs text-muted-foreground">
+                        Total {formatCurrency(employee.totalSalary)} + TA {formatCurrency(adjustmentAmount)}
+                    </span>
+                )}
+            </div>
+        );
+    };
+
+    const renderActions = (employee: SummaryData) => (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreHorizontal className="h-4 w-4" />
+                    <span className="sr-only">Open actions</span>
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => openAdjustmentModal(employee)}>
+                    Edit TA Adjustment
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+
+    const openAdjustmentModal = (employee: SummaryData) => {
+        const existingAdjustment = getSalaryAdjustmentAmount(employee);
+        setAdjustmentEmployee(employee);
+        setAdjustmentAmountInput(existingAdjustment === 0 ? "" : String(existingAdjustment));
+        setAdjustmentError(null);
+        setIsAdjustmentModalOpen(true);
+    };
+
+    const resetAdjustmentModal = () => {
+        setIsAdjustmentModalOpen(false);
+        setAdjustmentEmployee(null);
+        setAdjustmentAmountInput("");
+        setAdjustmentError(null);
+    };
+
+    const closeAdjustmentModal = () => {
+        if (isApplyingAdjustment) return;
+        resetAdjustmentModal();
+    };
+
+    const handleApplySalaryAdjustment = async () => {
+        if (!adjustmentEmployee) return;
+        if (!token) {
+            setAdjustmentError('Authentication token not found. Please log in.');
+            return;
+        }
+
+        const trimmedAmount = adjustmentAmountInput.trim();
+        const adjustmentAmount = Number(trimmedAmount);
+        if (!trimmedAmount || !Number.isFinite(adjustmentAmount)) {
+            setAdjustmentError('Enter a valid TA adjustment amount.');
+            return;
+        }
+
+        const fullMonthError = getFullMonthError(startDate, endDate);
+        if (fullMonthError) {
+            setAdjustmentError(fullMonthError);
+            return;
+        }
+
+        setAdjustmentError(null);
+        setIsApplyingAdjustment(true);
+        try {
+            const adjustmentParams = new URLSearchParams({
+                employeeIds: String(adjustmentEmployee.employeeId),
+                startDate,
+                endDate,
+                adjustmentAmount: String(adjustmentAmount),
+            });
+
+            const response = await fetch(`https://api.gajkesaristeels.in/travel-allowance/apply-salary-adjustment?${adjustmentParams.toString()}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => '');
+                throw new Error(errorText || `Failed to apply TA adjustment: ${response.statusText}`);
+            }
+
+            await fetchSummaryData();
+            resetAdjustmentModal();
+        } catch (error) {
+            setAdjustmentError(error instanceof Error ? error.message : 'Failed to apply TA adjustment.');
+        } finally {
+            setIsApplyingAdjustment(false);
+        }
     };
 
     const employeeOptions = useMemo<EmployeeOption[]>(() => {
@@ -258,6 +428,8 @@ const EmployeeSummary: React.FC = () => {
                     "Dearness Allowance",
                     "Approved Expenses",
                     "Total Salary",
+                    "TA Adjustment",
+                    "Adjusted Total Salary",
                     "Start Date",
                     "End Date",
                 ],
@@ -271,6 +443,8 @@ const EmployeeSummary: React.FC = () => {
                     formatCurrency(employee.dearnessAllowance),
                     formatCurrency(employee.approvedExpenses),
                     formatCurrency(employee.totalSalary),
+                    formatCurrency(getSalaryAdjustmentAmount(employee)),
+                    formatCurrency(getAdjustedTotalSalary(employee)),
                     employee.startDate,
                     employee.endDate,
                 ],
@@ -322,6 +496,13 @@ const EmployeeSummary: React.FC = () => {
         }
         return `${format(new Date(startDate), 'MMM dd, yyyy')} - ${format(new Date(endDate), 'MMM dd, yyyy')}`;
     };
+
+    const hasAdjustmentAmountInput = adjustmentAmountInput.trim() !== "";
+    const adjustmentInputAmount = hasAdjustmentAmountInput ? Number(adjustmentAmountInput) : 0;
+    const previewAdjustmentAmount = Number.isFinite(adjustmentInputAmount) ? adjustmentInputAmount : 0;
+    const regularTotalSalary = adjustmentEmployee ? toFiniteNumber(adjustmentEmployee.totalSalary) : 0;
+    const currentTravelAllowance = adjustmentEmployee ? toFiniteNumber(adjustmentEmployee.travelAllowance) : 0;
+    const projectedAdjustedTotalSalary = regularTotalSalary + previewAdjustmentAmount;
 
     return (
         <div className="space-y-6">
@@ -648,13 +829,14 @@ const EmployeeSummary: React.FC = () => {
                                                                         <h4 className="font-bold text-2xl text-foreground leading-tight flex-1 mr-2">
                                                                             {employee.employeeName}
                                                                         </h4>
+                                                                        {isFullMonthSelected && renderActions(employee)}
                                                                     </div>
                                                                     <div className="flex items-center justify-between">
                                                                         <p className="text-xl text-muted-foreground">
                                                                             {getDateRangeDisplay()}
                                                                         </p>
                                                                         <Badge variant="default" className="text-2xl font-bold px-5 py-2.5 bg-primary">
-                                                                            {formatCurrency(employee.totalSalary)}
+                                                                            {formatCurrency(isFullMonthSelected ? getAdjustedTotalSalary(employee) : employee.totalSalary)}
                                                                         </Badge>
                                                                     </div>
                                                                 </div>
@@ -704,6 +886,16 @@ const EmployeeSummary: React.FC = () => {
                                                                         <div className="flex justify-between items-center py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
                                                                             <span className="text-xl font-medium text-muted-foreground">Dearness Allowance</span>
                                                                             <span className="text-2xl font-bold text-foreground">{formatCurrency(employee.dearnessAllowance)}</span>
+                                                                        </div>
+                                                                        {isFullMonthSelected && Math.abs(getSalaryAdjustmentAmount(employee)) > 0 && (
+                                                                            <div className="flex justify-between items-center py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
+                                                                                <span className="text-xl font-medium text-muted-foreground">TA Adjustment</span>
+                                                                                <span className="text-2xl font-bold text-emerald-700">{formatCurrency(getSalaryAdjustmentAmount(employee))}</span>
+                                                                            </div>
+                                                                        )}
+                                                                        <div className="flex justify-between items-start gap-4 py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xl font-medium text-muted-foreground">Final Salary</span>
+                                                                            <div className="text-right">{renderTotalSalary(employee)}</div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -765,6 +957,7 @@ const EmployeeSummary: React.FC = () => {
                                                         <TableHead>Dearness Allowance</TableHead>
                                                         <TableHead>Expenses</TableHead>
                                                         <TableHead>Total Salary</TableHead>
+                                                        {isFullMonthSelected && <TableHead className="w-12 text-right">Actions</TableHead>}
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
@@ -778,7 +971,8 @@ const EmployeeSummary: React.FC = () => {
                                                             <TableCell>{formatCurrency(employee.travelAllowance)}</TableCell>
                                                             <TableCell>{formatCurrency(employee.dearnessAllowance)}</TableCell>
                                                             <TableCell>{formatCurrency(employee.approvedExpenses)}</TableCell>
-                                                            <TableCell className="font-bold">{formatCurrency(employee.totalSalary)}</TableCell>
+                                                            <TableCell>{renderTotalSalary(employee)}</TableCell>
+                                                            {isFullMonthSelected && <TableCell className="text-right">{renderActions(employee)}</TableCell>}
                                                         </TableRow>
                                                     ))}
                                                 </TableBody>
@@ -791,6 +985,87 @@ const EmployeeSummary: React.FC = () => {
                     )}
                 </CardContent>
             </Card>
+
+            <Dialog open={isAdjustmentModalOpen} onOpenChange={(open) => (open ? setIsAdjustmentModalOpen(true) : closeAdjustmentModal())}>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Edit TA Adjustment</DialogTitle>
+                        <DialogDescription>
+                            {adjustmentEmployee ? `${adjustmentEmployee.employeeName} - ${getDateRangeDisplay()}` : getDateRangeDisplay()}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {adjustmentEmployee && (
+                        <div className="space-y-4">
+                            <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-muted-foreground">Current TA</span>
+                                    <span className="font-medium">{formatCurrency(currentTravelAllowance)}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-muted-foreground">TA adjustment</span>
+                                    <span className="font-medium">{formatCurrency(previewAdjustmentAmount)}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-muted-foreground">Current total salary</span>
+                                    <span className="font-medium">{formatCurrency(regularTotalSalary)}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+                                    <span className="text-muted-foreground">New total salary</span>
+                                    <span className="font-semibold">{formatCurrency(projectedAdjustedTotalSalary)}</span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="salary-adjustment-amount">TA adjustment amount</Label>
+                                <Input
+                                    id="salary-adjustment-amount"
+                                    type="number"
+                                    step="0.01"
+                                    value={adjustmentAmountInput}
+                                    onChange={(event) => setAdjustmentAmountInput(event.target.value)}
+                                    placeholder="Example: 3000"
+                                    autoFocus
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    This replaces the saved TA adjustment for this month. Enter 0 to remove it.
+                                </p>
+                            </div>
+
+                            {activeFullMonthError && (
+                                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                    {activeFullMonthError}
+                                </div>
+                            )}
+
+                            {adjustmentError && (
+                                <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                                    {adjustmentError}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeAdjustmentModal} disabled={isApplyingAdjustment}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleApplySalaryAdjustment}
+                            disabled={isApplyingAdjustment || !hasAdjustmentAmountInput || !Number.isFinite(adjustmentInputAmount) || Boolean(activeFullMonthError)}
+                        >
+                            {isApplyingAdjustment ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Applying...
+                                </>
+                            ) : (
+                                'Save TA Adjustment'
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
