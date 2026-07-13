@@ -17,7 +17,8 @@ import {
   DollarSign,
   BarChart,
   Settings,
-  MoreHorizontal
+  MoreHorizontal,
+  Handshake
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import MoreNavSheet from "@/components/more-nav-sheet";
@@ -49,6 +50,7 @@ export default function MobileBottomNav({ sidebarCategories, isManager }: Mobile
     // Add most important pages first
     const importantPages = [
       { name: "Visits", href: "/dashboard/visits", icon: Calendar },
+      { name: "Meetings", href: "/dashboard/meetings", icon: Handshake },
       { name: "Customers", href: "/dashboard/customers", icon: Users },
       { name: "Requirements", href: "/dashboard/requirements", icon: ClipboardList },
       { name: "Complaints", href: "/dashboard/complaints", icon: ThumbsUp },

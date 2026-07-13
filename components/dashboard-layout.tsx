@@ -26,7 +26,8 @@ import {
   FileSearch,
   TrendingUp,
   Target,
-  MapPin
+  MapPin,
+  Handshake
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -49,6 +50,7 @@ interface DashboardLayoutProps {
   children: ReactNode;
   heading?: string;
   subheading?: string;
+  backHref?: string;
 }
 
 // Define sidebar categories and items
@@ -67,6 +69,7 @@ const allSidebarCategories = [
     icon: Building,
     items: [
       { name: "Visits", href: "/dashboard/visits", icon: Calendar },
+      { name: "Meetings", href: "/dashboard/meetings", icon: Handshake },
       { name: "Requirements", href: "/dashboard/requirements", icon: ClipboardList },
       { name: "Pricing", href: "/dashboard/pricing", icon: Tag },
     ]
@@ -97,6 +100,7 @@ const managerAllowedPages = [
   "/dashboard/enquiries", 
   "/dashboard/complaints",
   "/dashboard/visits",
+  "/dashboard/meetings",
   "/dashboard/requirements",
   "/dashboard/pricing",
   "/dashboard/approvals"
@@ -121,7 +125,8 @@ const getFilteredSidebarCategories = (userRole: string | null, currentUser: Curr
 export default function DashboardLayout({ 
   children, 
   heading,
-  subheading
+  subheading,
+  backHref
 }: DashboardLayoutProps) {
   const { userRole, currentUser } = useAuth();
   const pathname = usePathname();
@@ -458,7 +463,7 @@ export default function DashboardLayout({
       {/* Main content area */}
       <div className="flex flex-col">
         {/* Topbar */}
-        <Topbar heading={heading} subheading={subheading} />
+        <Topbar heading={heading} subheading={subheading} backHref={backHref} />
         
         {/* Page content */}
         <main className="flex flex-1 flex-col gap-4 p-3 lg:gap-6 lg:p-4 pb-24 md:pb-6">

@@ -8,7 +8,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   
   // Define headings for each page
-  const pageHeadings: Record<string, { heading: string; subheading: string }> = {
+  const pageHeadings: Record<string, { heading: string; subheading?: string; backHref?: string }> = {
     "/dashboard": {
       heading: "Dashboard",
       subheading: "Welcome to your sales dashboard"
@@ -16,6 +16,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     "/dashboard/visits": {
       heading: "Visits",
       subheading: "Track and manage all visits"
+    },
+    "/dashboard/meetings": {
+      heading: "Meetings",
+      subheading: "Plan, approve, execute, and close meeting workflows"
     },
     "/dashboard/expenses": {
       heading: "Expenses",
@@ -82,6 +86,14 @@ export default function Layout({ children }: { children: ReactNode }) {
         subheading: `Visit #${visitId} - Detailed information and analysis`
       };
     }
+
+    const meetingDetailMatch = pathname.match(/^\/dashboard\/meetings\/(\d+)$/);
+    if (meetingDetailMatch) {
+      return {
+        heading: "Meeting Details",
+        backHref: "/dashboard/meetings"
+      };
+    }
     
     // Customer detail page pattern: /dashboard/customers/[id]
     const customerDetailMatch = pathname.match(/^\/dashboard\/customers\/(\d+)$/);
@@ -114,6 +126,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <DashboardLayout 
       heading={currentPage.heading} 
       subheading={currentPage.subheading}
+      backHref={currentPage.backHref}
     >
       {children}
     </DashboardLayout>

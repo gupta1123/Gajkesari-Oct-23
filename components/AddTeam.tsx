@@ -474,7 +474,7 @@ const AddTeam = () => {
                 setIsModalOpen(true);
             }}>Add Team</Button>
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                <DialogContent className="sm:max-w-3xl">
+                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[1100px]">
                     <DialogHeader>
                         <DialogTitle>Add New Team</DialogTitle>
                     </DialogHeader>
@@ -555,7 +555,7 @@ const AddTeam = () => {
                                             <Search className="h-4 w-4 text-muted-foreground" />
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="w-[320px] p-0" align="start">
+                                    <PopoverContent className="w-[calc(100vw-3rem)] p-0 sm:w-[620px] lg:w-[720px]" align="start">
                                         <div className="border-b p-3 space-y-2">
                                             <div className="relative">
                                                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -590,29 +590,33 @@ const AddTeam = () => {
                                                 </div>
                                             ) : (
                                                 <div className="p-1 space-y-1">
-                                                    {filteredCities.map((city) => (
-                                                        <div
-                                                            key={city.value}
-                                                            className="flex items-center space-x-2 rounded-md px-3 py-2 hover:bg-muted/40"
-                                                        >
-                                                            <Checkbox
-                                                                id={`city-${city.value}`}
-                                                                checked={selectedCities.includes(city.value)}
-                                                                onCheckedChange={() => handleToggleCity(city.value)}
-                                                            />
-                                                            <label
-                                                                htmlFor={`city-${city.value}`}
-                                                                className="text-sm flex-1 truncate cursor-pointer"
+                                                    {filteredCities.map((city) => {
+                                                        const assignedNames = cityAssignments[normalizeCityKey(city.value)] ?? [];
+
+                                                        return (
+                                                            <div
+                                                                key={city.value}
+                                                                className="grid grid-cols-[auto_minmax(120px,1fr)] items-center gap-x-3 gap-y-2 rounded-md px-3 py-2 hover:bg-muted/40 sm:grid-cols-[auto_minmax(160px,1fr)_minmax(260px,auto)]"
                                                             >
-                                                                {toSentenceCase(city.label)}
-                                                            </label>
-                                                            {(cityAssignments[normalizeCityKey(city.value)] ?? []).length > 0 && (
-                                                                <Badge variant="outline" className="max-w-[130px] truncate text-[10px] font-normal">
-                                                                    Assigned to {(cityAssignments[normalizeCityKey(city.value)] ?? []).join(', ')}
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    ))}
+                                                                <Checkbox
+                                                                    id={`city-${city.value}`}
+                                                                    checked={selectedCities.includes(city.value)}
+                                                                    onCheckedChange={() => handleToggleCity(city.value)}
+                                                                />
+                                                                <label
+                                                                    htmlFor={`city-${city.value}`}
+                                                                    className="min-w-0 cursor-pointer text-sm"
+                                                                >
+                                                                    {toSentenceCase(city.label)}
+                                                                </label>
+                                                                {assignedNames.length > 0 && (
+                                                                    <Badge variant="outline" className="col-start-2 h-auto min-h-6 w-fit max-w-full whitespace-normal break-words px-2 py-1 text-left text-[10px] font-normal leading-snug sm:col-start-auto sm:max-w-[360px]">
+                                                                        Assigned to {assignedNames.join(', ')}
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             )}
                                         </div>
