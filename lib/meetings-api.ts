@@ -1,4 +1,4 @@
-const MEETINGS_API_BASE_URL = "http://ec2-3-88-111-83.compute-1.amazonaws.com:8081";
+const MEETINGS_API_BASE_URL = "https://api.gajkesaristeels.in";
 
 export const MEETING_TYPES = [
   "Counter",
