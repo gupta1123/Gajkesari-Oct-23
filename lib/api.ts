@@ -85,6 +85,13 @@ export interface VisitDto {
   monthlySale?: number;
 }
 
+export interface VisitCheckoutPayload {
+  checkoutLatitude: number;
+  checkoutLongitude: number;
+  feedback: string;
+  outcome: string;
+}
+
 export interface VisitResponse {
   content: VisitDto[];
   pageable: {
@@ -515,6 +522,10 @@ export class API {
 
   static async getVisitsForTeam(teamId: number, startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', purpose?: string, priority?: string, storeName?: string, employeeName?: string): Promise<VisitResponse> {
     return apiService.getVisitsForTeam(teamId, startDate, endDate, page, size, sort, purpose, priority, storeName, employeeName);
+  }
+
+  static async checkoutVisit(id: number, payload: VisitCheckoutPayload): Promise<string> {
+    return apiService.checkoutVisit(id, payload);
   }
 
   static async createNote(noteData: {
@@ -956,6 +967,13 @@ Please check your internet connection and try again.`);
   // Visit detail APIs
   async getVisitById(id: number): Promise<VisitDto> {
     return this.makeRequest<VisitDto>(`/visit/getById?id=${id}`);
+  }
+
+  async checkoutVisit(id: number, payload: VisitCheckoutPayload): Promise<string> {
+    return this.makeTextRequest(`/visit/checkout?id=${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
   }
 
   async getVisitProCons(visitId: number): Promise<BrandProCon[]> {

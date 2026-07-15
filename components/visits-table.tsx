@@ -73,10 +73,30 @@ const buildEmployeeFilterName = (employee: EmployeeUserDto): string => {
   return (primary || secondary || fallback).trim();
 };
 
-const deriveVisitStatus = (visit: Pick<VisitDto, "checkinDate" | "checkinTime" | "checkoutDate" | "checkoutTime">): "Scheduled" | "Completed" => {
-  const hasCheckin = Boolean(visit.checkinDate && visit.checkinTime);
-  const hasCheckout = Boolean(visit.checkoutDate && visit.checkoutTime);
-  return hasCheckin && hasCheckout ? "Completed" : "Scheduled";
+type VisitListStatus = "Assigned" | "Ongoing" | "Completed";
+
+const hasVisitTime = (value?: string | null): boolean => {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized !== "" && normalized !== "null" && normalized !== "undefined" && normalized !== "-";
+};
+
+const deriveVisitStatus = (visit: Pick<VisitDto, "checkinTime" | "checkoutTime">): VisitListStatus => {
+  const hasCheckin = hasVisitTime(visit.checkinTime);
+  const hasCheckout = hasVisitTime(visit.checkoutTime);
+
+  if (hasCheckin && hasCheckout) {
+    return "Completed";
+  }
+
+  if (hasCheckin) {
+    return "Ongoing";
+  }
+
+  return "Assigned";
 };
 
 export default function VisitsTable() {
@@ -669,7 +689,7 @@ export default function VisitsTable() {
     const lines = [headers.map(csvEscape).join(',')];
 
     for (const r of rowsForCsv) {
-      const status = r.status ?? 'Scheduled';
+      const status = r.status ?? 'Assigned';
       const lastUpdated = r.lastUpdated ?? '';
       const line = [
         r.customerName,
@@ -1013,10 +1033,10 @@ export default function VisitsTable() {
                         <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
                           visit.status === "Completed" 
                             ? "bg-green-100 text-green-800" 
-                            : visit.status === "Scheduled" 
-                              ? "bg-blue-100 text-blue-800" 
-                              : visit.status === "In Progress" 
-                                ? "bg-yellow-100 text-yellow-800" 
+                            : visit.status === "Ongoing" 
+                              ? "bg-yellow-100 text-yellow-800" 
+                              : visit.status === "Assigned" 
+                                ? "bg-blue-100 text-blue-800" 
                                 : "bg-red-100 text-red-800"
                         }`}>
                           {visit.status ?? '—'}
@@ -1087,10 +1107,10 @@ export default function VisitsTable() {
                       <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
                         visit.status === "Completed" 
                           ? "bg-green-100 text-green-800" 
-                          : visit.status === "Scheduled" 
-                            ? "bg-blue-100 text-blue-800" 
-                            : visit.status === "In Progress" 
-                              ? "bg-yellow-100 text-yellow-800" 
+                          : visit.status === "Ongoing" 
+                            ? "bg-yellow-100 text-yellow-800" 
+                            : visit.status === "Assigned" 
+                              ? "bg-blue-100 text-blue-800" 
                               : "bg-red-100 text-red-800"
                       }`}>
                         {visit.status ?? '—'}

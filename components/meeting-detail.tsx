@@ -9,6 +9,7 @@ import {
   Download,
   FileText,
   Gift,
+  IndianRupee,
   Loader2,
   Lock,
   Plus,
@@ -46,13 +47,18 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ATTENDEE_CATEGORIES,
   AttendancePayload,
+  CorrectionStage,
   EXPENSE_HEADS,
   FinalReportPayload,
   formatMeetingStatus,
+  getMeetingStageLabel,
+  getMeetingStatusLabel,
   hasMeetingAction,
   isMeetingTabEnabled,
   Meeting,
+  MeetingAuditHistory,
   MeetingAttendee,
+  MeetingConfigItem,
   MeetingExpense,
   MeetingGift,
   MeetingTabs,
@@ -62,7 +68,7 @@ import {
 import { hasAdminSetupPrivileges } from "@/lib/auth";
 
 type WorkflowTab = keyof MeetingTabs;
-type AdminReviewTab = "details" | "attendees" | "gifts" | "expenses";
+type AdminReviewTab = "details" | "attendees" | "gifts" | "expenses" | "finalReport" | "history";
 
 type RequestForm = {
   meetingType: string;
@@ -72,7 +78,9 @@ type RequestForm = {
   state: string;
   location: string;
   customerReference: string;
+  expectedAttendees: string;
   objective: string;
+  expectedBusinessImpact: string;
   expectedBudget: string;
   expectedGiftsMaterials: string;
   allowWalkInAttendees: boolean;
@@ -94,6 +102,16 @@ const WORKFLOW_TABS: Array<{ key: WorkflowTab; label: string }> = [
   { key: "gifts", label: "Gifts" },
   { key: "expenses", label: "Expenses" },
   { key: "finalReport", label: "Final Report" },
+];
+
+const CORRECTION_STAGE_OPTIONS: Array<{ value: CorrectionStage; label: string }> = [
+  { value: "REQUEST", label: "Request plan" },
+  { value: "ATTENDEES", label: "Attendees" },
+  { value: "ATTENDANCE", label: "Attendance data" },
+  { value: "GIFTS", label: "Gifts" },
+  { value: "EXPENSES", label: "Expenses" },
+  { value: "LEADS", label: "Leads" },
+  { value: "FINAL_REPORT", label: "Final Report" },
 ];
 
 const formatCurrency = (amount?: number) =>
@@ -136,6 +154,150 @@ const statusBadgeClass = (status?: string) => {
   }
 };
 
+const POST_MEETING_STATUSES = new Set(["EXECUTED", "EXPENSE_SUBMITTED", "REPORT_SUBMITTED", "CLOSED"]);
+
+const isPostMeetingStatus = (status?: string) => POST_MEETING_STATUSES.has(String(status || ""));
+
+const getActualAttendanceCount = (meeting: Meeting) =>
+  meeting.actualAttendeeCount ?? (meeting.attendees || []).filter((attendee) => attendee.present).length;
+
+const hasFinalReportContent = (meeting: Meeting) =>
+  Boolean(
+    meeting.meetingSummary ||
+      meeting.keyDiscussionPoints ||
+      meeting.leadsGenerated ||
+      meeting.leadCount ||
+      meeting.leadDetails ||
+      meeting.interestedCustomers ||
+      meeting.competitorInformation ||
+      meeting.actualBusinessOutcome ||
+      meeting.finalRemarks ||
+      meeting.finalReportApprovalRemarks
+  );
+
+const normalizeConfigNames = (items: MeetingConfigItem[] | string[] | undefined, fallback: readonly string[]) => {
+  if (!items?.length) return [...fallback];
+  const names = items
+    .map((item) => (typeof item === "string" ? item : item.active === false ? "" : item.name))
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return names.length ? Array.from(new Set(names)) : [...fallback];
+};
+
+const withCurrentOption = (options: string[], current?: string | null) => {
+  const trimmed = String(current || "").trim();
+  if (!trimmed || options.includes(trimmed)) return options;
+  return [...options, trimmed];
+};
+
+const parsePlanArray = <T,>(value: unknown): T[] => {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const splitPlainPlanItems = (value: unknown) => {
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    JSON.parse(value);
+    return [];
+  } catch {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+};
+
+const normalizeGroupKey = (value?: string | null) => String(value || "Other").trim() || "Other";
+
+const getPlannedExpenses = (meeting: Meeting): MeetingExpense[] =>
+  parsePlanArray<MeetingExpense>(meeting.plan?.plannedExpenseDetails);
+
+const getPlannedGifts = (meeting: Meeting): MeetingGift[] => {
+  const detailed = parsePlanArray<MeetingGift>(meeting.plan?.plannedGiftDetails);
+  if (detailed.length) return detailed;
+
+  const expected = parsePlanArray<MeetingGift>(meeting.plan?.expectedGiftsMaterials);
+  if (expected.length) return expected;
+
+  return splitPlainPlanItems(meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials).map((giftItem) => ({
+    giftItem,
+    quantity: 0,
+  }));
+};
+
+const getExpenseComparisonRows = (meeting: Meeting) => {
+  const rowMap = new Map<
+    string,
+    { head: string; planned: number; actual: number; company: number; dealer: number; difference: number }
+  >();
+
+  getPlannedExpenses(meeting).forEach((expense) => {
+    const head = normalizeGroupKey(expense.expenseHead);
+    const row = rowMap.get(head) || { head, planned: 0, actual: 0, company: 0, dealer: 0, difference: 0 };
+    row.planned += Number(expense.amount || 0);
+    rowMap.set(head, row);
+  });
+
+  (meeting.expenses || []).forEach((expense) => {
+    const head = normalizeGroupKey(expense.expenseHead);
+    const row = rowMap.get(head) || { head, planned: 0, actual: 0, company: 0, dealer: 0, difference: 0 };
+    const amount = Number(expense.amount || 0);
+    row.actual += amount;
+    row.company += Number(expense.companyAmount ?? (expense.paidBy === "COMPANY" ? amount : 0) ?? 0);
+    row.dealer += Number(expense.dealerAmount ?? (expense.paidBy === "DEALER" ? amount : 0) ?? 0);
+    rowMap.set(head, row);
+  });
+
+  return Array.from(rowMap.values())
+    .map((row) => ({ ...row, difference: row.actual - row.planned }))
+    .sort((a, b) => a.head.localeCompare(b.head));
+};
+
+const getGiftComparisonRows = (meeting: Meeting) => {
+  const rowMap = new Map<string, { item: string; planned: number; issued: number; difference: number; estimatedAmount: number }>();
+
+  getPlannedGifts(meeting).forEach((gift) => {
+    const item = normalizeGroupKey(gift.giftItem);
+    const row = rowMap.get(item) || { item, planned: 0, issued: 0, difference: 0, estimatedAmount: 0 };
+    row.planned += Number(gift.quantity || 0);
+    row.estimatedAmount += Number(gift.estimatedAmount || 0);
+    rowMap.set(item, row);
+  });
+
+  (meeting.gifts || []).forEach((gift) => {
+    const item = normalizeGroupKey(gift.giftItem);
+    const row = rowMap.get(item) || { item, planned: 0, issued: 0, difference: 0, estimatedAmount: 0 };
+    row.issued += Number(gift.quantity || 0);
+    rowMap.set(item, row);
+  });
+
+  return Array.from(rowMap.values())
+    .map((row) => ({ ...row, difference: row.issued - row.planned }))
+    .sort((a, b) => a.item.localeCompare(b.item));
+};
+
+const getDraftMissingItems = (meeting: Meeting) => {
+  const missing: string[] = [];
+  if (!meeting.meetingType) missing.push("meeting type");
+  if (!meeting.meetingDate) missing.push("date");
+  if (!meeting.meetingTime) missing.push("time");
+  if (!meeting.city) missing.push("city");
+  if (!meeting.state) missing.push("state");
+  if (!meeting.location) missing.push("location");
+  if (!meeting.objective) missing.push("purpose");
+  if (meeting.expectedBudget == null) missing.push("expected budget");
+  if (!meeting.expectedBusinessImpact) missing.push("expected impact");
+  if (!meeting.attendees?.length) missing.push("expected attendees");
+  return missing;
+};
+
 const requestFormFromMeeting = (meeting: Meeting): RequestForm => ({
   meetingType: meeting.meetingType || "Dealer",
   meetingDate: meeting.meetingDate || "",
@@ -144,7 +306,9 @@ const requestFormFromMeeting = (meeting: Meeting): RequestForm => ({
   state: meeting.state || "",
   location: meeting.location || "",
   customerReference: meeting.customerReference || "",
+  expectedAttendees: meeting.expectedAttendees == null ? "" : String(meeting.expectedAttendees),
   objective: meeting.objective || "",
+  expectedBusinessImpact: meeting.expectedBusinessImpact || "",
   expectedBudget: meeting.expectedBudget == null ? "" : String(meeting.expectedBudget),
   expectedGiftsMaterials: meeting.expectedGiftsMaterials || "",
   allowWalkInAttendees: meeting.allowWalkInAttendees !== false,
@@ -332,6 +496,128 @@ function ExpenseMetricCard({
   );
 }
 
+type MeetingKpiSubMetric = {
+  label: string;
+  value: ReactNode;
+  valueClassName?: string;
+};
+
+type MeetingKpiGridProps = {
+  status?: string;
+  statusValue: ReactNode;
+  secondaryLabel: string;
+  secondaryValue: ReactNode;
+  secondaryClassName?: string;
+  financialLabel: string;
+  financialValue: ReactNode;
+  financialSubMetrics: MeetingKpiSubMetric[];
+  attendanceLabel: string;
+  attendanceValue: ReactNode;
+  attendanceSubMetrics: MeetingKpiSubMetric[];
+};
+
+const statusDotClass = (status?: string) => {
+  switch (status) {
+    case "APPROVED":
+      return "bg-blue-500 shadow-blue-500/30";
+    case "PENDING_APPROVAL":
+    case "DRAFT":
+      return "bg-amber-500 shadow-amber-500/30";
+    case "EXECUTED":
+    case "EXPENSE_SUBMITTED":
+    case "REPORT_SUBMITTED":
+      return "bg-purple-500 shadow-purple-500/30";
+    case "CLOSED":
+      return "bg-emerald-500 shadow-emerald-500/30";
+    case "REJECTED":
+    case "CANCELLED":
+      return "bg-red-500 shadow-red-500/30";
+    case "CORRECTION_REQUIRED":
+      return "bg-orange-500 shadow-orange-500/30";
+    default:
+      return "bg-muted-foreground shadow-muted-foreground/20";
+  }
+};
+
+function KpiSubMetrics({ metrics }: { metrics: MeetingKpiSubMetric[] }) {
+  return (
+    <div className={`grid border-t bg-muted/20 ${metrics.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+      {metrics.map((metric, index) => (
+        <div key={metric.label} className={`px-5 py-3 ${index > 0 ? "border-l" : ""}`}>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{metric.label}</div>
+          <div className={`mt-1 text-sm font-bold text-foreground ${metric.valueClassName || ""}`}>{metric.value ?? "-"}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MeetingKpiGrid({
+  status,
+  statusValue,
+  secondaryLabel,
+  secondaryValue,
+  secondaryClassName = "",
+  financialLabel,
+  financialValue,
+  financialSubMetrics,
+  attendanceLabel,
+  attendanceValue,
+  attendanceSubMetrics,
+}: MeetingKpiGridProps) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-3">
+      <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
+        <CardContent className="grid min-h-[132px] grid-cols-2 p-0">
+          <div className="flex flex-col justify-center gap-2 px-5 py-5">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Status</span>
+            <span className="inline-flex items-center gap-2 text-base font-extrabold text-foreground">
+              <span className={`h-2 w-2 rounded-full shadow-[0_0_0_4px] ${statusDotClass(status)}`} />
+              {statusValue}
+            </span>
+          </div>
+          <div className="flex flex-col justify-center gap-2 border-l px-5 py-5">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{secondaryLabel}</span>
+            <span className={`inline-flex w-fit items-center rounded-md border border-primary/20 bg-primary/10 px-2.5 py-1 text-sm font-bold text-primary ${secondaryClassName}`}>
+              {secondaryValue}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
+        <CardContent className="p-0">
+          <div className="flex min-h-[86px] items-center justify-between gap-4 px-5 py-5">
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{financialLabel}</div>
+              <div className="mt-1 break-words text-2xl font-extrabold tracking-tight text-foreground">{financialValue}</div>
+            </div>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-600">
+              <IndianRupee className="h-5 w-5" />
+            </span>
+          </div>
+          <KpiSubMetrics metrics={financialSubMetrics} />
+        </CardContent>
+      </Card>
+
+      <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
+        <CardContent className="p-0">
+          <div className="flex min-h-[86px] items-center justify-between gap-4 px-5 py-5">
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{attendanceLabel}</div>
+              <div className="mt-1 break-words text-2xl font-extrabold tracking-tight text-foreground">{attendanceValue}</div>
+            </div>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+              <UserCheck className="h-5 w-5" />
+            </span>
+          </div>
+          <KpiSubMetrics metrics={attendanceSubMetrics} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const getExpenseIndicatorClass = (head?: string) => {
   const normalized = String(head || "").toLowerCase();
   if (normalized.includes("food") || normalized.includes("snack")) return "bg-amber-500";
@@ -361,10 +647,16 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [meetingTypes, setMeetingTypes] = useState<string[]>([...MEETING_TYPES]);
+  const [giftItemOptions, setGiftItemOptions] = useState<string[]>([]);
+  const [expenseHeadOptions, setExpenseHeadOptions] = useState<string[]>([...EXPENSE_HEADS]);
 
   const [requestForm, setRequestForm] = useState<RequestForm | null>(null);
   const [attendees, setAttendees] = useState<MeetingAttendee[]>([]);
   const [approvalRemarks, setApprovalRemarks] = useState("");
+  const [correctionStage, setCorrectionStage] = useState<CorrectionStage>("REQUEST");
+  const [finalCorrectionStage, setFinalCorrectionStage] = useState<CorrectionStage>("FINAL_REPORT");
+  const [auditHistory, setAuditHistory] = useState<MeetingAuditHistory[]>([]);
   const [executionForm, setExecutionForm] = useState<ExecutionForm>({
     actualMeetingDate: "",
     actualMeetingTime: "",
@@ -380,13 +672,33 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     meetingSummary: "",
     keyDiscussionPoints: "",
     leadsGenerated: "",
+    leadCount: undefined,
+    leadDetails: "",
     interestedCustomers: "",
     competitorInformation: "",
+    actualBusinessOutcome: "",
     finalRemarks: "",
   });
   const [finalApprovalRemarks, setFinalApprovalRemarks] = useState("");
   const [closeRemarks, setCloseRemarks] = useState("");
   const [cancelRemarks, setCancelRemarks] = useState("");
+
+  const loadConfig = async () => {
+    meetingsApi
+      .getMeetingTypes()
+      .then((items) => setMeetingTypes(normalizeConfigNames(items, MEETING_TYPES)))
+      .catch(() => setMeetingTypes([...MEETING_TYPES]));
+
+    meetingsApi
+      .getGiftItems()
+      .then((items) => setGiftItemOptions(normalizeConfigNames(items, [])))
+      .catch(() => setGiftItemOptions([]));
+
+    meetingsApi
+      .getExpenseHeads()
+      .then((items) => setExpenseHeadOptions(normalizeConfigNames(items, EXPENSE_HEADS)))
+      .catch(() => setExpenseHeadOptions([...EXPENSE_HEADS]));
+  };
 
   const loadMeeting = async () => {
     setIsLoading(true);
@@ -419,12 +731,19 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         meetingSummary: data.meetingSummary || "",
         keyDiscussionPoints: data.keyDiscussionPoints || "",
         leadsGenerated: data.leadsGenerated || "",
+        leadCount: data.leadCount,
+        leadDetails: data.leadDetails || "",
         interestedCustomers: data.interestedCustomers || "",
         competitorInformation: data.competitorInformation || "",
+        actualBusinessOutcome: data.actualBusinessOutcome || "",
         finalRemarks: data.finalRemarks || "",
       });
       setFinalApprovalRemarks(data.finalReportApprovalRemarks || "");
       setCloseRemarks(data.finalRemarks || "");
+      setAuditHistory(data.auditHistory || []);
+      if (!data.auditHistory?.length) {
+        meetingsApi.getMeetingAudit(meetingId).then(setAuditHistory).catch(() => setAuditHistory([]));
+      }
 
       const currentTabEnabled = isMeetingTabEnabled(data, activeTab);
       if (!currentTabEnabled) {
@@ -439,6 +758,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   };
 
   useEffect(() => {
+    loadConfig();
     loadMeeting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
@@ -457,6 +777,51 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     () => (meeting?.expenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
     [meeting]
   );
+
+  const companyPaidTotal = useMemo(
+    () =>
+      (meeting?.expenses || []).reduce((sum, expense) => {
+        const fallbackAmount = expense.paidBy === "COMPANY" ? expense.amount : 0;
+        return sum + Number(expense.companyAmount ?? fallbackAmount ?? 0);
+      }, 0),
+    [meeting]
+  );
+
+  const dealerPaidTotal = useMemo(
+    () =>
+      (meeting?.expenses || []).reduce((sum, expense) => {
+        const fallbackAmount = expense.paidBy === "DEALER" ? expense.amount : 0;
+        return sum + Number(expense.dealerAmount ?? fallbackAmount ?? 0);
+      }, 0),
+    [meeting]
+  );
+
+  const plannedExpenses = useMemo(() => (meeting ? getPlannedExpenses(meeting) : []), [meeting]);
+  const plannedGifts = useMemo(() => (meeting ? getPlannedGifts(meeting) : []), [meeting]);
+  const expenseComparisonRows = useMemo(() => (meeting ? getExpenseComparisonRows(meeting) : []), [meeting]);
+  const giftComparisonRows = useMemo(() => (meeting ? getGiftComparisonRows(meeting) : []), [meeting]);
+  const plannedExpenseTotal = useMemo(
+    () => plannedExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
+    [plannedExpenses]
+  );
+  const plannedGiftQuantity = useMemo(
+    () => plannedGifts.reduce((sum, gift) => sum + Number(gift.quantity || 0), 0),
+    [plannedGifts]
+  );
+  const issuedGiftQuantity = useMemo(
+    () => (meeting?.gifts || []).reduce((sum, gift) => sum + Number(gift.quantity || 0), 0),
+    [meeting]
+  );
+  const typeOptions = useMemo(() => withCurrentOption(meetingTypes, requestForm?.meetingType), [meetingTypes, requestForm?.meetingType]);
+  const currentGiftOptions = useMemo(
+    () => gifts.reduce((options, gift) => withCurrentOption(options, gift.giftItem), giftItemOptions),
+    [giftItemOptions, gifts]
+  );
+  const currentExpenseHeadOptions = useMemo(
+    () => expenses.reduce((options, expense) => withCurrentOption(options, expense.expenseHead), expenseHeadOptions),
+    [expenseHeadOptions, expenses]
+  );
+
   const isAdmin = hasAdminSetupPrivileges(userRole, currentUser);
 
   const canEditRequest = Boolean(meeting && (hasMeetingAction(meeting, "EDIT_REQUEST") || ["DRAFT", "CORRECTION_REQUIRED"].includes(meeting.status)));
@@ -466,12 +831,17 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const canRequestCorrection = Boolean(meeting && (hasMeetingAction(meeting, "REQUEST_CORRECTION") || meeting.status === "PENDING_APPROVAL"));
   const canExecute = Boolean(meeting && (hasMeetingAction(meeting, "EXECUTE") || meeting.status === "APPROVED"));
   const canMarkAttendance = Boolean(meeting && (hasMeetingAction(meeting, "MARK_ATTENDANCE") || ["APPROVED", "EXECUTED"].includes(meeting.status)));
-  const canIssueGifts = Boolean(meeting && isMeetingTabEnabled(meeting, "gifts") && ["EXECUTED", "EXPENSE_SUBMITTED", "REPORT_SUBMITTED"].includes(meeting.status));
+  const canIssueGifts = Boolean(
+    meeting &&
+      isMeetingTabEnabled(meeting, "gifts") &&
+      meeting.attendanceFinalized === true &&
+      ["EXECUTED", "EXPENSE_SUBMITTED", "REPORT_SUBMITTED"].includes(meeting.status)
+  );
   const canSubmitExpenses = Boolean(meeting && (hasMeetingAction(meeting, "SUBMIT_EXPENSES") || meeting.status === "EXECUTED"));
   const canSubmitFinalReport = Boolean(meeting && (hasMeetingAction(meeting, "SUBMIT_FINAL_REPORT") || meeting.status === "EXPENSE_SUBMITTED"));
   const canApproveFinalReport = Boolean(meeting && (hasMeetingAction(meeting, "APPROVE_FINAL_REPORT") || meeting.status === "REPORT_SUBMITTED"));
   const canClose = Boolean(meeting && (hasMeetingAction(meeting, "CLOSE") || meeting.status === "REPORT_SUBMITTED"));
-  const canCancel = Boolean(meeting && !["CLOSED", "CANCELLED", "REJECTED"].includes(meeting.status));
+  const canCancel = Boolean(meeting && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(meeting.status));
 
   const runAction = async (callback: () => Promise<unknown>, successMessage: string) => {
     setIsSaving(true);
@@ -498,6 +868,12 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       setError("Meeting date, time, city, and state are required.");
       return;
     }
+    const namedAttendeeCount = normaliseAttendees(attendees).length;
+    const expectedTurnout = Number(requestForm.expectedAttendees || namedAttendeeCount);
+    if (!Number.isFinite(expectedTurnout) || expectedTurnout < namedAttendeeCount) {
+      setError("Expected turnout cannot be lower than named attendees.");
+      return;
+    }
 
     await runAction(
       () =>
@@ -509,8 +885,9 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           state: requestForm.state.trim(),
           location: requestForm.location.trim(),
           customerReference: requestForm.customerReference.trim() || undefined,
-          expectedAttendees: normaliseAttendees(attendees).length,
+          expectedAttendees: expectedTurnout,
           objective: requestForm.objective.trim(),
+          expectedBusinessImpact: requestForm.expectedBusinessImpact.trim() || undefined,
           expectedBudget: Number(requestForm.expectedBudget || 0),
           expectedGiftsMaterials: requestForm.expectedGiftsMaterials.trim() || undefined,
           allowWalkInAttendees: requestForm.allowWalkInAttendees,
@@ -553,13 +930,25 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       setError("Remarks are required for rejection or correction.");
       return;
     }
+    if (action === "correction" && !correctionStage) {
+      setError("Select the section that needs correction.");
+      return;
+    }
     const payload = { approvalRemarks: approvalRemarks.trim() };
     if (action === "approve") {
       await runAction(() => meetingsApi.approveMeeting(meeting.id, payload), "Meeting approved.");
     } else if (action === "reject") {
       await runAction(() => meetingsApi.rejectMeeting(meeting.id, payload), "Meeting rejected.");
     } else {
-      await runAction(() => meetingsApi.requestCorrection(meeting.id, payload), "Meeting sent for correction.");
+      await runAction(
+        () =>
+          meetingsApi.requestCorrection(meeting.id, {
+            ...payload,
+            correctionStage,
+            correctionRemarks: approvalRemarks.trim(),
+          }),
+        "Meeting sent for correction."
+      );
     }
     setApprovalRemarks("");
   };
@@ -593,7 +982,20 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         remarks: attendance[attendee.id as number]?.remarks || "",
       }));
 
-    await runAction(() => meetingsApi.markAttendance(meeting.id, payload), "Attendance updated.");
+    await runAction(
+      () =>
+        meetingsApi.finaliseAttendance(meeting.id, {
+          actualMeetingDate: executionForm.actualMeetingDate || meeting.actualMeetingDate || meeting.meetingDate || "",
+          actualMeetingTime: timeForApi(executionForm.actualMeetingTime || timeForInput(meeting.actualMeetingTime || meeting.meetingTime)),
+          actualLocation: executionForm.actualLocation.trim() || meeting.actualLocation || meeting.location || "",
+          executionRemarks: executionForm.executionRemarks.trim() || undefined,
+          attendees: payload.map((attendee) => ({
+            ...attendee,
+            attendanceSource: "FINAL_MANUAL",
+          })),
+        }),
+      "Attendance finalised."
+    );
   };
 
   const addWalkIn = async () => {
@@ -636,7 +1038,32 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       return;
     }
 
+    const issuedPairs = new Set<string>();
+    for (const gift of cleaned) {
+      const key = `${gift.meetingAttendeeId}:${gift.giftItem.toLowerCase()}`;
+      if (issuedPairs.has(key)) {
+        setError("The same attendee cannot receive the same gift item twice.");
+        return;
+      }
+      issuedPairs.add(key);
+    }
+
     await runAction(() => meetingsApi.saveGifts(meeting.id, cleaned), "Gifts saved.");
+  };
+
+  const removeGift = async (index: number) => {
+    if (!meeting) return;
+    const gift = gifts[index];
+    if (gift?.id) {
+      await runAction(() => meetingsApi.deleteGift(meeting.id, gift.id as number), "Gift removed.");
+      return;
+    }
+    setGifts((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
+  };
+
+  const markNoGifts = async () => {
+    if (!meeting) return;
+    await runAction(() => meetingsApi.markNoGifts(meeting.id), "Marked as no gifts distributed.");
   };
 
   const submitExpenses = async () => {
@@ -645,6 +1072,19 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       .map((expense) => ({
         ...expense,
         amount: Number(expense.amount || 0),
+        paidBy: expense.paidBy || "COMPANY",
+        companyAmount:
+          expense.paidBy === "SHARED"
+            ? Number(expense.companyAmount || 0)
+            : expense.paidBy === "DEALER"
+              ? 0
+              : Number(expense.amount || 0),
+        dealerAmount:
+          expense.paidBy === "SHARED"
+            ? Number(expense.dealerAmount || 0)
+            : expense.paidBy === "DEALER"
+              ? Number(expense.amount || 0)
+              : 0,
         expenseDate: expense.expenseDate || executionForm.actualMeetingDate || meeting.meetingDate,
         remarks: expense.remarks?.trim() || undefined,
       }))
@@ -652,6 +1092,16 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
 
     if (cleaned.length === 0) {
       setError("Add at least one expense row.");
+      return;
+    }
+
+    const invalidSharedExpense = cleaned.find(
+      (expense) =>
+        expense.paidBy === "SHARED" &&
+        Math.abs(Number(expense.companyAmount || 0) + Number(expense.dealerAmount || 0) - Number(expense.amount || 0)) > 0.01
+    );
+    if (invalidSharedExpense) {
+      setError("For shared expenses, company amount and dealer amount must match the expense total.");
       return;
     }
 
@@ -666,30 +1116,71 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     );
   };
 
+  const removeExpense = async (index: number) => {
+    if (!meeting) return;
+    const expense = expenses[index];
+    if (expense?.id) {
+      await runAction(() => meetingsApi.deleteExpense(meeting.id, expense.id as number), "Expense removed.");
+      return;
+    }
+    setExpenses((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
+  };
+
+  const markNoExpenses = async () => {
+    if (!meeting) return;
+    await runAction(() => meetingsApi.markNoExpenses(meeting.id), "Marked as no expenses incurred.");
+  };
+
   const submitFinalReport = async () => {
     if (!meeting) return;
     if (!finalReport.meetingSummary.trim()) {
       setError("Meeting summary is required for final report.");
       return;
     }
+    if (!finalReport.actualBusinessOutcome?.trim()) {
+      setError("Actual business outcome is required for final report.");
+      return;
+    }
     await runAction(() => meetingsApi.submitFinalReport(meeting.id, finalReport), "Final report submitted.");
   };
 
-  const approveFinalReport = async () => {
+  const approveAndCloseMeeting = async () => {
     if (!meeting) return;
+    const remarks = finalApprovalRemarks.trim() || closeRemarks.trim();
+    if (!remarks) {
+      setError("Final review remarks are required.");
+      return;
+    }
     await runAction(
-      () => meetingsApi.approveFinalReport(meeting.id, { finalReportApprovalRemarks: finalApprovalRemarks.trim() }),
-      "Final report approved."
+      () =>
+        meetingsApi.approveAndCloseFinalReport(meeting.id, {
+          finalReportApprovalRemarks: finalApprovalRemarks.trim() || remarks,
+          finalRemarks: closeRemarks.trim() || remarks,
+        }),
+      "Meeting approved and closed."
     );
   };
 
-  const closeMeeting = async () => {
+  const requestFinalReviewCorrection = async () => {
     if (!meeting) return;
-    if (!closeRemarks.trim()) {
-      setError("Closure remarks are required.");
+    if (!finalApprovalRemarks.trim()) {
+      setError("Correction remarks are required.");
       return;
     }
-    await runAction(() => meetingsApi.closeMeeting(meeting.id, { finalRemarks: closeRemarks.trim() }), "Meeting closed.");
+    if (!finalCorrectionStage) {
+      setError("Select the section that needs correction.");
+      return;
+    }
+    await runAction(
+      () =>
+        meetingsApi.requestFinalReportCorrection(meeting.id, {
+          approvalRemarks: finalApprovalRemarks.trim(),
+          correctionStage: finalCorrectionStage,
+          correctionRemarks: finalApprovalRemarks.trim(),
+        }),
+      "Meeting sent back for correction."
+    );
+    setFinalApprovalRemarks("");
   };
 
   const cancelMeeting = async () => {
@@ -735,60 +1226,100 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     );
   }
 
+  const actualAttendanceCount = getActualAttendanceCount(meeting);
+  const namedAttendeeCount = meeting.attendees?.length || 0;
+  const expectedTurnout = meeting.expectedAttendees || namedAttendeeCount;
+  const showActualSummary = isPostMeetingStatus(meeting.status);
+  const budgetDifference = actualExpenseTotal - Number(meeting.expectedBudget || 0);
+  const plannedGiftDisplay = plannedGiftQuantity ? String(plannedGiftQuantity) : meeting.expectedGiftsMaterials ? "Added" : "-";
+  const issuedGiftDisplay = issuedGiftQuantity ? String(issuedGiftQuantity) : meeting.noGifts ? "No Gifts" : "-";
+  const leadDisplay = String(meeting.leadCount ?? (meeting.leadsGenerated ? "Added" : "-"));
+
   if (isAdmin) {
     const adminTabs: Array<{ key: AdminReviewTab; label: string }> = [
-      { key: "details", label: "Details" },
+      { key: "details", label: "Request Plan" },
       { key: "attendees", label: "Attendees" },
       { key: "gifts", label: "Gifts" },
       { key: "expenses", label: "Expenses" },
+      { key: "finalReport", label: "Final Report" },
+      { key: "history", label: "History" },
     ];
+    const draftMissingItems = getDraftMissingItems(meeting);
+    const reportReadiness = [
+      { label: "Attendance", ready: meeting.attendanceFinalized === true },
+      { label: "Gifts", ready: meeting.giftsCompleted === true || meeting.noGifts === true },
+      { label: "Expenses", ready: meeting.expensesCompleted === true || meeting.noExpenses === true },
+      { label: "Final Report", ready: hasFinalReportContent(meeting) },
+    ];
+    const showApprovalDecision = meeting.status === "PENDING_APPROVAL" && (canApprove || canReject || canRequestCorrection);
 
     return (
       <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</div>
-              <div className="mt-1 text-lg font-bold">{formatMeetingStatus(meeting.status)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Expected Budget</div>
-              <div className="mt-1 text-lg font-bold">{formatCurrency(meeting.expectedBudget)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Attendees</div>
-              <div className="mt-1 text-lg font-bold">{meeting.attendees?.length || meeting.expectedAttendees || 0}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gifts</div>
-              <div className="mt-1 text-lg font-bold">{meeting.gifts?.length || 0}</div>
-            </CardContent>
-          </Card>
-        </div>
+        <MeetingKpiGrid
+          status={meeting.status}
+          statusValue={getMeetingStageLabel(meeting)}
+          secondaryLabel={showActualSummary ? "Gifts Issued" : "Planned Gifts"}
+          secondaryValue={showActualSummary ? issuedGiftDisplay : plannedGiftDisplay}
+          financialLabel={showActualSummary ? "Actual Expenses" : "Expected Budget"}
+          financialValue={showActualSummary ? formatCurrency(actualExpenseTotal) : formatCurrency(meeting.expectedBudget)}
+          financialSubMetrics={
+            showActualSummary
+              ? [
+                  { label: "Expected Budget", value: formatCurrency(meeting.expectedBudget) },
+                  {
+                    label: "Difference",
+                    value: formatCurrency(budgetDifference),
+                    valueClassName: budgetDifference <= 0 ? "text-emerald-600" : "text-amber-600",
+                  },
+                ]
+              : [
+                  { label: "Company Share", value: formatCurrency(meeting.plan?.companyContribution) },
+                  { label: "Dealer Share", value: formatCurrency(meeting.plan?.dealerContribution) },
+                ]
+          }
+          attendanceLabel={showActualSummary ? "Actual Attendance" : "Expected Turnout"}
+          attendanceValue={showActualSummary ? `${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}` : String(expectedTurnout || 0)}
+          attendanceSubMetrics={[
+            showActualSummary
+              ? { label: "Leads", value: leadDisplay }
+              : { label: "Named Attendees", value: String(namedAttendeeCount) },
+          ]}
+        />
 
         {message && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
         {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-        {(canApprove || canReject) && (
+        {showApprovalDecision && (
           <Card>
             <CardHeader>
-              <CardTitle>Approval Decision</CardTitle>
+              <CardTitle>Review Decision</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                <Label>Rejection note</Label>
+                <Label>Decision note</Label>
                 <Textarea
                   value={approvalRemarks}
                   onChange={(event) => setApprovalRemarks(event.target.value)}
-                  placeholder="Required only if rejecting this meeting."
+                  placeholder="Required if rejecting this meeting."
                 />
               </div>
+              {canRequestCorrection && (
+                <div className="space-y-2">
+                  <Label>Correction section</Label>
+                  <Select value={correctionStage} onValueChange={(value) => setCorrectionStage(value as CorrectionStage)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CORRECTION_STAGE_OPTIONS.filter((option) => ["REQUEST", "ATTENDEES"].includes(option.value)).map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 {canApprove && (
                   <Button onClick={() => approvalAction("approve")} disabled={isSaving}>
@@ -800,6 +1331,11 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   <Button variant="destructive" onClick={() => approvalAction("reject")} disabled={isSaving || !approvalRemarks.trim()}>
                     <XCircle className="h-4 w-4" />
                     Reject
+                  </Button>
+                )}
+                {canRequestCorrection && (
+                  <Button variant="outline" onClick={() => approvalAction("correction")} disabled={isSaving || !approvalRemarks.trim()}>
+                    Request Correction
                   </Button>
                 )}
               </div>
@@ -839,29 +1375,60 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               <MeetingDetailCard title="Request" icon={<FileText className="h-4 w-4" />}>
                 <dl>
                   <MeetingDataRow label="Created by" value={meeting.creatorName} />
-                  <MeetingDataRow label="Customer reference" value={meeting.customerReference} />
+                  <MeetingDataRow label="Dealer / shop" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
+                  <MeetingDataRow label="Store ID" value={meeting.storeId} />
                   <MeetingDataRow label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
-                  <MeetingDataRow label="Expected attendees" value={meeting.expectedAttendees} />
+                  <MeetingDataRow label="Expected turnout" value={expectedTurnout} />
+                  <MeetingDataRow label="Named attendees" value={namedAttendeeCount} />
+                  <MeetingDataRow label="Company share" value={formatCurrency(meeting.plan?.companyContribution)} />
+                  <MeetingDataRow label="Dealer share" value={formatCurrency(meeting.plan?.dealerContribution)} />
                   <MeetingDataRow
                     label="Status"
                     value={
                       <Badge variant="outline" className={statusBadgeClass(meeting.status)}>
-                        {formatMeetingStatus(meeting.status)}
+                        {getMeetingStatusLabel(meeting)}
                       </Badge>
                     }
                   />
+                  {showActualSummary && (
+                    <>
+                      <MeetingDataRow label="Actual attendance" value={`${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}`} />
+                      <MeetingDataRow label="Actual expenses" value={formatCurrency(actualExpenseTotal)} />
+                      <MeetingDataRow label="Budget difference" value={formatCurrency(actualExpenseTotal - Number(meeting.expectedBudget || 0))} />
+                    </>
+                  )}
                 </dl>
               </MeetingDetailCard>
             </div>
 
+            {meeting.status === "DRAFT" && draftMissingItems.length > 0 && (
+              <Card className="rounded-lg border-amber-200 bg-amber-50 py-0 text-amber-900 shadow-sm">
+                <CardContent className="p-4 text-sm">
+                  Draft incomplete: {draftMissingItems.join(", ")}.
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="rounded-lg border-border/80 py-0 shadow-sm">
               <CardContent className="p-8">
-                <dl className="grid gap-8 md:grid-cols-3">
+                <dl className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
                   <MeetingNoteBlock label="Purpose / objective" value={meeting.objective} />
+                  <MeetingNoteBlock label="Expected business impact" value={meeting.expectedBusinessImpact} />
+                  {showActualSummary && (
+                    <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
+                  )}
                   <MeetingNoteBlock label="Expected gifts / materials" value={meeting.expectedGiftsMaterials} />
+                  <MeetingNoteBlock label="Planned expense details" value={plannedExpenses.length ? `${plannedExpenses.length} categories planned` : meeting.plan?.plannedExpenseDetails as string} />
+                  <MeetingNoteBlock label="Budget remarks" value={meeting.plan?.budgetRemarks} />
                   <MeetingNoteBlock label="Remarks" value={meeting.remarks} />
                   {meeting.approvalRemarks && (
                     <MeetingNoteBlock label="Approval / rejection note" value={meeting.approvalRemarks} />
+                  )}
+                  {meeting.correctionRemarks && (
+                    <MeetingNoteBlock label={`Correction requested${meeting.correctionStage ? `: ${meeting.correctionStage}` : ""}`} value={meeting.correctionRemarks} />
+                  )}
+                  {meeting.cancellationRemarks && (
+                    <MeetingNoteBlock label="Cancellation remarks" value={meeting.cancellationRemarks} />
                   )}
                 </dl>
               </CardContent>
@@ -919,10 +1486,71 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-2xl font-bold tracking-tight">Gifts</h2>
-              <Badge variant="outline" className="w-fit rounded-full border-border bg-muted px-4 py-1.5 text-sm font-semibold text-foreground">
-                {meeting.gifts?.length || 0} Items Issued
+              <Badge
+                variant="outline"
+                className={`w-fit rounded-full px-4 py-1.5 text-sm font-semibold ${
+                  meeting.giftsCompleted || meeting.noGifts
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                {meeting.noGifts ? "No Gifts" : meeting.giftsCompleted ? "Completed" : "Pending"}
               </Badge>
             </div>
+
+            <div className="grid gap-5 md:grid-cols-4">
+              <ExpenseMetricCard label="Planned Quantity" value={String(plannedGiftQuantity || 0)} />
+              <ExpenseMetricCard label="Issued Quantity" value={String(issuedGiftQuantity || 0)} />
+              <ExpenseMetricCard
+                label="Difference"
+                value={String(issuedGiftQuantity - plannedGiftQuantity)}
+                valueClassName={issuedGiftQuantity >= plannedGiftQuantity ? "text-emerald-600" : "text-amber-600"}
+              />
+              <ExpenseMetricCard label="Gift Rows" value={String(meeting.gifts?.length || 0)} />
+            </div>
+
+            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
+              <CardHeader>
+                <CardTitle>Planned vs Issued</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {giftComparisonRows.length ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Gift / Item</TableHead>
+                        <TableHead>Planned</TableHead>
+                        <TableHead>Issued</TableHead>
+                        <TableHead>Difference</TableHead>
+                        <TableHead>Estimated Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {giftComparisonRows.map((row) => (
+                        <TableRow key={row.item}>
+                          <TableCell className="font-medium">{row.item}</TableCell>
+                          <TableCell>{row.planned}</TableCell>
+                          <TableCell>{row.issued}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={row.difference >= 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+                            >
+                              {row.difference}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{formatCurrency(row.estimatedAmount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    No planned or issued gift data found.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             <Card className="rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
               {meeting.gifts?.length ? (
@@ -981,17 +1609,85 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
 
         {adminTab === "expenses" && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold tracking-tight">Expenses</h2>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-2xl font-bold tracking-tight">Expenses</h2>
+              <Badge
+                variant="outline"
+                className={`w-fit rounded-full px-4 py-1.5 text-sm font-semibold ${
+                  meeting.expensesCompleted || meeting.noExpenses
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                {meeting.noExpenses ? "No Expenses" : meeting.expensesCompleted ? "Completed" : "Pending"}
+              </Badge>
+            </div>
 
-            <div className="grid gap-5 md:grid-cols-3">
+            <div className="grid gap-5 md:grid-cols-3 xl:grid-cols-6">
               <ExpenseMetricCard label="Expected Budget" value={formatCurrency(meeting.expectedBudget)} />
+              <ExpenseMetricCard label="Planned Expenses" value={formatCurrency(plannedExpenseTotal)} />
               <ExpenseMetricCard label="Actual Expenses" value={formatCurrency(actualExpenseTotal)} />
               <ExpenseMetricCard
                 label="Difference"
                 value={formatCurrency(actualExpenseTotal - Number(meeting.expectedBudget || 0))}
                 valueClassName={actualExpenseTotal <= Number(meeting.expectedBudget || 0) ? "text-emerald-600" : "text-amber-600"}
               />
+              <ExpenseMetricCard
+                label="Company Paid"
+                value={formatCurrency(companyPaidTotal)}
+              />
+              <ExpenseMetricCard
+                label="Dealer Paid"
+                value={formatCurrency(dealerPaidTotal)}
+              />
             </div>
+
+            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
+              <CardHeader>
+                <CardTitle>Planned vs Actual by Category</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {expenseComparisonRows.length ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Expense Head</TableHead>
+                        <TableHead>Planned</TableHead>
+                        <TableHead>Actual</TableHead>
+                        <TableHead>Difference</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Dealer</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {expenseComparisonRows.map((row) => (
+                        <TableRow key={row.head}>
+                          <TableCell>
+                            <ExpenseHeadChip head={row.head} />
+                          </TableCell>
+                          <TableCell>{formatCurrency(row.planned)}</TableCell>
+                          <TableCell>{formatCurrency(row.actual)}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={row.difference <= 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+                            >
+                              {formatCurrency(row.difference)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{formatCurrency(row.company)}</TableCell>
+                          <TableCell>{formatCurrency(row.dealer)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    No planned or actual expense data found.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             <Card className="rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
               {meeting.expenses?.length ? (
@@ -999,16 +1695,25 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[30%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        <TableHead className="px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                           Head
                         </TableHead>
-                        <TableHead className="w-[20%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        <TableHead className="px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                           Amount
                         </TableHead>
-                        <TableHead className="w-[20%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        <TableHead className="px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                          Paid By
+                        </TableHead>
+                        <TableHead className="px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                          Company
+                        </TableHead>
+                        <TableHead className="px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                          Dealer
+                        </TableHead>
+                        <TableHead className="px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                           Date
                         </TableHead>
-                        <TableHead className="w-[30%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        <TableHead className="px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                           Remarks
                         </TableHead>
                       </TableRow>
@@ -1022,6 +1727,9 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                           <TableCell className="px-4 py-4 align-middle">
                             <span className="font-bold text-foreground">{formatCurrency(expense.amount)}</span>
                           </TableCell>
+                          <TableCell className="px-4 py-4 align-middle">{expense.paidBy || "-"}</TableCell>
+                          <TableCell className="px-4 py-4 align-middle">{formatCurrency(expense.companyAmount)}</TableCell>
+                          <TableCell className="px-4 py-4 align-middle">{formatCurrency(expense.dealerAmount)}</TableCell>
                           <TableCell className="px-4 py-4 align-middle">
                             <span className="font-medium text-foreground">{formatDate(expense.expenseDate)}</span>
                           </TableCell>
@@ -1040,6 +1748,180 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               )}
             </Card>
           </div>
+        )}
+
+        {adminTab === "finalReport" && (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-2xl font-bold tracking-tight">Final Report</h2>
+              <Badge variant="outline" className={hasFinalReportContent(meeting) ? "w-fit border-emerald-200 bg-emerald-50 text-emerald-700" : "w-fit"}>
+                {hasFinalReportContent(meeting) ? "Report Available" : "Not Submitted"}
+              </Badge>
+            </div>
+
+            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
+              <CardHeader>
+                <CardTitle>Review Readiness</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 md:grid-cols-4">
+                  {reportReadiness.map((item) => (
+                    <div key={item.label} className="flex items-center justify-between rounded-lg border p-3">
+                      <span className="text-sm font-medium">{item.label}</span>
+                      <Badge
+                        variant="outline"
+                        className={item.ready ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+                      >
+                        {item.ready ? "Ready" : "Pending"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <MeetingDetailCard title="Plan" icon={<FileText className="h-4 w-4" />}>
+                <dl>
+                  <MeetingDataRow label="Expected turnout" value={expectedTurnout} />
+                  <MeetingDataRow label="Named attendees" value={namedAttendeeCount} />
+                  <MeetingDataRow label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
+                  <MeetingDataRow label="Planned gifts" value={plannedGiftQuantity || meeting.expectedGiftsMaterials || "-"} />
+                  <MeetingDataRow label="Expected impact" value={meeting.expectedBusinessImpact} />
+                </dl>
+              </MeetingDetailCard>
+              <MeetingDetailCard title="Actual" icon={<CheckCircle2 className="h-4 w-4" />}>
+                <dl>
+                  <MeetingDataRow label="Actual attendance" value={`${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}`} />
+                  <MeetingDataRow label="Actual expenses" value={formatCurrency(actualExpenseTotal)} />
+                  <MeetingDataRow label="Budget difference" value={formatCurrency(actualExpenseTotal - Number(meeting.expectedBudget || 0))} />
+                  <MeetingDataRow label="Gifts issued" value={issuedGiftQuantity} />
+                  <MeetingDataRow label="Actual outcome" value={meeting.actualBusinessOutcome} />
+                </dl>
+              </MeetingDetailCard>
+            </div>
+
+            {hasFinalReportContent(meeting) ? (
+              <>
+                <div className="grid gap-5 md:grid-cols-3">
+                  <ExpenseMetricCard label="Actual Attendance" value={`${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}`} />
+                  <ExpenseMetricCard label="Gifts Issued" value={String(issuedGiftQuantity)} />
+                  <ExpenseMetricCard label="Actual Expenses" value={formatCurrency(actualExpenseTotal)} />
+                </div>
+
+                <Card className="rounded-lg border-border/80 py-0 shadow-sm">
+                  <CardContent className="p-8">
+                    <dl className="grid gap-8 md:grid-cols-2">
+                      <MeetingNoteBlock label="Meeting summary" value={meeting.meetingSummary} />
+                      <MeetingNoteBlock label="Key discussion points" value={meeting.keyDiscussionPoints} />
+                      <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
+                      <MeetingNoteBlock label="Leads generated" value={meeting.leadsGenerated} />
+                      <MeetingNoteBlock label="Lead count" value={meeting.leadCount} />
+                      <MeetingNoteBlock label="Lead details" value={meeting.leadDetails} />
+                      <MeetingNoteBlock label="Interested customers / contractors" value={meeting.interestedCustomers} />
+                      <MeetingNoteBlock label="Competitor information" value={meeting.competitorInformation} />
+                      <MeetingNoteBlock label="Final remarks" value={meeting.finalRemarks} />
+                      {meeting.finalReportApprovalRemarks && (
+                        <MeetingNoteBlock label="Final approval remarks" value={meeting.finalReportApprovalRemarks} />
+                      )}
+                    </dl>
+                  </CardContent>
+                </Card>
+
+                {meeting.status === "REPORT_SUBMITTED" && (
+                  <Card className="rounded-lg border-border/80 py-0 shadow-sm">
+                    <CardHeader>
+                      <CardTitle>Final Review Decision</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Review remarks</Label>
+                          <Textarea value={finalApprovalRemarks} onChange={(event) => setFinalApprovalRemarks(event.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Correction section</Label>
+                          <Select value={finalCorrectionStage} onValueChange={(value) => setFinalCorrectionStage(value as CorrectionStage)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CORRECTION_STAGE_OPTIONS.filter((option) =>
+                                ["ATTENDANCE", "GIFTS", "EXPENSES", "LEADS", "FINAL_REPORT"].includes(option.value)
+                              ).map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button onClick={approveAndCloseMeeting} disabled={isSaving || !finalApprovalRemarks.trim()}>
+                          <CheckCircle2 className="h-4 w-4" />
+                          Approve and Close
+                        </Button>
+                        <Button variant="outline" onClick={requestFinalReviewCorrection} disabled={isSaving || !finalApprovalRemarks.trim()}>
+                          Request Correction
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            ) : (
+              <Card className="rounded-lg border-border/80 py-0 shadow-sm">
+                <CardContent className="p-8">
+                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    Final report details will appear here once the field team submits the report.
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {adminTab === "history" && (
+          <Card className="rounded-lg border-border/80 py-0 shadow-sm">
+            <CardHeader>
+              <CardTitle>History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {auditHistory.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Section</TableHead>
+                      <TableHead>Remarks</TableHead>
+                      <TableHead>By</TableHead>
+                      <TableHead>At</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditHistory.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="font-medium">{entry.action}</TableCell>
+                        <TableCell>
+                          {[entry.fromStatus, entry.toStatus].filter(Boolean).join(" → ") || "-"}
+                        </TableCell>
+                        <TableCell>{entry.correctionStage || "-"}</TableCell>
+                        <TableCell className="max-w-[280px] whitespace-pre-wrap">{entry.remarks || "-"}</TableCell>
+                        <TableCell>{entry.performedByName || entry.performedById || "-"}</TableCell>
+                        <TableCell>{entry.performedAt ? format(new Date(entry.performedAt), "dd MMM yyyy, HH:mm") : "-"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  No history recorded yet.
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
       </div>
     );
@@ -1066,34 +1948,25 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Expected Budget</div>
-            <div className="mt-1 text-xl font-bold">{formatCurrency(meeting.expectedBudget)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Actual Expenses</div>
-            <div className="mt-1 text-xl font-bold">{formatCurrency(actualExpenseTotal)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Attendees Present</div>
-            <div className="mt-1 text-xl font-bold">
-              {(meeting.attendees || []).filter((attendee) => attendee.present).length}/{meeting.attendees?.length || meeting.expectedAttendees || 0}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gifts Issued</div>
-            <div className="mt-1 text-xl font-bold">{meeting.gifts?.length || 0}</div>
-          </CardContent>
-        </Card>
-      </div>
+      <MeetingKpiGrid
+        status={meeting.status}
+        statusValue={getMeetingStageLabel(meeting)}
+        secondaryLabel={showActualSummary ? "Gifts Issued" : "Planned Gifts"}
+        secondaryValue={showActualSummary ? issuedGiftDisplay : plannedGiftDisplay}
+        financialLabel="Expected Budget"
+        financialValue={formatCurrency(meeting.expectedBudget)}
+        financialSubMetrics={[
+          { label: "Actual Expenses", value: formatCurrency(actualExpenseTotal) },
+          {
+            label: "Difference",
+            value: formatCurrency(budgetDifference),
+            valueClassName: budgetDifference <= 0 ? "text-emerald-600" : "text-amber-600",
+          },
+        ]}
+        attendanceLabel={showActualSummary ? "Actual Attendance" : "Expected Turnout"}
+        attendanceValue={showActualSummary ? `${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}` : String(expectedTurnout || 0)}
+        attendanceSubMetrics={[{ label: "Named Attendees", value: String(namedAttendeeCount) }]}
+      />
 
       {message && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
       {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -1133,7 +2006,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {MEETING_TYPES.map((type) => (
+                      {typeOptions.map((type) => (
                         <SelectItem key={type} value={type}>
                           {type}
                         </SelectItem>
@@ -1144,6 +2017,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                 <div className="space-y-2">
                   <Label>Expected budget</Label>
                   <Input type="number" value={requestForm.expectedBudget} onChange={(event) => updateRequestForm("expectedBudget", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Expected turnout</Label>
+                  <Input type="number" min="0" value={requestForm.expectedAttendees} onChange={(event) => updateRequestForm("expectedAttendees", event.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label>Date</Label>
@@ -1172,6 +2049,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                 <div className="space-y-2 md:col-span-2">
                   <Label>Purpose / objective</Label>
                   <Textarea value={requestForm.objective} onChange={(event) => updateRequestForm("objective", event.target.value)} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Expected business impact</Label>
+                  <Textarea value={requestForm.expectedBusinessImpact} onChange={(event) => updateRequestForm("expectedBusinessImpact", event.target.value)} />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>Expected gifts / materials</Label>
@@ -1205,9 +2086,13 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                 <ReadOnlyField label="Location" value={meeting.location} />
                 <ReadOnlyField label="Reference" value={meeting.customerReference} />
                 <ReadOnlyField label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
-                <ReadOnlyField label="Expected attendees" value={meeting.expectedAttendees} />
+                <ReadOnlyField label="Expected turnout" value={meeting.expectedAttendees} />
+                <ReadOnlyField label="Named attendees" value={meeting.attendees?.length || 0} />
                 <div className="md:col-span-3">
                   <ReadOnlyField label="Objective" value={meeting.objective} />
+                </div>
+                <div className="md:col-span-3">
+                  <ReadOnlyField label="Expected business impact" value={meeting.expectedBusinessImpact} />
                 </div>
                 <div className="md:col-span-3">
                   <ReadOnlyField label="Expected gifts / materials" value={meeting.expectedGiftsMaterials} />
@@ -1315,7 +2200,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-3">
-              <ReadOnlyField label="Status" value={formatMeetingStatus(meeting.status)} />
+              <ReadOnlyField label="Status" value={getMeetingStatusLabel(meeting)} />
               <ReadOnlyField label="Current approval remarks" value={meeting.approvalRemarks} />
               <ReadOnlyField label="Budget" value={formatCurrency(meeting.expectedBudget)} />
             </div>
@@ -1325,6 +2210,23 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   <Label>Approval remarks</Label>
                   <Textarea value={approvalRemarks} onChange={(event) => setApprovalRemarks(event.target.value)} />
                 </div>
+                {canRequestCorrection && (
+                  <div className="space-y-2">
+                    <Label>Correction section</Label>
+                    <Select value={correctionStage} onValueChange={(value) => setCorrectionStage(value as CorrectionStage)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CORRECTION_STAGE_OPTIONS.filter((option) => ["REQUEST", "ATTENDEES"].includes(option.value)).map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {canApprove && (
                     <Button onClick={() => approvalAction("approve")} disabled={isSaving}>
@@ -1441,7 +2343,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     </Table>
                     <Button onClick={saveAttendance} disabled={isSaving}>
                       <Save className="h-4 w-4" />
-                      Save Attendance
+                      Finalise Attendance
                     </Button>
                   </div>
                 )}
@@ -1515,22 +2417,45 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Input placeholder="Gift / item" value={gift.giftItem} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, giftItem: event.target.value } : item))} />
+                    {currentGiftOptions.length ? (
+                      <Select
+                        value={gift.giftItem || ""}
+                        onValueChange={(value) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, giftItem: value } : item))}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Gift / item" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {currentGiftOptions.map((item) => (
+                            <SelectItem key={item} value={item}>
+                              {item}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input placeholder="Gift / item" value={gift.giftItem} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, giftItem: event.target.value } : item))} />
+                    )}
                     <Input type="number" min="1" placeholder="Qty" value={gift.quantity} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, quantity: Number(event.target.value) } : item))} />
                     <div className="flex gap-2">
                       <Input placeholder="Remarks" value={gift.remarks || ""} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
                       {gifts.length > 1 && (
-                        <Button variant="ghost" size="icon" onClick={() => setGifts((prev) => prev.filter((_, currentIndex) => currentIndex !== index))}>
+                        <Button variant="ghost" size="icon" onClick={() => removeGift(index)} disabled={isSaving}>
                           <XCircle className="h-4 w-4" />
                         </Button>
                       )}
                     </div>
                   </div>
                 ))}
-                <Button onClick={saveGifts} disabled={isSaving || presentAttendees.length === 0}>
-                  <Gift className="h-4 w-4" />
-                  Save Gifts
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={saveGifts} disabled={isSaving || presentAttendees.length === 0}>
+                    <Gift className="h-4 w-4" />
+                    Save Gifts
+                  </Button>
+                  <Button variant="outline" onClick={markNoGifts} disabled={isSaving}>
+                    No Gifts Distributed
+                  </Button>
+                </div>
               </>
             ) : (
               <LockedPanel label="Gifts unlock after execution and can be issued only to present attendees." />
@@ -1559,13 +2484,13 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   </Button>
                 </div>
                 {expenses.map((expense, index) => (
-                  <div key={index} className="grid gap-3 rounded-lg border p-3 md:grid-cols-5">
+                  <div key={index} className="grid gap-3 rounded-lg border p-3 md:grid-cols-6">
                     <Select value={expense.expenseHead} onValueChange={(value) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseHead: value } : item))}>
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {EXPENSE_HEADS.map((head) => (
+                        {currentExpenseHeadOptions.map((head) => (
                           <SelectItem key={head} value={head}>
                             {head}
                           </SelectItem>
@@ -1573,21 +2498,54 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                       </SelectContent>
                     </Select>
                     <Input type="number" min="0" value={expense.amount} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, amount: Number(event.target.value) } : item))} />
+                    <Select value={expense.paidBy || "COMPANY"} onValueChange={(value) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, paidBy: value } : item))}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="COMPANY">Company</SelectItem>
+                        <SelectItem value="DEALER">Dealer</SelectItem>
+                        <SelectItem value="SHARED">Shared</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Input type="date" value={expense.expenseDate || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseDate: event.target.value } : item))} />
                     <Input placeholder="Remarks" value={expense.remarks || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
-                    <Button variant="ghost" size="icon" disabled={expenses.length === 1} onClick={() => setExpenses((prev) => prev.filter((_, currentIndex) => currentIndex !== index))}>
+                    <Button variant="ghost" size="icon" disabled={expenses.length === 1 || isSaving} onClick={() => removeExpense(index)}>
                       <XCircle className="h-4 w-4" />
                     </Button>
+                    {expense.paidBy === "SHARED" && (
+                      <>
+                        <Input
+                          type="number"
+                          min="0"
+                          placeholder="Company amount"
+                          value={expense.companyAmount ?? ""}
+                          onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, companyAmount: Number(event.target.value) } : item))}
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          placeholder="Dealer amount"
+                          value={expense.dealerAmount ?? ""}
+                          onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, dealerAmount: Number(event.target.value) } : item))}
+                        />
+                      </>
+                    )}
                   </div>
                 ))}
                 <div className="space-y-2">
                   <Label>Expense remarks {totalExpenses > Number(meeting.expectedBudget || 0) ? "(required because actual is higher)" : ""}</Label>
                   <Textarea value={expenseRemarks} onChange={(event) => setExpenseRemarks(event.target.value)} />
                 </div>
-                <Button onClick={submitExpenses} disabled={isSaving}>
-                  <Send className="h-4 w-4" />
-                  Submit Expenses
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={submitExpenses} disabled={isSaving}>
+                    <Send className="h-4 w-4" />
+                    Submit Expenses
+                  </Button>
+                  <Button variant="outline" onClick={markNoExpenses} disabled={isSaving}>
+                    No Expenses Incurred
+                  </Button>
+                </div>
               </>
             ) : (
               <LockedPanel label="Expenses unlock after meeting execution." />
@@ -1619,8 +2577,26 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     <Textarea value={finalReport.keyDiscussionPoints} onChange={(event) => setFinalReport((prev) => ({ ...prev, keyDiscussionPoints: event.target.value }))} disabled={!canSubmitFinalReport} />
                   </div>
                   <div className="space-y-2">
+                    <Label>Actual business outcome</Label>
+                    <Textarea value={finalReport.actualBusinessOutcome} onChange={(event) => setFinalReport((prev) => ({ ...prev, actualBusinessOutcome: event.target.value }))} disabled={!canSubmitFinalReport} />
+                  </div>
+                  <div className="space-y-2">
                     <Label>Leads generated</Label>
                     <Textarea value={finalReport.leadsGenerated} onChange={(event) => setFinalReport((prev) => ({ ...prev, leadsGenerated: event.target.value }))} disabled={!canSubmitFinalReport} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Lead count</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={finalReport.leadCount ?? ""}
+                      onChange={(event) => setFinalReport((prev) => ({ ...prev, leadCount: event.target.value === "" ? undefined : Number(event.target.value) }))}
+                      disabled={!canSubmitFinalReport}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Lead details</Label>
+                    <Textarea value={finalReport.leadDetails} onChange={(event) => setFinalReport((prev) => ({ ...prev, leadDetails: event.target.value }))} disabled={!canSubmitFinalReport} />
                   </div>
                   <div className="space-y-2">
                     <Label>Interested customers / contractors</Label>
@@ -1643,23 +2619,39 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                 )}
                 {(canApproveFinalReport || canClose || canCancel) && (
                   <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
-                    {canApproveFinalReport && (
+                    {(canApproveFinalReport || canClose) && (
                       <div className="space-y-2">
-                        <Label>Final report approval remarks</Label>
+                        <Label>Final review remarks</Label>
                         <Textarea value={finalApprovalRemarks} onChange={(event) => setFinalApprovalRemarks(event.target.value)} />
-                        <Button onClick={approveFinalReport} disabled={isSaving}>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Approve Final Report
-                        </Button>
                       </div>
                     )}
-                    {canClose && (
+                    {(canApproveFinalReport || canClose) && (
                       <div className="space-y-2">
-                        <Label>Closure remarks</Label>
-                        <Textarea value={closeRemarks} onChange={(event) => setCloseRemarks(event.target.value)} />
-                        <Button onClick={closeMeeting} disabled={isSaving}>
+                        <Label>Correction section</Label>
+                        <Select value={finalCorrectionStage} onValueChange={(value) => setFinalCorrectionStage(value as CorrectionStage)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CORRECTION_STAGE_OPTIONS.filter((option) =>
+                              ["ATTENDANCE", "GIFTS", "EXPENSES", "LEADS", "FINAL_REPORT"].includes(option.value)
+                            ).map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {(canApproveFinalReport || canClose) && (
+                      <div className="flex flex-wrap gap-2 md:col-span-2">
+                        <Button onClick={approveAndCloseMeeting} disabled={isSaving || !finalApprovalRemarks.trim()}>
                           <CheckCircle2 className="h-4 w-4" />
-                          Close Meeting
+                          Approve and Close
+                        </Button>
+                        <Button variant="outline" onClick={requestFinalReviewCorrection} disabled={isSaving || !finalApprovalRemarks.trim()}>
+                          Request Correction
                         </Button>
                       </div>
                     )}

@@ -50,8 +50,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   ATTENDEE_CATEGORIES,
   formatMeetingStatus,
+  MeetingConfigItem,
+  getMeetingStatusLabel,
   Meeting,
   MeetingAttendee,
+  MeetingDashboardSummary,
+  MeetingPage,
   MEETING_TYPES,
   meetingsApi,
 } from "@/lib/meetings-api";
@@ -59,13 +63,36 @@ import { hasAdminSetupPrivileges } from "@/lib/auth";
 
 const ALL_VALUE = "all";
 
+type MeetingQueue =
+  | "all"
+  | "needsAction"
+  | "upcoming"
+  | "completed"
+  | "needsApproval"
+  | "needsFinalReview"
+  | "needsCorrection"
+  | "closed";
+
 const DEFAULT_FILTERS = {
   start: "",
   end: "",
   status: ALL_VALUE,
   meetingType: ALL_VALUE,
+  dealer: "",
+  owner: "",
+  overBudget: ALL_VALUE,
   city: "",
   state: "",
+};
+
+const DEFAULT_PAGE_SIZE = 20;
+
+const SINGLE_STATUS_BY_QUEUE: Partial<Record<MeetingQueue, string>> = {
+  needsApproval: "PENDING_APPROVAL",
+  upcoming: "APPROVED",
+  needsFinalReview: "REPORT_SUBMITTED",
+  needsCorrection: "CORRECTION_REQUIRED",
+  closed: "CLOSED",
 };
 
 type MeetingRequestForm = {
@@ -76,7 +103,9 @@ type MeetingRequestForm = {
   state: string;
   location: string;
   customerReference: string;
+  expectedAttendees: string;
   objective: string;
+  expectedBusinessImpact: string;
   expectedBudget: string;
   expectedGiftsMaterials: string;
   allowWalkInAttendees: boolean;
@@ -95,7 +124,9 @@ const emptyRequestForm = (): MeetingRequestForm => ({
   state: "",
   location: "",
   customerReference: "",
+  expectedAttendees: "",
   objective: "",
+  expectedBusinessImpact: "",
   expectedBudget: "",
   expectedGiftsMaterials: "",
   allowWalkInAttendees: true,
@@ -150,6 +181,56 @@ const statusBadgeClass = (status?: string) => {
   }
 };
 
+const QUEUE_FILTERS: Record<MeetingQueue, { label: string; statuses: string[] }> = {
+  all: { label: "All", statuses: [] },
+  needsAction: {
+    label: "Needs Action",
+    statuses: ["PENDING_APPROVAL", "REPORT_SUBMITTED", "CORRECTION_REQUIRED"],
+  },
+  upcoming: { label: "Upcoming", statuses: ["APPROVED"] },
+  completed: { label: "Completed", statuses: ["CLOSED", "REJECTED", "CANCELLED"] },
+  needsApproval: { label: "Needs Approval", statuses: ["PENDING_APPROVAL"] },
+  needsFinalReview: { label: "Needs Final Review", statuses: ["REPORT_SUBMITTED"] },
+  needsCorrection: { label: "Needs Correction", statuses: ["CORRECTION_REQUIRED"] },
+  closed: { label: "Closed", statuses: ["CLOSED"] },
+};
+
+const getMeetingActionLabel = (status?: string) => {
+  switch (status) {
+    case "PENDING_APPROVAL":
+      return "Review Request";
+    case "REPORT_SUBMITTED":
+      return "Final Review";
+    case "CORRECTION_REQUIRED":
+      return "View Correction";
+    case "REJECTED":
+    case "CANCELLED":
+      return "View Reason";
+    case "APPROVED":
+      return "View Schedule";
+    case "CLOSED":
+      return "View Report";
+    case "DRAFT":
+      return "View Draft";
+    case "EXECUTED":
+    case "EXPENSE_SUBMITTED":
+      return "Monitor";
+    default:
+      return "Open";
+  }
+};
+
+const needsAction = (status?: string) => QUEUE_FILTERS.needsAction.statuses.includes(String(status || ""));
+
+const readSummaryNumber = (summary: MeetingDashboardSummary | null, keys: string[]) => {
+  if (!summary) return undefined;
+  for (const key of keys) {
+    const value = summary[key];
+    if (typeof value === "number") return value;
+  }
+  return undefined;
+};
+
 const normaliseMobile = (value: string) => value.replace(/\D/g, "");
 
 const getValidAttendees = (attendees: MeetingAttendee[]) =>
@@ -184,13 +265,15 @@ function NewMeetingDialog({
   open,
   onOpenChange,
   onCreated,
+  meetingTypes,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
+  meetingTypes: string[];
 }) {
   const router = useRouter();
-  const { userData } = useAuth();
+  const { userData, userRole, currentUser } = useAuth();
   const [step, setStep] = useState<NewMeetingStep>("request");
   const [form, setForm] = useState<MeetingRequestForm>(() => emptyRequestForm());
   const [attendees, setAttendees] = useState<MeetingAttendee[]>([emptyAttendee()]);
@@ -198,7 +281,16 @@ function NewMeetingDialog({
   const [error, setError] = useState<string | null>(null);
 
   const creatorId = userData?.employeeId;
+  const canCreateOnBehalf = hasAdminSetupPrivileges(userRole, currentUser);
   const validAttendees = useMemo(() => getValidAttendees(attendees), [attendees]);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm((prev) => ({
+      ...prev,
+      meetingType: meetingTypes.includes(prev.meetingType) ? prev.meetingType : meetingTypes[0] || prev.meetingType,
+    }));
+  }, [meetingTypes, open]);
 
   const reset = () => {
     setStep("request");
@@ -231,7 +323,6 @@ function NewMeetingDialog({
   };
 
   const validateRequest = () => {
-    if (!creatorId) return "Creator employee id was not found for this login.";
     if (!form.meetingType) return "Select a meeting type.";
     if (!form.meetingDate) return "Select a meeting date.";
     if (!form.meetingTime) return "Select a meeting time.";
@@ -241,6 +332,10 @@ function NewMeetingDialog({
     if (!form.objective.trim()) return "Enter the purpose or objective.";
     const budget = Number(form.expectedBudget);
     if (!Number.isFinite(budget) || budget < 0) return "Enter a valid expected budget.";
+    const expectedTurnout = Number(form.expectedAttendees || validAttendees.length);
+    if (!Number.isFinite(expectedTurnout) || expectedTurnout < validAttendees.length) {
+      return "Expected turnout cannot be lower than named attendees.";
+    }
     return null;
   };
 
@@ -261,14 +356,14 @@ function NewMeetingDialog({
   };
 
   const createMeeting = async (submitForApproval: boolean) => {
-    const requestError = validateRequest();
-    if (requestError) {
-      setError(requestError);
-      setStep("request");
-      return;
-    }
-
     if (submitForApproval) {
+      const requestError = validateRequest();
+      if (requestError) {
+        setError(requestError);
+        setStep("request");
+        return;
+      }
+
       const attendeeError = validateAttendeesForSubmit();
       if (attendeeError) {
         setError(attendeeError);
@@ -289,24 +384,26 @@ function NewMeetingDialog({
     try {
       const meetingId = await meetingsApi.createMeeting({
         meetingType: form.meetingType,
-        creatorId: creatorId as number,
-        meetingDate: form.meetingDate,
-        meetingTime: `${form.meetingTime}:00`,
-        city: form.city.trim(),
-        state: form.state.trim(),
-        location: form.location.trim(),
+        ...(canCreateOnBehalf && creatorId ? { creatorId } : {}),
+        meetingDate: form.meetingDate || undefined,
+        meetingTime: form.meetingTime ? `${form.meetingTime}:00` : undefined,
+        city: form.city.trim() || undefined,
+        state: form.state.trim() || undefined,
+        location: form.location.trim() || undefined,
         customerReference: form.customerReference.trim() || undefined,
-        expectedAttendees: validAttendees.length,
-        objective: form.objective.trim(),
+        expectedAttendees: Number(form.expectedAttendees || validAttendees.length || 0),
+        objective: form.objective.trim() || undefined,
+        expectedBusinessImpact: form.expectedBusinessImpact.trim() || undefined,
         expectedBudget: Number(form.expectedBudget || 0),
         expectedGiftsMaterials: form.expectedGiftsMaterials.trim() || undefined,
         allowWalkInAttendees: form.allowWalkInAttendees,
         remarks: form.remarks.trim() || undefined,
+        plan: {
+          expectedBudget: Number(form.expectedBudget || 0),
+          expectedGiftsMaterials: form.expectedGiftsMaterials.trim() || undefined,
+        },
+        attendees: validAttendees,
       });
-
-      if (validAttendees.length > 0) {
-        await meetingsApi.saveExpectedAttendees(meetingId, validAttendees);
-      }
 
       if (submitForApproval) {
         await meetingsApi.submitForApproval(meetingId);
@@ -360,7 +457,7 @@ function NewMeetingDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MEETING_TYPES.map((type) => (
+                  {meetingTypes.map((type) => (
                     <SelectItem key={type} value={type}>
                       {type}
                     </SelectItem>
@@ -376,6 +473,16 @@ function NewMeetingDialog({
                 value={form.expectedBudget}
                 onChange={(event) => updateForm("expectedBudget", event.target.value)}
                 placeholder="15000"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Expected turnout</Label>
+              <Input
+                type="number"
+                min="0"
+                value={form.expectedAttendees}
+                onChange={(event) => updateForm("expectedAttendees", event.target.value)}
+                placeholder="40"
               />
             </div>
             <div className="space-y-2">
@@ -419,6 +526,14 @@ function NewMeetingDialog({
                 value={form.objective}
                 onChange={(event) => updateForm("objective", event.target.value)}
                 placeholder="What should this meeting achieve?"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Expected business impact</Label>
+              <Textarea
+                value={form.expectedBusinessImpact}
+                onChange={(event) => updateForm("expectedBusinessImpact", event.target.value)}
+                placeholder="Expected leads, enquiries, or business impact"
               />
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -561,32 +676,87 @@ export default function MeetingsList() {
   const router = useRouter();
   const { userRole, currentUser } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [dashboardSummary, setDashboardSummary] = useState<MeetingDashboardSummary | null>(null);
+  const [pageInfo, setPageInfo] = useState<MeetingPage<Meeting> | null>(null);
+  const [meetingTypes, setMeetingTypes] = useState<string[]>([...MEETING_TYPES]);
+  const [statusOptions, setStatusOptions] = useState<Array<{ status: string; label: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [isNewMeetingOpen, setIsNewMeetingOpen] = useState(false);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [queueFilter, setQueueFilter] = useState<MeetingQueue>("all");
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const isAdmin = hasAdminSetupPrivileges(userRole, currentUser);
 
-  const loadMeetings = async (appliedFilters = filters) => {
+  const backendFiltersFor = (appliedFilters = filters) => ({
+    start: appliedFilters.start || undefined,
+    end: appliedFilters.end || undefined,
+    status: appliedFilters.status === ALL_VALUE ? undefined : appliedFilters.status,
+    meetingType: appliedFilters.meetingType === ALL_VALUE ? undefined : appliedFilters.meetingType,
+    city: appliedFilters.city.trim() || undefined,
+    state: appliedFilters.state.trim() || undefined,
+  });
+
+  const loadMeetings = async (appliedFilters = filters, page = 0) => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await meetingsApi.getMeetings({
-        start: appliedFilters.start || undefined,
-        end: appliedFilters.end || undefined,
-        status: appliedFilters.status === ALL_VALUE ? undefined : appliedFilters.status,
-        meetingType: appliedFilters.meetingType === ALL_VALUE ? undefined : appliedFilters.meetingType,
-        city: appliedFilters.city.trim() || undefined,
-        state: appliedFilters.state.trim() || undefined,
+      const backendFilters = backendFiltersFor(appliedFilters);
+      const data = await meetingsApi.getMeetingsPage({
+        ...backendFilters,
+        page,
+        size: DEFAULT_PAGE_SIZE,
       });
-      setMeetings(Array.isArray(data) ? data : []);
+      setMeetings(data.content);
+      setPageInfo(data);
+      const summaryFilters = {
+        start: backendFilters.start,
+        end: backendFilters.end,
+        meetingType: backendFilters.meetingType,
+        city: backendFilters.city,
+        state: backendFilters.state,
+      };
+      meetingsApi
+        .getDashboardSummary(summaryFilters)
+        .then(setDashboardSummary)
+        .catch(() => setDashboardSummary(null));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load meetings.");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const loadConfig = async () => {
+    const normalizeConfig = (items: MeetingConfigItem[] | string[] | undefined, fallback: readonly string[]) => {
+      if (!items?.length) return [...fallback];
+      const names = items
+        .map((item) => (typeof item === "string" ? item : item.active === false ? "" : item.name))
+        .map((name) => name.trim())
+        .filter(Boolean);
+      return names.length ? Array.from(new Set(names)) : [...fallback];
+    };
+
+    meetingsApi
+      .getMeetingTypes()
+      .then((items) => setMeetingTypes(normalizeConfig(items, MEETING_TYPES)))
+      .catch(() => setMeetingTypes([...MEETING_TYPES]));
+
+    meetingsApi
+      .getStatuses()
+      .then((items) => {
+        const normalized = items
+          .map((item) =>
+            typeof item === "string"
+              ? { status: item, label: formatMeetingStatus(item) }
+              : { status: item.status, label: item.label || formatMeetingStatus(item.status) }
+          )
+          .filter((item) => item.status);
+        setStatusOptions(normalized);
+      })
+      .catch(() => setStatusOptions([]));
   };
 
   const activeFilterCount = useMemo(() => {
@@ -596,96 +766,128 @@ export default function MeetingsList() {
       filters.end,
       filters.status !== ALL_VALUE ? filters.status : "",
       filters.meetingType !== ALL_VALUE ? filters.meetingType : "",
+      filters.dealer.trim(),
+      filters.owner.trim(),
+      filters.overBudget !== ALL_VALUE ? filters.overBudget : "",
       filters.city.trim(),
       filters.state.trim(),
+      queueFilter !== "all" ? queueFilter : "",
     ].filter(Boolean).length;
-  }, [filters, search]);
+  }, [filters, queueFilter, search]);
 
   const clearFilters = () => {
     setSearch("");
+    setQueueFilter("all");
     setFilters(DEFAULT_FILTERS);
-    loadMeetings(DEFAULT_FILTERS);
+    loadMeetings(DEFAULT_FILTERS, 0);
+  };
+
+  const applyQueueFilter = (queue: MeetingQueue) => {
+    const status = SINGLE_STATUS_BY_QUEUE[queue] || ALL_VALUE;
+    setQueueFilter(queue);
+    setFilters((prev) => {
+      const nextFilters = { ...prev, status };
+      loadMeetings(nextFilters, 0);
+      return nextFilters;
+    });
   };
 
   useEffect(() => {
+    loadConfig();
     loadMeetings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredMeetings = useMemo(() => {
+    const queue = QUEUE_FILTERS[queueFilter];
+    const queueFiltered = queue.statuses.length
+      ? meetings.filter((meeting) => queue.statuses.includes(String(meeting.status || "")))
+      : meetings;
     const term = search.trim().toLowerCase();
-    if (!term) return meetings;
+    const dealer = filters.dealer.trim().toLowerCase();
+    const owner = filters.owner.trim().toLowerCase();
+    const overBudget = filters.overBudget;
 
-    return meetings.filter((meeting) =>
-      [
+    return queueFiltered.filter((meeting) => {
+      const actualExpenseTotal = meeting.expenses?.reduce((sum, expense) => sum + Number(expense.amount || 0), 0) || 0;
+      const isOverBudget = actualExpenseTotal > Number(meeting.expectedBudget || 0);
+      if (overBudget === "yes" && !isOverBudget) return false;
+      if (overBudget === "no" && isOverBudget) return false;
+      if (dealer) {
+        const dealerText = [meeting.storeName, meeting.dealerName, meeting.customerReference].filter(Boolean).join(" ").toLowerCase();
+        if (!dealerText.includes(dealer)) return false;
+      }
+      if (owner && !String(meeting.creatorName || "").toLowerCase().includes(owner)) return false;
+      if (!term) return true;
+      return [
         meeting.meetingType,
-        meeting.status,
+        getMeetingStatusLabel(meeting),
+        meeting.stageLabel,
         meeting.city,
         meeting.state,
         meeting.location,
+        meeting.storeName,
+        meeting.dealerName,
         meeting.creatorName,
+        meeting.customerReference,
         meeting.objective,
       ]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(term))
-    );
-  }, [meetings, search]);
+        .some((value) => String(value).toLowerCase().includes(term));
+    });
+  }, [filters.dealer, filters.owner, filters.overBudget, meetings, queueFilter, search]);
 
   const stats = useMemo(() => {
-    const pending = meetings.filter((meeting) => meeting.status === "PENDING_APPROVAL").length;
-    const scheduled = meetings.filter((meeting) => meeting.status === "APPROVED").length;
-    const completed = meetings.filter((meeting) => meeting.status === "CLOSED" || meeting.status === "REPORT_SUBMITTED").length;
-    return { total: meetings.length, pending, scheduled, completed };
-  }, [meetings]);
+    const needsApproval = meetings.filter((meeting) => meeting.status === "PENDING_APPROVAL").length;
+    const upcomingApproved = meetings.filter((meeting) => meeting.status === "APPROVED").length;
+    const needsFinalReview = meetings.filter((meeting) => meeting.status === "REPORT_SUBMITTED").length;
+    const needsCorrection = meetings.filter((meeting) => meeting.status === "CORRECTION_REQUIRED").length;
+    const closed = meetings.filter((meeting) => meeting.status === "CLOSED").length;
+    return {
+      needsApproval: readSummaryNumber(dashboardSummary, ["needsApproval", "pendingApproval", "pendingApprovalCount"]) ?? needsApproval,
+      upcomingApproved: readSummaryNumber(dashboardSummary, ["upcomingApproved", "scheduled", "approved"]) ?? upcomingApproved,
+      needsFinalReview: readSummaryNumber(dashboardSummary, ["needsFinalReview", "finalReview", "reportSubmitted"]) ?? needsFinalReview,
+      needsCorrection: readSummaryNumber(dashboardSummary, ["needsCorrection", "correctionRequired"]) ?? needsCorrection,
+      closed: readSummaryNumber(dashboardSummary, ["closed", "closedCount"]) ?? closed,
+    };
+  }, [dashboardSummary, meetings]);
 
-  const exportCsv = () => {
-    const rows = filteredMeetings.map((meeting) => ({
-      id: meeting.id,
-      type: meeting.meetingType,
-      status: formatMeetingStatus(meeting.status),
-      date: meeting.meetingDate || "",
-      time: meeting.meetingTime || "",
-      city: meeting.city || "",
-      state: meeting.state || "",
-      creator: meeting.creatorName || "",
-      budget: meeting.expectedBudget || 0,
-      attendees: meeting.attendees?.length || 0,
-      gifts: meeting.gifts?.length || 0,
-      expenses: meeting.expenses?.reduce((sum, expense) => sum + Number(expense.amount || 0), 0) || 0,
-    }));
-
-    const headers = Object.keys(rows[0] || {
-      id: "",
-      type: "",
-      status: "",
-      date: "",
-      time: "",
-      city: "",
-      state: "",
-      creator: "",
-      budget: "",
-      attendees: "",
-      gifts: "",
-      expenses: "",
-    });
-    const csv = [
-      headers.join(","),
-      ...rows.map((row) => headers.map((header) => `"${String(row[header as keyof typeof row] ?? "").replace(/"/g, '""')}"`).join(",")),
-    ].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `meetings-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+  const exportCsv = async () => {
+    setIsExporting(true);
+    setError(null);
+    try {
+      const blob = await meetingsApi.exportReport(backendFiltersFor(filters));
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `meetings-report-${format(new Date(), "yyyy-MM-dd")}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export meetings report.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" onClick={() => loadMeetings()} disabled={isLoading}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex gap-2 overflow-x-auto">
+          {(["needsAction", "upcoming", "completed", "all"] as MeetingQueue[]).map((queue) => (
+            <Button
+              key={queue}
+              type="button"
+              variant={queueFilter === queue ? "default" : "outline"}
+              size="sm"
+              onClick={() => applyQueueFilter(queue)}
+              className="shrink-0"
+            >
+              {QUEUE_FILTERS[queue].label}
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          <Button variant="outline" onClick={() => loadMeetings(filters, pageInfo?.number || 0)} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
@@ -693,8 +895,8 @@ export default function MeetingsList() {
             <Filter className="h-4 w-4" />
             Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
           </Button>
-          <Button variant="outline" onClick={exportCsv} disabled={filteredMeetings.length === 0}>
-            <Download className="h-4 w-4" />
+          <Button variant="outline" onClick={exportCsv} disabled={isExporting}>
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Export CSV
           </Button>
           {!isAdmin && (
@@ -706,31 +908,26 @@ export default function MeetingsList() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">{stats.total}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Approval</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">{stats.pending}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Scheduled</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">{stats.scheduled}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Final Review / Closed</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">{stats.completed}</CardContent>
-        </Card>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {[
+          { queue: "needsApproval" as MeetingQueue, label: "Needs Approval", value: stats.needsApproval },
+          { queue: "upcoming" as MeetingQueue, label: "Upcoming Approved", value: stats.upcomingApproved },
+          { queue: "needsFinalReview" as MeetingQueue, label: "Needs Final Review", value: stats.needsFinalReview },
+          { queue: "needsCorrection" as MeetingQueue, label: "Needs Correction", value: stats.needsCorrection },
+          { queue: "closed" as MeetingQueue, label: "Closed", value: stats.closed },
+        ].map((item) => (
+          <button
+            key={item.queue}
+            type="button"
+            onClick={() => applyQueueFilter(item.queue)}
+            className={`rounded-lg border bg-card p-4 text-left shadow-sm transition-colors hover:bg-muted/30 ${
+              queueFilter === item.queue ? "border-primary" : "border-border"
+            }`}
+          >
+            <div className="text-sm font-medium text-muted-foreground">{item.label}</div>
+            <div className="mt-6 text-2xl font-bold text-foreground">{item.value}</div>
+          </button>
+        ))}
       </div>
 
       {isFiltersOpen && (
@@ -763,26 +960,32 @@ export default function MeetingsList() {
             </div>
             <div className="space-y-2">
               <Label>Status</Label>
-              <Select value={filters.status} onValueChange={(value) => setFilters((prev) => ({ ...prev, status: value }))}>
+              <Select value={filters.status} onValueChange={(value) => {
+                setQueueFilter("all");
+                setFilters((prev) => ({ ...prev, status: value }));
+              }}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_VALUE}>All statuses</SelectItem>
-                  {[
-                    "DRAFT",
-                    "PENDING_APPROVAL",
-                    "APPROVED",
-                    "EXECUTED",
-                    "EXPENSE_SUBMITTED",
-                    "REPORT_SUBMITTED",
-                    "CLOSED",
-                    "CORRECTION_REQUIRED",
-                    "REJECTED",
-                    "CANCELLED",
-                  ].map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {formatMeetingStatus(status)}
+                  {(statusOptions.length
+                    ? statusOptions
+                    : [
+                        "DRAFT",
+                        "PENDING_APPROVAL",
+                        "APPROVED",
+                        "EXECUTED",
+                        "EXPENSE_SUBMITTED",
+                        "REPORT_SUBMITTED",
+                        "CLOSED",
+                        "CORRECTION_REQUIRED",
+                        "REJECTED",
+                        "CANCELLED",
+                      ].map((status) => ({ status, label: formatMeetingStatus(status) }))
+                  ).map((status) => (
+                    <SelectItem key={status.status} value={status.status}>
+                      {status.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -796,11 +999,40 @@ export default function MeetingsList() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_VALUE}>All types</SelectItem>
-                  {MEETING_TYPES.map((type) => (
+                  {meetingTypes.map((type) => (
                     <SelectItem key={type} value={type}>
                       {type}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Dealer / Shop</Label>
+              <Input
+                value={filters.dealer}
+                onChange={(event) => setFilters((prev) => ({ ...prev, dealer: event.target.value }))}
+                placeholder="Dealer name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Owner</Label>
+              <Input
+                value={filters.owner}
+                onChange={(event) => setFilters((prev) => ({ ...prev, owner: event.target.value }))}
+                placeholder="Field officer"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Budget</Label>
+              <Select value={filters.overBudget} onValueChange={(value) => setFilters((prev) => ({ ...prev, overBudget: value }))}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_VALUE}>All</SelectItem>
+                  <SelectItem value="yes">Over budget</SelectItem>
+                  <SelectItem value="no">Within budget</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -812,8 +1044,8 @@ export default function MeetingsList() {
               <Label>State</Label>
               <Input value={filters.state} onChange={(event) => setFilters((prev) => ({ ...prev, state: event.target.value }))} />
             </div>
-            <div className="flex flex-wrap items-end gap-2 md:col-span-4">
-              <Button onClick={() => loadMeetings()} disabled={isLoading}>
+            <div className="flex flex-wrap items-end gap-2 md:col-span-6">
+              <Button onClick={() => loadMeetings(filters, 0)} disabled={isLoading}>
                 Apply Filters
               </Button>
               <Button variant="outline" onClick={clearFilters} disabled={isLoading || activeFilterCount === 0}>
@@ -845,6 +1077,7 @@ export default function MeetingsList() {
                   <TableHead>Meeting</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Location</TableHead>
+                  <TableHead>Dealer</TableHead>
                   <TableHead>Owner</TableHead>
                   <TableHead>Budget</TableHead>
                   <TableHead>Attendees</TableHead>
@@ -869,6 +1102,10 @@ export default function MeetingsList() {
                       <div>{meeting.city || "-"}</div>
                       <div className="text-xs text-muted-foreground">{meeting.state || meeting.location || ""}</div>
                     </TableCell>
+                    <TableCell>
+                      <div className="max-w-[180px] truncate">{meeting.storeName || meeting.dealerName || "-"}</div>
+                      <div className="max-w-[180px] truncate text-xs text-muted-foreground">{meeting.customerReference || ""}</div>
+                    </TableCell>
                     <TableCell>{meeting.creatorName || "-"}</TableCell>
                     <TableCell>{formatCurrency(meeting.expectedBudget)}</TableCell>
                     <TableCell>
@@ -879,13 +1116,17 @@ export default function MeetingsList() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={statusBadgeClass(meeting.status)}>
-                        {formatMeetingStatus(meeting.status)}
+                        {getMeetingStatusLabel(meeting)}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => router.push(`/dashboard/meetings/${meeting.id}`)}>
+                      <Button
+                        size="sm"
+                        variant={needsAction(meeting.status) ? "default" : "outline"}
+                        onClick={() => router.push(`/dashboard/meetings/${meeting.id}`)}
+                      >
                         <Eye className="h-4 w-4" />
-                        Open
+                        {getMeetingActionLabel(meeting.status)}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -896,7 +1137,40 @@ export default function MeetingsList() {
         </CardContent>
       </Card>
 
-      {!isAdmin && <NewMeetingDialog open={isNewMeetingOpen} onOpenChange={setIsNewMeetingOpen} onCreated={loadMeetings} />}
+      {pageInfo && pageInfo.totalPages > 1 && (
+        <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-muted-foreground">
+            Page {pageInfo.number + 1} of {pageInfo.totalPages} · {pageInfo.totalElements} meetings
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || pageInfo.first}
+              onClick={() => loadMeetings(filters, Math.max(0, pageInfo.number - 1))}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || pageInfo.last}
+              onClick={() => loadMeetings(filters, Math.min(pageInfo.totalPages - 1, pageInfo.number + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!isAdmin && (
+        <NewMeetingDialog
+          open={isNewMeetingOpen}
+          onOpenChange={setIsNewMeetingOpen}
+          onCreated={() => loadMeetings(filters, 0)}
+          meetingTypes={meetingTypes}
+        />
+      )}
     </div>
   );
 }

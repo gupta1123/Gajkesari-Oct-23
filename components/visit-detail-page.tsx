@@ -111,6 +111,7 @@ type VisitDetail = {
   checkinDate?: string;  
   checkoutTime?: string;
   checkoutDate?: string; 
+  feedback?: string;
 };
 
 interface Visit {
@@ -353,6 +354,49 @@ const keyMetrics = {
   lastVisit: "2023-06-15"
 };
 
+const VISIT_CHECKOUT_ROLES = new Set([
+  "ADMIN",
+  "OWNER",
+  "OFFICE MANAGER",
+  "DEVELOPER",
+  "FIELD OFFICER",
+  "MANAGER",
+]);
+
+const normalizeVisitRole = (value?: string | null) =>
+  String(value || "")
+    .replace(/^ROLE[\s_]+/i, "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+
+const canRoleCheckoutVisit = (
+  userRole?: string | null,
+  currentUser?: { authorities?: Array<{ authority?: string | null }> } | null
+) => {
+  const roles = [
+    userRole,
+    ...(currentUser?.authorities || []).map((authority) => authority.authority),
+  ];
+
+  return roles.some((role) => VISIT_CHECKOUT_ROLES.has(normalizeVisitRole(role)));
+};
+
+const getBrowserLocation = () =>
+  new Promise<GeolocationPosition>((resolve, reject) => {
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      reject(new Error("Location access is not available in this browser."));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    });
+  });
+
 export default function VisitDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -462,6 +506,12 @@ export default function VisitDetailPage() {
   const [editingNoteDetails, setEditingNoteDetails] = useState<{ employeeId: number; storeId: number } | null>(null);
   const [isNoteSaving, setIsNoteSaving] = useState(false);
   const [notePendingDelete, setNotePendingDelete] = useState<ApiNote | null>(null);
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [checkoutOutcome, setCheckoutOutcome] = useState("");
+  const [checkoutFeedback, setCheckoutFeedback] = useState("");
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   
   // Brand functionality
   const [isAddBrandModalVisible, setIsAddBrandModalVisible] = useState(false);
@@ -599,6 +649,7 @@ export default function VisitDetailPage() {
         purpose: visitData.purpose || '',
         priority: visitData.priority || 'low',
         outcome: visitData.outcome || null,
+        feedback: visitData.feedback || '',
         brandsInUse: (visitData.brandsInUse as unknown as string[]) || [],
         brandProCons: (visitData.brandProCons as unknown as BrandProCon[]) || [],
         createdAt: visitData.createdAt || '',
@@ -806,6 +857,77 @@ export default function VisitDetailPage() {
   const handleViewStore = () => {
     if (visitDetail && visitDetail.storeId) {
       router.push(`/dashboard/customers/${visitDetail.storeId}`);
+    }
+  };
+
+  const hasCheckoutPermission = canRoleCheckoutVisit(userRole, currentUser);
+  const canCheckoutVisit = Boolean(
+    visitDetail?.checkinTime &&
+      !visitDetail?.checkoutTime &&
+      hasCheckoutPermission
+  );
+
+  const openCheckoutModal = () => {
+    if (!visitDetail) return;
+
+    setCheckoutOutcome(visitDetail.outcome || "Interested");
+    setCheckoutFeedback(visitDetail.feedback || "");
+    setCheckoutError(null);
+    setCheckoutMessage(null);
+    setIsCheckoutModalOpen(true);
+  };
+
+  const handleCheckoutVisit = async () => {
+    if (!visitDetail || isCheckingOut) return;
+
+    if (!hasCheckoutPermission) {
+      setCheckoutError("You do not have permission to check out this visit.");
+      return;
+    }
+
+    if (!visitDetail.checkinTime) {
+      setCheckoutError("Visit must be checked in before checkout.");
+      return;
+    }
+
+    if (visitDetail.checkoutTime) {
+      setCheckoutError("This visit is already checked out.");
+      return;
+    }
+
+    if (!checkoutOutcome.trim()) {
+      setCheckoutError("Enter checkout outcome.");
+      return;
+    }
+
+    try {
+      setIsCheckingOut(true);
+      setCheckoutError(null);
+      setCheckoutMessage(null);
+
+      const position = await getBrowserLocation();
+      const api = new API();
+      const response = await api.checkoutVisit(visitDetail.id, {
+        checkoutLatitude: position.coords.latitude,
+        checkoutLongitude: position.coords.longitude,
+        feedback: checkoutFeedback.trim(),
+        outcome: checkoutOutcome.trim(),
+      });
+
+      if (response.toLowerCase().includes("error checking out")) {
+        throw new Error(response);
+      }
+
+      setCheckoutMessage(response || "Checked out successfully.");
+      setIsCheckoutModalOpen(false);
+      await fetchVisitDetail(String(visitDetail.id));
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : "Failed to check out this visit.";
+      setCheckoutError(message);
+    } finally {
+      setIsCheckingOut(false);
     }
   };
 
@@ -1394,7 +1516,42 @@ export default function VisitDetailPage() {
                     Add Complaint
                   </span>
                 </div>
+                {canCheckoutVisit && (
+                  <div className="relative group">
+                    <Button
+                      variant="default"
+                      size="icon"
+                      className="h-10 w-10 rounded-full"
+                      onClick={openCheckoutModal}
+                      disabled={isCheckingOut}
+                    >
+                      {isCheckingOut ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <LogOut className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <span className="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground opacity-0 shadow transition group-hover:opacity-100">
+                      Check Out
+                    </span>
+                  </div>
+                )}
               </div>
+
+              {(checkoutMessage || checkoutError || error) && (
+                <div className="space-y-2">
+                  {checkoutMessage && (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-700">
+                      {checkoutMessage}
+                    </div>
+                  )}
+                  {(checkoutError || error) && (
+                    <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                      {checkoutError || error}
+                    </div>
+                  )}
+                </div>
+              )}
 
             </CardContent>
           </Card>
@@ -2135,6 +2292,83 @@ export default function VisitDetailPage() {
               </Button>
               <Button variant="destructive" onClick={() => notePendingDelete && deleteNote(notePendingDelete.id)} className="w-full sm:w-auto">
                 Delete
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCheckoutModalOpen} onOpenChange={(open) => {
+        if (!isCheckingOut) {
+          setIsCheckoutModalOpen(open);
+          if (!open) {
+            setCheckoutError(null);
+          }
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Check Out Visit</DialogTitle>
+            <DialogDescription>
+              Checkout will use your current location and the backend will set the checkout date and time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="checkoutOutcome">Outcome</Label>
+              <Input
+                id="checkoutOutcome"
+                placeholder="Interested"
+                value={checkoutOutcome}
+                onChange={(event) => setCheckoutOutcome(event.target.value)}
+                disabled={isCheckingOut}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="checkoutFeedback">Feedback</Label>
+              <textarea
+                id="checkoutFeedback"
+                placeholder="Customer discussed new requirement"
+                value={checkoutFeedback}
+                onChange={(event) => setCheckoutFeedback(event.target.value)}
+                rows={4}
+                disabled={isCheckingOut}
+                className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+              Allow browser location access when prompted. Checkout latitude and longitude will be sent with this request.
+            </div>
+            {checkoutError && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {checkoutError}
+              </div>
+            )}
+            <div className="flex flex-col justify-end gap-2 sm:flex-row">
+              <Button
+                variant="outline"
+                onClick={() => setIsCheckoutModalOpen(false)}
+                disabled={isCheckingOut}
+                className="w-full sm:w-auto"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCheckoutVisit}
+                disabled={isCheckingOut || !checkoutOutcome.trim()}
+                className="w-full sm:w-auto"
+              >
+                {isCheckingOut ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Checking out…
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Check Out
+                  </>
+                )}
               </Button>
             </div>
           </div>
