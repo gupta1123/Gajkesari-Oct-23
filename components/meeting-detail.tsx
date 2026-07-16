@@ -26,6 +26,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -66,6 +74,7 @@ import {
   meetingsApi,
 } from "@/lib/meetings-api";
 import { hasAdminSetupPrivileges } from "@/lib/auth";
+import { formatTimeTo12Hour } from "@/lib/utils";
 
 type WorkflowTab = keyof MeetingTabs;
 type AdminReviewTab = "details" | "attendees" | "gifts" | "expenses" | "finalReport" | "history";
@@ -130,6 +139,7 @@ const formatDate = (value?: string) => {
 
 const timeForInput = (value?: string) => (value ? value.slice(0, 5) : "");
 const timeForApi = (value: string) => (value.length === 5 ? `${value}:00` : value);
+const formatMeetingTime = (value?: string) => (value ? formatTimeTo12Hour(value) || value : "-");
 const cleanMobile = (value?: string) => String(value || "").replace(/\D/g, "");
 
 const statusBadgeClass = (status?: string) => {
@@ -225,6 +235,9 @@ const getPlannedGifts = (meeting: Meeting): MeetingGift[] => {
 
   const expected = parsePlanArray<MeetingGift>(meeting.plan?.expectedGiftsMaterials);
   if (expected.length) return expected;
+
+  const directExpected = parsePlanArray<MeetingGift>(meeting.expectedGiftsMaterials);
+  if (directExpected.length) return directExpected;
 
   return splitPlainPlanItems(meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials).map((giftItem) => ({
     giftItem,
@@ -367,7 +380,7 @@ const normaliseAttendees = (attendees: MeetingAttendee[]) =>
     }))
     .filter((attendee) => attendee.name || attendee.mobileNumber);
 
-function ReadOnlyField({ label, value }: { label: string; value?: string | number | null }) {
+function ReadOnlyField({ label, value }: { label: string; value?: ReactNode }) {
   return (
     <div className="rounded-md border p-3">
       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
@@ -421,6 +434,40 @@ function MeetingNoteBlock({ label, value }: { label: string; value?: ReactNode }
     <div className="flex flex-col gap-2">
       <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-foreground">{value ?? "-"}</dd>
+    </div>
+  );
+}
+
+function ExpectedGiftsDisplay({ gifts, fallback }: { gifts: MeetingGift[]; fallback?: unknown }) {
+  const plainItems = gifts.length ? [] : splitPlainPlanItems(fallback);
+
+  if (!gifts.length && !plainItems.length) {
+    return <span>-</span>;
+  }
+
+  if (gifts.length) {
+    return (
+      <div className="space-y-1.5">
+        {gifts.map((gift, index) => {
+          const amount = Number(gift.estimatedAmount || 0);
+          return (
+            <div key={`${gift.giftItem || "gift"}-${index}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>{gift.giftItem || "Gift"}</span>
+              <span className="text-muted-foreground">Qty {Number(gift.quantity || 0)}</span>
+              {amount > 0 && <span className="text-muted-foreground">{formatCurrency(amount)}</span>}
+              {gift.remarks && <span className="text-muted-foreground">{gift.remarks}</span>}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {plainItems.map((item, index) => (
+        <div key={`${item}-${index}`}>{item}</div>
+      ))}
     </div>
   );
 }
@@ -682,6 +729,9 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const [finalApprovalRemarks, setFinalApprovalRemarks] = useState("");
   const [closeRemarks, setCloseRemarks] = useState("");
   const [cancelRemarks, setCancelRemarks] = useState("");
+  const [isApprovalDecisionOpen, setIsApprovalDecisionOpen] = useState(false);
+  const [isFinalReviewDecisionOpen, setIsFinalReviewDecisionOpen] = useState(false);
+  const [isCancelMeetingOpen, setIsCancelMeetingOpen] = useState(false);
 
   const loadConfig = async () => {
     meetingsApi
@@ -851,8 +901,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       await callback();
       setMessage(successMessage);
       await loadMeeting();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed.");
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -925,22 +977,23 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   };
 
   const approvalAction = async (action: "approve" | "reject" | "correction") => {
-    if (!meeting) return;
+    if (!meeting) return false;
     if ((action === "reject" || action === "correction") && !approvalRemarks.trim()) {
       setError("Remarks are required for rejection or correction.");
-      return;
+      return false;
     }
     if (action === "correction" && !correctionStage) {
       setError("Select the section that needs correction.");
-      return;
+      return false;
     }
     const payload = { approvalRemarks: approvalRemarks.trim() };
+    let ok = false;
     if (action === "approve") {
-      await runAction(() => meetingsApi.approveMeeting(meeting.id, payload), "Meeting approved.");
+      ok = await runAction(() => meetingsApi.approveMeeting(meeting.id, payload), "Meeting approved.");
     } else if (action === "reject") {
-      await runAction(() => meetingsApi.rejectMeeting(meeting.id, payload), "Meeting rejected.");
+      ok = await runAction(() => meetingsApi.rejectMeeting(meeting.id, payload), "Meeting rejected.");
     } else {
-      await runAction(
+      ok = await runAction(
         () =>
           meetingsApi.requestCorrection(meeting.id, {
             ...payload,
@@ -950,7 +1003,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         "Meeting sent for correction."
       );
     }
-    setApprovalRemarks("");
+    if (ok) setApprovalRemarks("");
+    return ok;
   };
 
   const executeMeeting = async () => {
@@ -1145,13 +1199,13 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   };
 
   const approveAndCloseMeeting = async () => {
-    if (!meeting) return;
+    if (!meeting) return false;
     const remarks = finalApprovalRemarks.trim() || closeRemarks.trim();
     if (!remarks) {
       setError("Final review remarks are required.");
-      return;
+      return false;
     }
-    await runAction(
+    return runAction(
       () =>
         meetingsApi.approveAndCloseFinalReport(meeting.id, {
           finalReportApprovalRemarks: finalApprovalRemarks.trim() || remarks,
@@ -1162,16 +1216,16 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   };
 
   const requestFinalReviewCorrection = async () => {
-    if (!meeting) return;
+    if (!meeting) return false;
     if (!finalApprovalRemarks.trim()) {
       setError("Correction remarks are required.");
-      return;
+      return false;
     }
     if (!finalCorrectionStage) {
       setError("Select the section that needs correction.");
-      return;
+      return false;
     }
-    await runAction(
+    const ok = await runAction(
       () =>
         meetingsApi.requestFinalReportCorrection(meeting.id, {
           approvalRemarks: finalApprovalRemarks.trim(),
@@ -1180,16 +1234,37 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         }),
       "Meeting sent back for correction."
     );
-    setFinalApprovalRemarks("");
+    if (ok) setFinalApprovalRemarks("");
+    return ok;
   };
 
   const cancelMeeting = async () => {
-    if (!meeting) return;
+    if (!meeting) return false;
     if (!cancelRemarks.trim()) {
       setError("Cancellation remarks are required.");
-      return;
+      return false;
     }
-    await runAction(() => meetingsApi.cancelMeeting(meeting.id, { remarks: cancelRemarks.trim() }), "Meeting cancelled.");
+    return runAction(() => meetingsApi.cancelMeeting(meeting.id, { remarks: cancelRemarks.trim() }), "Meeting cancelled.");
+  };
+
+  const handleApprovalDecision = async (action: "approve" | "reject" | "correction") => {
+    const ok = await approvalAction(action);
+    if (ok) setIsApprovalDecisionOpen(false);
+  };
+
+  const handleApproveAndClose = async () => {
+    const ok = await approveAndCloseMeeting();
+    if (ok) setIsFinalReviewDecisionOpen(false);
+  };
+
+  const handleFinalReviewCorrection = async () => {
+    const ok = await requestFinalReviewCorrection();
+    if (ok) setIsFinalReviewDecisionOpen(false);
+  };
+
+  const handleCancelMeeting = async () => {
+    const ok = await cancelMeeting();
+    if (ok) setIsCancelMeetingOpen(false);
   };
 
   const exportMeeting = () => {
@@ -1231,9 +1306,141 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const expectedTurnout = meeting.expectedAttendees || namedAttendeeCount;
   const showActualSummary = isPostMeetingStatus(meeting.status);
   const budgetDifference = actualExpenseTotal - Number(meeting.expectedBudget || 0);
-  const plannedGiftDisplay = plannedGiftQuantity ? String(plannedGiftQuantity) : meeting.expectedGiftsMaterials ? "Added" : "-";
+  const plannedGiftDisplay = plannedGiftQuantity ? `${plannedGiftQuantity} planned` : meeting.expectedGiftsMaterials ? "Added" : "-";
   const issuedGiftDisplay = issuedGiftQuantity ? String(issuedGiftQuantity) : meeting.noGifts ? "No Gifts" : "-";
   const leadDisplay = String(meeting.leadCount ?? (meeting.leadsGenerated ? "Added" : "-"));
+  const requestCorrectionOptions = CORRECTION_STAGE_OPTIONS.filter((option) => ["REQUEST", "ATTENDEES"].includes(option.value));
+  const finalCorrectionOptions = CORRECTION_STAGE_OPTIONS.filter((option) =>
+    ["ATTENDANCE", "GIFTS", "EXPENSES", "LEADS", "FINAL_REPORT"].includes(option.value)
+  );
+  const approvalDecisionDialog = (
+    <Dialog open={isApprovalDecisionOpen} onOpenChange={setIsApprovalDecisionOpen}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Review Decision</DialogTitle>
+          <DialogDescription>Approve this request, reject it, or send it back with a correction note.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Decision note</Label>
+            <Textarea
+              value={approvalRemarks}
+              onChange={(event) => setApprovalRemarks(event.target.value)}
+              placeholder="Required for rejection or correction."
+            />
+          </div>
+          {canRequestCorrection && (
+            <div className="space-y-2">
+              <Label>Correction section</Label>
+              <Select value={correctionStage} onValueChange={(value) => setCorrectionStage(value as CorrectionStage)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {requestCorrectionOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button variant="outline" onClick={() => setIsApprovalDecisionOpen(false)}>
+            Close
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            {canApprove && (
+              <Button onClick={() => handleApprovalDecision("approve")} disabled={isSaving}>
+                <CheckCircle2 className="h-4 w-4" />
+                Approve
+              </Button>
+            )}
+            {canRequestCorrection && (
+              <Button variant="outline" onClick={() => handleApprovalDecision("correction")} disabled={isSaving || !approvalRemarks.trim()}>
+                Request Correction
+              </Button>
+            )}
+            {canReject && (
+              <Button variant="destructive" onClick={() => handleApprovalDecision("reject")} disabled={isSaving || !approvalRemarks.trim()}>
+                <XCircle className="h-4 w-4" />
+                Reject
+              </Button>
+            )}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+  const finalReviewDecisionDialog = (
+    <Dialog open={isFinalReviewDecisionOpen} onOpenChange={setIsFinalReviewDecisionOpen}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Final Review Decision</DialogTitle>
+          <DialogDescription>Close the completed meeting or send a specific section back for correction.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Review remarks</Label>
+            <Textarea value={finalApprovalRemarks} onChange={(event) => setFinalApprovalRemarks(event.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Correction section</Label>
+            <Select value={finalCorrectionStage} onValueChange={(value) => setFinalCorrectionStage(value as CorrectionStage)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {finalCorrectionOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button variant="outline" onClick={() => setIsFinalReviewDecisionOpen(false)}>
+            Close
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleApproveAndClose} disabled={isSaving || !finalApprovalRemarks.trim()}>
+              <CheckCircle2 className="h-4 w-4" />
+              Approve and Close
+            </Button>
+            <Button variant="outline" onClick={handleFinalReviewCorrection} disabled={isSaving || !finalApprovalRemarks.trim()}>
+              Request Correction
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+  const cancelMeetingDialog = (
+    <Dialog open={isCancelMeetingOpen} onOpenChange={setIsCancelMeetingOpen}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Cancel Meeting</DialogTitle>
+          <DialogDescription>Add the cancellation reason before cancelling this meeting.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label>Cancellation remarks</Label>
+          <Textarea value={cancelRemarks} onChange={(event) => setCancelRemarks(event.target.value)} />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setIsCancelMeetingOpen(false)}>
+            Close
+          </Button>
+          <Button variant="destructive" onClick={handleCancelMeeting} disabled={isSaving || !cancelRemarks.trim()}>
+            Cancel Meeting
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   if (isAdmin) {
     const adminTabs: Array<{ key: AdminReviewTab; label: string }> = [
@@ -1290,57 +1497,12 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
         {showApprovalDecision && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Review Decision</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <Label>Decision note</Label>
-                <Textarea
-                  value={approvalRemarks}
-                  onChange={(event) => setApprovalRemarks(event.target.value)}
-                  placeholder="Required if rejecting this meeting."
-                />
-              </div>
-              {canRequestCorrection && (
-                <div className="space-y-2">
-                  <Label>Correction section</Label>
-                  <Select value={correctionStage} onValueChange={(value) => setCorrectionStage(value as CorrectionStage)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CORRECTION_STAGE_OPTIONS.filter((option) => ["REQUEST", "ATTENDEES"].includes(option.value)).map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {canApprove && (
-                  <Button onClick={() => approvalAction("approve")} disabled={isSaving}>
-                    <CheckCircle2 className="h-4 w-4" />
-                    Approve
-                  </Button>
-                )}
-                {canReject && (
-                  <Button variant="destructive" onClick={() => approvalAction("reject")} disabled={isSaving || !approvalRemarks.trim()}>
-                    <XCircle className="h-4 w-4" />
-                    Reject
-                  </Button>
-                )}
-                {canRequestCorrection && (
-                  <Button variant="outline" onClick={() => approvalAction("correction")} disabled={isSaving || !approvalRemarks.trim()}>
-                    Request Correction
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <div className="flex justify-end">
+            <Button onClick={() => setIsApprovalDecisionOpen(true)}>
+              <CheckCircle2 className="h-4 w-4" />
+              Review Decision
+            </Button>
+          </div>
         )}
 
         <div className="flex gap-2 overflow-x-auto rounded-lg border bg-muted/30 p-1">
@@ -1365,7 +1527,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                 <dl>
                   <MeetingDataRow label="Meeting type" value={meeting.meetingType} />
                   <MeetingDataRow label="Date" value={formatDate(meeting.meetingDate)} />
-                  <MeetingDataRow label="Time" value={meeting.meetingTime} />
+                  <MeetingDataRow label="Time" value={formatMeetingTime(meeting.meetingTime)} />
                   <MeetingDataRow label="City" value={meeting.city} />
                   <MeetingDataRow label="State" value={meeting.state} />
                   <MeetingDataRow label="Location" value={meeting.location} />
@@ -1417,7 +1579,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   {showActualSummary && (
                     <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
                   )}
-                  <MeetingNoteBlock label="Expected gifts / materials" value={meeting.expectedGiftsMaterials} />
+                  <MeetingNoteBlock
+                    label="Expected gifts / materials"
+                    value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />}
+                  />
                   <MeetingNoteBlock label="Planned expense details" value={plannedExpenses.length ? `${plannedExpenses.length} categories planned` : meeting.plan?.plannedExpenseDetails as string} />
                   <MeetingNoteBlock label="Budget remarks" value={meeting.plan?.budgetRemarks} />
                   <MeetingNoteBlock label="Remarks" value={meeting.remarks} />
@@ -1786,7 +1951,14 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   <MeetingDataRow label="Expected turnout" value={expectedTurnout} />
                   <MeetingDataRow label="Named attendees" value={namedAttendeeCount} />
                   <MeetingDataRow label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
-                  <MeetingDataRow label="Planned gifts" value={plannedGiftQuantity || meeting.expectedGiftsMaterials || "-"} />
+                  <MeetingDataRow
+                    label="Planned gifts"
+                    value={
+                      plannedGiftQuantity
+                        ? `${plannedGiftQuantity} planned`
+                        : <ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />
+                    }
+                  />
                   <MeetingDataRow label="Expected impact" value={meeting.expectedBusinessImpact} />
                 </dl>
               </MeetingDetailCard>
@@ -1829,45 +2001,12 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                 </Card>
 
                 {meeting.status === "REPORT_SUBMITTED" && (
-                  <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-                    <CardHeader>
-                      <CardTitle>Final Review Decision</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label>Review remarks</Label>
-                          <Textarea value={finalApprovalRemarks} onChange={(event) => setFinalApprovalRemarks(event.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Correction section</Label>
-                          <Select value={finalCorrectionStage} onValueChange={(value) => setFinalCorrectionStage(value as CorrectionStage)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {CORRECTION_STAGE_OPTIONS.filter((option) =>
-                                ["ATTENDANCE", "GIFTS", "EXPENSES", "LEADS", "FINAL_REPORT"].includes(option.value)
-                              ).map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button onClick={approveAndCloseMeeting} disabled={isSaving || !finalApprovalRemarks.trim()}>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Approve and Close
-                        </Button>
-                        <Button variant="outline" onClick={requestFinalReviewCorrection} disabled={isSaving || !finalApprovalRemarks.trim()}>
-                          Request Correction
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div className="flex justify-end">
+                    <Button onClick={() => setIsFinalReviewDecisionOpen(true)}>
+                      <CheckCircle2 className="h-4 w-4" />
+                      Final Review Decision
+                    </Button>
+                  </div>
                 )}
               </>
             ) : (
@@ -1923,6 +2062,9 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
             </CardContent>
           </Card>
         )}
+        {approvalDecisionDialog}
+        {finalReviewDecisionDialog}
+        {cancelMeetingDialog}
       </div>
     );
   }
@@ -2080,7 +2222,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               <div className="grid gap-3 md:grid-cols-3">
                 <ReadOnlyField label="Meeting type" value={meeting.meetingType} />
                 <ReadOnlyField label="Date" value={formatDate(meeting.meetingDate)} />
-                <ReadOnlyField label="Time" value={meeting.meetingTime} />
+                <ReadOnlyField label="Time" value={formatMeetingTime(meeting.meetingTime)} />
                 <ReadOnlyField label="City" value={meeting.city} />
                 <ReadOnlyField label="State" value={meeting.state} />
                 <ReadOnlyField label="Location" value={meeting.location} />
@@ -2095,7 +2237,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   <ReadOnlyField label="Expected business impact" value={meeting.expectedBusinessImpact} />
                 </div>
                 <div className="md:col-span-3">
-                  <ReadOnlyField label="Expected gifts / materials" value={meeting.expectedGiftsMaterials} />
+                  <ReadOnlyField
+                    label="Expected gifts / materials"
+                    value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />}
+                  />
                 </div>
                 <div className="md:col-span-3">
                   <ReadOnlyField label="Remarks" value={meeting.remarks} />
@@ -2205,48 +2350,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               <ReadOnlyField label="Budget" value={formatCurrency(meeting.expectedBudget)} />
             </div>
             {canApprove || canReject || canRequestCorrection ? (
-              <>
-                <div className="space-y-2">
-                  <Label>Approval remarks</Label>
-                  <Textarea value={approvalRemarks} onChange={(event) => setApprovalRemarks(event.target.value)} />
-                </div>
-                {canRequestCorrection && (
-                  <div className="space-y-2">
-                    <Label>Correction section</Label>
-                    <Select value={correctionStage} onValueChange={(value) => setCorrectionStage(value as CorrectionStage)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CORRECTION_STAGE_OPTIONS.filter((option) => ["REQUEST", "ATTENDEES"].includes(option.value)).map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {canApprove && (
-                    <Button onClick={() => approvalAction("approve")} disabled={isSaving}>
-                      <CheckCircle2 className="h-4 w-4" />
-                      Approve
-                    </Button>
-                  )}
-                  {canRequestCorrection && (
-                    <Button variant="outline" onClick={() => approvalAction("correction")} disabled={isSaving}>
-                      Request Correction
-                    </Button>
-                  )}
-                  {canReject && (
-                    <Button variant="destructive" onClick={() => approvalAction("reject")} disabled={isSaving}>
-                      <XCircle className="h-4 w-4" />
-                      Reject
-                    </Button>
-                  )}
-                </div>
-              </>
+              <Button className="w-fit" onClick={() => setIsApprovalDecisionOpen(true)}>
+                <CheckCircle2 className="h-4 w-4" />
+                Review Decision
+              </Button>
             ) : (
               <LockedPanel label="Approval actions are available only when this meeting is pending approval." />
             )}
@@ -2618,51 +2725,17 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   </Button>
                 )}
                 {(canApproveFinalReport || canClose || canCancel) && (
-                  <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
+                  <div className="flex flex-wrap gap-2 border-t pt-4">
                     {(canApproveFinalReport || canClose) && (
-                      <div className="space-y-2">
-                        <Label>Final review remarks</Label>
-                        <Textarea value={finalApprovalRemarks} onChange={(event) => setFinalApprovalRemarks(event.target.value)} />
-                      </div>
-                    )}
-                    {(canApproveFinalReport || canClose) && (
-                      <div className="space-y-2">
-                        <Label>Correction section</Label>
-                        <Select value={finalCorrectionStage} onValueChange={(value) => setFinalCorrectionStage(value as CorrectionStage)}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CORRECTION_STAGE_OPTIONS.filter((option) =>
-                              ["ATTENDANCE", "GIFTS", "EXPENSES", "LEADS", "FINAL_REPORT"].includes(option.value)
-                            ).map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    {(canApproveFinalReport || canClose) && (
-                      <div className="flex flex-wrap gap-2 md:col-span-2">
-                        <Button onClick={approveAndCloseMeeting} disabled={isSaving || !finalApprovalRemarks.trim()}>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Approve and Close
-                        </Button>
-                        <Button variant="outline" onClick={requestFinalReviewCorrection} disabled={isSaving || !finalApprovalRemarks.trim()}>
-                          Request Correction
-                        </Button>
-                      </div>
+                      <Button onClick={() => setIsFinalReviewDecisionOpen(true)}>
+                        <CheckCircle2 className="h-4 w-4" />
+                        Final Review Decision
+                      </Button>
                     )}
                     {canCancel && (
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>Cancellation remarks</Label>
-                        <Textarea value={cancelRemarks} onChange={(event) => setCancelRemarks(event.target.value)} />
-                        <Button variant="destructive" onClick={cancelMeeting} disabled={isSaving}>
-                          Cancel Meeting
-                        </Button>
-                      </div>
+                      <Button variant="destructive" onClick={() => setIsCancelMeetingOpen(true)}>
+                        Cancel Meeting
+                      </Button>
                     )}
                   </div>
                 )}
@@ -2673,6 +2746,9 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           </CardContent>
         </Card>
       )}
+      {approvalDecisionDialog}
+      {finalReviewDecisionDialog}
+      {cancelMeetingDialog}
     </div>
   );
 }

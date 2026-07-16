@@ -7,7 +7,6 @@ import {
   CalendarIcon,
   Check,
   Loader2,
-  RefreshCw,
   Route,
   Users,
   X,
@@ -288,11 +287,6 @@ export default function DistanceRecalculation() {
     }
   };
 
-  const handleRefreshVerification = async () => {
-    setError(null);
-    await refreshVerification(selectedEmployeeIds, startDate, endDate);
-  };
-
   return (
     <div className="space-y-6">
       <Card className="border-0 shadow-sm bg-background">
@@ -467,24 +461,6 @@ export default function DistanceRecalculation() {
                 </>
               )}
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleRefreshVerification}
-              disabled={isSubmitting || isRefreshingVerification || selectedEmployeeIds.length === 0}
-              className="w-full sm:w-auto"
-            >
-              {isRefreshingVerification ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Refreshing...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh Verification
-                </>
-              )}
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -579,7 +555,7 @@ export default function DistanceRecalculation() {
               </>
             ) : (
               <div className="rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                Recalculation completed. Refresh verification to view the calculated amount.
+                Recalculation completed. Calculated amount will appear here when verification data is available.
               </div>
             )}
           </CardContent>

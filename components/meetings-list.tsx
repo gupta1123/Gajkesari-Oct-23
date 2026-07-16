@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Eye,
   Filter,
+  Info,
   Loader2,
   Plus,
-  RefreshCw,
   Search,
   Users,
   X,
@@ -54,12 +57,12 @@ import {
   getMeetingStatusLabel,
   Meeting,
   MeetingAttendee,
-  MeetingDashboardSummary,
   MeetingPage,
   MEETING_TYPES,
   meetingsApi,
 } from "@/lib/meetings-api";
 import { hasAdminSetupPrivileges } from "@/lib/auth";
+import { formatTimeTo12Hour } from "@/lib/utils";
 
 const ALL_VALUE = "all";
 
@@ -85,7 +88,7 @@ const DEFAULT_FILTERS = {
   state: "",
 };
 
-const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 10;
 
 const SINGLE_STATUS_BY_QUEUE: Partial<Record<MeetingQueue, string>> = {
   needsApproval: "PENDING_APPROVAL",
@@ -195,43 +198,95 @@ const QUEUE_FILTERS: Record<MeetingQueue, { label: string; statuses: string[] }>
   closed: { label: "Closed", statuses: ["CLOSED"] },
 };
 
-const getMeetingActionLabel = (status?: string) => {
-  switch (status) {
-    case "PENDING_APPROVAL":
-      return "Review Request";
-    case "REPORT_SUBMITTED":
-      return "Final Review";
-    case "CORRECTION_REQUIRED":
-      return "View Correction";
-    case "REJECTED":
-    case "CANCELLED":
-      return "View Reason";
-    case "APPROVED":
-      return "View Schedule";
-    case "CLOSED":
-      return "View Report";
-    case "DRAFT":
-      return "View Draft";
-    case "EXECUTED":
-    case "EXPENSE_SUBMITTED":
-      return "Monitor";
-    default:
-      return "Open";
-  }
-};
-
-const needsAction = (status?: string) => QUEUE_FILTERS.needsAction.statuses.includes(String(status || ""));
-
-const readSummaryNumber = (summary: MeetingDashboardSummary | null, keys: string[]) => {
-  if (!summary) return undefined;
-  for (const key of keys) {
-    const value = summary[key];
-    if (typeof value === "number") return value;
-  }
-  return undefined;
-};
-
 const normaliseMobile = (value: string) => value.replace(/\D/g, "");
+const formatMeetingTime = (value?: string) => (value ? formatTimeTo12Hour(value) || value : "");
+
+const MEETING_STAGE_GUIDE = [
+  {
+    phase: "Phase 1: Preparation",
+    stage: "Draft",
+    meaning: "The request is still being prepared.",
+    adminAction: "No approval action is needed yet.",
+    tone: "normal",
+  },
+  {
+    phase: "Phase 2: Authorization",
+    stage: "Pending Approval",
+    meaning: "The field team submitted the meeting plan for approval.",
+    adminAction: "Review the plan, attendees, budget, and gifts. Approve, reject, or ask for correction.",
+    tone: "normal",
+  },
+  {
+    phase: "Phase 3: Schedule Locked",
+    stage: "Approved",
+    meaning: "The meeting is scheduled and the field team can execute it.",
+    adminAction: "Monitor only. Execution is handled by the field team.",
+    tone: "normal",
+  },
+  {
+    phase: "Phase 4: Post-Meeting Review",
+    stage: "Executed",
+    meaning: "The meeting happened and attendance has been recorded.",
+    adminAction: "Review progress if needed.",
+    tone: "normal",
+  },
+  {
+    phase: "Phase 5: Financial Reconciliation",
+    stage: "Expense Submitted",
+    meaning: "Actual meeting expenses have been added.",
+    adminAction: "Check actual spend against the approved budget.",
+    tone: "normal",
+  },
+  {
+    phase: "Phase 6: Final Review",
+    stage: "Report Submitted",
+    meaning: "The final report is ready for admin review.",
+    adminAction: "Review the report and close the meeting or send it back for correction.",
+    tone: "normal",
+  },
+  {
+    phase: "Phase 7: Complete",
+    stage: "Closed",
+    meaning: "The workflow is complete.",
+    adminAction: "View or export the final record.",
+    tone: "normal",
+  },
+  {
+    phase: "Exception: Correction",
+    stage: "Correction Required",
+    meaning: "A section has been sent back to the field team to fix.",
+    adminAction: "Wait for resubmission unless another correction is needed.",
+    tone: "warning",
+  },
+  {
+    phase: "Exception: Terminated",
+    stage: "Rejected / Cancelled",
+    meaning: "The meeting will not move ahead.",
+    adminAction: "Open the row to view the reason.",
+    tone: "danger",
+  },
+];
+
+const workflowToneClasses = (tone?: string) => {
+  if (tone === "warning") {
+    return {
+      card: "border-amber-500/30 bg-amber-500/10",
+      label: "text-amber-600 dark:text-amber-400",
+    };
+  }
+
+  if (tone === "danger") {
+    return {
+      card: "border-destructive/30 bg-destructive/10",
+      label: "text-destructive",
+    };
+  }
+
+  return {
+    card: "border-primary/30 bg-primary/10",
+    label: "text-primary",
+  };
+};
 
 const getValidAttendees = (attendees: MeetingAttendee[]) =>
   attendees
@@ -676,14 +731,16 @@ export default function MeetingsList() {
   const router = useRouter();
   const { userRole, currentUser } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [dashboardSummary, setDashboardSummary] = useState<MeetingDashboardSummary | null>(null);
   const [pageInfo, setPageInfo] = useState<MeetingPage<Meeting> | null>(null);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [meetingTypes, setMeetingTypes] = useState<string[]>([...MEETING_TYPES]);
   const [statusOptions, setStatusOptions] = useState<Array<{ status: string; label: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isNewMeetingOpen, setIsNewMeetingOpen] = useState(false);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  const [isWorkflowInfoOpen, setIsWorkflowInfoOpen] = useState(false);
+  const [workflowGuideStep, setWorkflowGuideStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [queueFilter, setQueueFilter] = useState<MeetingQueue>("all");
@@ -699,7 +756,7 @@ export default function MeetingsList() {
     state: appliedFilters.state.trim() || undefined,
   });
 
-  const loadMeetings = async (appliedFilters = filters, page = 0) => {
+  const loadMeetings = async (appliedFilters = filters, page = 0, size = pageSize) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -707,21 +764,10 @@ export default function MeetingsList() {
       const data = await meetingsApi.getMeetingsPage({
         ...backendFilters,
         page,
-        size: DEFAULT_PAGE_SIZE,
+        size,
       });
       setMeetings(data.content);
       setPageInfo(data);
-      const summaryFilters = {
-        start: backendFilters.start,
-        end: backendFilters.end,
-        meetingType: backendFilters.meetingType,
-        city: backendFilters.city,
-        state: backendFilters.state,
-      };
-      meetingsApi
-        .getDashboardSummary(summaryFilters)
-        .then(setDashboardSummary)
-        .catch(() => setDashboardSummary(null));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load meetings.");
     } finally {
@@ -779,7 +825,7 @@ export default function MeetingsList() {
     setSearch("");
     setQueueFilter("all");
     setFilters(DEFAULT_FILTERS);
-    loadMeetings(DEFAULT_FILTERS, 0);
+    loadMeetings(DEFAULT_FILTERS, 0, pageSize);
   };
 
   const applyQueueFilter = (queue: MeetingQueue) => {
@@ -787,9 +833,26 @@ export default function MeetingsList() {
     setQueueFilter(queue);
     setFilters((prev) => {
       const nextFilters = { ...prev, status };
-      loadMeetings(nextFilters, 0);
+      loadMeetings(nextFilters, 0, pageSize);
       return nextFilters;
     });
+  };
+
+  const openWorkflowGuide = () => {
+    setWorkflowGuideStep(0);
+    setIsWorkflowInfoOpen(true);
+  };
+
+  const closeWorkflowGuide = () => {
+    setIsWorkflowInfoOpen(false);
+  };
+
+  const goToNextWorkflowStep = () => {
+    if (workflowGuideStep === MEETING_STAGE_GUIDE.length - 1) {
+      closeWorkflowGuide();
+      return;
+    }
+    setWorkflowGuideStep((step) => Math.min(MEETING_STAGE_GUIDE.length - 1, step + 1));
   };
 
   useEffect(() => {
@@ -837,21 +900,6 @@ export default function MeetingsList() {
     });
   }, [filters.dealer, filters.owner, filters.overBudget, meetings, queueFilter, search]);
 
-  const stats = useMemo(() => {
-    const needsApproval = meetings.filter((meeting) => meeting.status === "PENDING_APPROVAL").length;
-    const upcomingApproved = meetings.filter((meeting) => meeting.status === "APPROVED").length;
-    const needsFinalReview = meetings.filter((meeting) => meeting.status === "REPORT_SUBMITTED").length;
-    const needsCorrection = meetings.filter((meeting) => meeting.status === "CORRECTION_REQUIRED").length;
-    const closed = meetings.filter((meeting) => meeting.status === "CLOSED").length;
-    return {
-      needsApproval: readSummaryNumber(dashboardSummary, ["needsApproval", "pendingApproval", "pendingApprovalCount"]) ?? needsApproval,
-      upcomingApproved: readSummaryNumber(dashboardSummary, ["upcomingApproved", "scheduled", "approved"]) ?? upcomingApproved,
-      needsFinalReview: readSummaryNumber(dashboardSummary, ["needsFinalReview", "finalReview", "reportSubmitted"]) ?? needsFinalReview,
-      needsCorrection: readSummaryNumber(dashboardSummary, ["needsCorrection", "correctionRequired"]) ?? needsCorrection,
-      closed: readSummaryNumber(dashboardSummary, ["closed", "closedCount"]) ?? closed,
-    };
-  }, [dashboardSummary, meetings]);
-
   const exportCsv = async () => {
     setIsExporting(true);
     setError(null);
@@ -868,6 +916,12 @@ export default function MeetingsList() {
       setIsExporting(false);
     }
   };
+
+  const currentWorkflowStep = MEETING_STAGE_GUIDE[workflowGuideStep] || MEETING_STAGE_GUIDE[0];
+  const workflowProgress =
+    MEETING_STAGE_GUIDE.length > 1 ? (workflowGuideStep / (MEETING_STAGE_GUIDE.length - 1)) * 100 : 0;
+  const workflowTone = workflowToneClasses(currentWorkflowStep.tone);
+  const isLastWorkflowStep = workflowGuideStep === MEETING_STAGE_GUIDE.length - 1;
 
   return (
     <div className="space-y-4">
@@ -887,13 +941,12 @@ export default function MeetingsList() {
           ))}
         </div>
         <div className="flex flex-wrap gap-2 lg:justify-end">
-          <Button variant="outline" onClick={() => loadMeetings(filters, pageInfo?.number || 0)} disabled={isLoading}>
-            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
           <Button variant="outline" onClick={() => setIsFiltersOpen((open) => !open)}>
             <Filter className="h-4 w-4" />
             Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+          </Button>
+          <Button variant="outline" size="icon" onClick={openWorkflowGuide} aria-label="Meeting workflow guide">
+            <Info className="h-4 w-4" />
           </Button>
           <Button variant="outline" onClick={exportCsv} disabled={isExporting}>
             {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -906,28 +959,6 @@ export default function MeetingsList() {
             </Button>
           )}
         </div>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        {[
-          { queue: "needsApproval" as MeetingQueue, label: "Needs Approval", value: stats.needsApproval },
-          { queue: "upcoming" as MeetingQueue, label: "Upcoming Approved", value: stats.upcomingApproved },
-          { queue: "needsFinalReview" as MeetingQueue, label: "Needs Final Review", value: stats.needsFinalReview },
-          { queue: "needsCorrection" as MeetingQueue, label: "Needs Correction", value: stats.needsCorrection },
-          { queue: "closed" as MeetingQueue, label: "Closed", value: stats.closed },
-        ].map((item) => (
-          <button
-            key={item.queue}
-            type="button"
-            onClick={() => applyQueueFilter(item.queue)}
-            className={`rounded-lg border bg-card p-4 text-left shadow-sm transition-colors hover:bg-muted/30 ${
-              queueFilter === item.queue ? "border-primary" : "border-border"
-            }`}
-          >
-            <div className="text-sm font-medium text-muted-foreground">{item.label}</div>
-            <div className="mt-6 text-2xl font-bold text-foreground">{item.value}</div>
-          </button>
-        ))}
       </div>
 
       {isFiltersOpen && (
@@ -1045,7 +1076,7 @@ export default function MeetingsList() {
               <Input value={filters.state} onChange={(event) => setFilters((prev) => ({ ...prev, state: event.target.value }))} />
             </div>
             <div className="flex flex-wrap items-end gap-2 md:col-span-6">
-              <Button onClick={() => loadMeetings(filters, 0)} disabled={isLoading}>
+              <Button onClick={() => loadMeetings(filters, 0, pageSize)} disabled={isLoading}>
                 Apply Filters
               </Button>
               <Button variant="outline" onClick={clearFilters} disabled={isLoading || activeFilterCount === 0}>
@@ -1096,7 +1127,7 @@ export default function MeetingsList() {
                     </TableCell>
                     <TableCell>
                       <div>{formatDate(meeting.meetingDate)}</div>
-                      <div className="text-xs text-muted-foreground">{meeting.meetingTime || ""}</div>
+                      <div className="text-xs text-muted-foreground">{formatMeetingTime(meeting.meetingTime)}</div>
                     </TableCell>
                     <TableCell>
                       <div>{meeting.city || "-"}</div>
@@ -1122,11 +1153,11 @@ export default function MeetingsList() {
                     <TableCell className="text-right">
                       <Button
                         size="sm"
-                        variant={needsAction(meeting.status) ? "default" : "outline"}
+                        variant="outline"
                         onClick={() => router.push(`/dashboard/meetings/${meeting.id}`)}
                       >
                         <Eye className="h-4 w-4" />
-                        {getMeetingActionLabel(meeting.status)}
+                        View
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -1137,37 +1168,159 @@ export default function MeetingsList() {
         </CardContent>
       </Card>
 
-      {pageInfo && pageInfo.totalPages > 1 && (
+      {pageInfo && (
         <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-muted-foreground">
-            Page {pageInfo.number + 1} of {pageInfo.totalPages} · {pageInfo.totalElements} meetings
+          <div className="flex items-center gap-2">
+            <Label htmlFor="meetingsPageSize" className="text-sm font-medium">
+              Rows per page:
+            </Label>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                const nextSize = Number(value);
+                setPageSize(nextSize);
+                loadMeetings(filters, 0, nextSize);
+              }}
+            >
+              <SelectTrigger id="meetingsPageSize" className="w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="25">25</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex gap-2">
+
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               disabled={isLoading || pageInfo.first}
-              onClick={() => loadMeetings(filters, Math.max(0, pageInfo.number - 1))}
+              onClick={() => loadMeetings(filters, Math.max(0, pageInfo.number - 1), pageSize)}
             >
+              <ChevronLeft className="h-4 w-4" />
               Previous
             </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {pageInfo.number + 1} of {pageInfo.totalPages || 1}
+              {typeof pageInfo.totalElements === "number" ? ` · ${pageInfo.totalElements} meetings` : ""}
+            </span>
             <Button
               variant="outline"
               size="sm"
               disabled={isLoading || pageInfo.last}
-              onClick={() => loadMeetings(filters, Math.min(pageInfo.totalPages - 1, pageInfo.number + 1))}
+              onClick={() => loadMeetings(filters, Math.max(0, Math.min(pageInfo.totalPages - 1, pageInfo.number + 1)), pageSize)}
             >
               Next
+              <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>
       )}
 
+      <Dialog open={isWorkflowInfoOpen} onOpenChange={setIsWorkflowInfoOpen}>
+        <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-[720px]">
+          <div className="flex max-h-[88vh] flex-col">
+            <DialogHeader className="px-8 pb-4 pt-7 text-left">
+              <DialogTitle>Meeting Workflow Guide</DialogTitle>
+              <DialogDescription>
+                An interactive guide to stages, statuses, and administrative actions.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="border-b px-8 pb-6 pt-2">
+              <div className="relative flex items-center justify-between">
+                <div className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-border" />
+                <div
+                  className="absolute left-0 top-1/2 h-px -translate-y-1/2 bg-primary transition-all duration-300"
+                  style={{ width: `${workflowProgress}%` }}
+                />
+                {MEETING_STAGE_GUIDE.map((item, index) => {
+                  const isActive = index === workflowGuideStep;
+                  const isComplete = index < workflowGuideStep;
+                  return (
+                    <button
+                      key={item.stage}
+                      type="button"
+                      title={item.stage}
+                      onClick={() => setWorkflowGuideStep(index)}
+                      className={[
+                        "relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold transition",
+                        isActive
+                          ? "border-primary bg-primary text-primary-foreground shadow-sm ring-4 ring-primary/15"
+                          : isComplete
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                      ].join(" ")}
+                    >
+                      {index + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="min-h-[260px] overflow-y-auto px-8 py-8 sm:px-10">
+              <div key={currentWorkflowStep.stage} className="animate-in fade-in slide-in-from-right-2 space-y-5 duration-300">
+                <div className={`text-xs font-bold uppercase tracking-wider ${workflowTone.label}`}>
+                  {currentWorkflowStep.phase}
+                </div>
+                <div className="space-y-3">
+                  <h3 className="text-2xl font-bold tracking-tight text-foreground">{currentWorkflowStep.stage}</h3>
+                  <p className="max-w-2xl text-base leading-7 text-muted-foreground">{currentWorkflowStep.meaning}</p>
+                </div>
+
+                <div className={`rounded-xl border p-5 ${workflowTone.card}`}>
+                  <div className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide ${workflowTone.label}`}>
+                    <Info className="h-4 w-4" />
+                    Admin Action Required
+                  </div>
+                  <p className="text-sm font-medium leading-6 text-foreground">{currentWorkflowStep.adminAction}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t px-8 py-5">
+              <span className="text-sm font-medium text-muted-foreground">
+                Step {workflowGuideStep + 1} of {MEETING_STAGE_GUIDE.length}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setWorkflowGuideStep((step) => Math.max(0, step - 1))}
+                  disabled={workflowGuideStep === 0}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </Button>
+                <Button type="button" onClick={goToNextWorkflowStep}>
+                  {isLastWorkflowStep ? (
+                    <>
+                      Finish Guide
+                      <CheckCircle2 className="h-4 w-4" />
+                    </>
+                  ) : (
+                    <>
+                      Next Step
+                      <ChevronRight className="h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {!isAdmin && (
         <NewMeetingDialog
           open={isNewMeetingOpen}
           onOpenChange={setIsNewMeetingOpen}
-          onCreated={() => loadMeetings(filters, 0)}
+          onCreated={() => loadMeetings(filters, 0, pageSize)}
           meetingTypes={meetingTypes}
         />
       )}

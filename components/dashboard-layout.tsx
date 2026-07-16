@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { 
   Home, 
   Users, 
@@ -17,7 +16,6 @@ import {
   BarChart,
   User,
   Phone,
-  PanelLeft,
   ChevronDown,
   ChevronRight,
   Building,
@@ -33,13 +31,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import Topbar from "@/components/topbar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useRouter } from "next/navigation";
 import { CircleUser } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
@@ -132,7 +123,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const { logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   
   // Get filtered sidebar categories based on user role
   const sidebarCategories = getFilteredSidebarCategories(userRole, currentUser);
@@ -206,140 +197,6 @@ export default function DashboardLayout({
     <div className="min-h-screen w-full grid md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]">
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav sidebarCategories={sidebarCategories} isManager={isManager || false} />
-      {/* Mobile sidebar trigger - hidden since we use bottom nav */}
-      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0 hidden md:hidden absolute top-4 left-4 z-50"
-          >
-            <PanelLeft className="h-5 w-5" />
-            <span className="sr-only">Toggle navigation menu</span>
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="flex flex-col w-64 z-50">
-          <nav className="grid gap-2 text-base font-medium pt-4 px-2">
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-2 text-lg font-semibold px-3 py-2"
-              onClick={() => setSidebarOpen(false)}
-            >
-              <Home className="h-5 w-5" />
-              <span className="font-bold">Gajkesari</span>
-            </Link>
-          </nav>
-          <div className="flex-1 overflow-y-auto py-4">
-            <nav className="grid gap-1 px-2">
-              {/* Dashboard link */}
-              <Link
-                href="/dashboard"
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
-                  pathname === "/dashboard"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
-              >
-                <Home className="h-4 w-4" />
-                <span className="text-sm">Dashboard</span>
-              </Link>
-              
-              {/* Settings link - only show for non-managers */}
-              {!isManager && (
-                <Link
-                  href="/dashboard/settings"
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
-                    pathname.startsWith("/dashboard/settings")
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                  }`}
-                >
-                  <Settings className="h-4 w-4" />
-                  <span className="text-sm">Settings</span>
-                </Link>
-              )}
-              
-              {sidebarCategories.map((category) => {
-                const CategoryIcon = category.icon;
-                const isOpen = openCategories[category.name];
-                
-                return (
-                  <div key={category.name} className="flex flex-col">
-                    <Button
-                      variant="ghost"
-                      className="justify-between px-3 py-2 h-auto"
-                      onClick={() => toggleCategory(category.name)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <CategoryIcon className="h-4 w-4" />
-                        <span className="text-sm font-medium">{category.name}</span>
-                      </div>
-                      {isOpen ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                    </Button>
-                    
-                    {isOpen && (
-                      <div className="pl-4 py-1 space-y-1">
-                        {category.items.map((item) => {
-                          const ItemIcon = item.icon;
-                          return (
-                            <Link
-                              key={item.name}
-                              href={item.href}
-                              onClick={() => setSidebarOpen(false)}
-                              className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
-                                isActive(item.href)
-                                  ? "bg-primary text-primary-foreground"
-                                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                              }`}
-                            >
-                              <ItemIcon className="h-4 w-4" />
-                              <span className="text-sm">{item.name}</span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </nav>
-          </div>
-          <div className="mt-auto pt-4 border-t">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="w-full justify-start gap-2 px-3 py-2 h-auto">
-                  <CircleUser className="h-4 w-4" />
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium text-xs">{currentUser?.username || 'User'}</span>
-                    <span className="text-xs text-muted-foreground">{getDisplayRole()}</span>
-                  </div>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {!isManager && (
-                  <>
-                    <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      <span>Settings</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                <DropdownMenuItem onClick={handleLogout}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Logout</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </SheetContent>
-      </Sheet>
 
       {/* Desktop sidebar */}
       <div className="hidden border-r bg-background md:block sticky top-0 h-screen">
@@ -429,33 +286,55 @@ export default function DashboardLayout({
               })}
             </nav>
           </div>
-          <div className="p-4 border-t">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="w-full justify-start gap-2 px-2 h-auto">
-                  <CircleUser className="h-4 w-4" />
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium text-xs">{currentUser?.username || 'User'}</span>
-                    <span className="text-xs text-muted-foreground">{getDisplayRole()}</span>
-                  </div>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+          <div className="relative p-4 border-t">
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 px-2 h-auto"
+              onClick={() => setUserMenuOpen((open) => !open)}
+              aria-expanded={userMenuOpen}
+              aria-haspopup="menu"
+            >
+              <CircleUser className="h-4 w-4" />
+              <div className="flex flex-col items-start">
+                <span className="font-medium text-xs">{currentUser?.username || "User"}</span>
+                <span className="text-xs text-muted-foreground">{getDisplayRole()}</span>
+              </div>
+            </Button>
+
+            {userMenuOpen && (
+              <div
+                role="menu"
+                className="absolute bottom-[calc(100%-0.5rem)] left-4 right-4 z-50 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+              >
                 {!isManager && (
-                  <>
-                    <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      <span>Settings</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      router.push("/dashboard/settings");
+                    }}
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span>Settings</span>
+                  </button>
                 )}
-                <DropdownMenuItem onClick={handleLogout}>
-                  <LogOut className="mr-2 h-4 w-4" />
+                {!isManager && <div className="-mx-1 my-1 h-px bg-border" />}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    handleLogout();
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
                   <span>Logout</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
