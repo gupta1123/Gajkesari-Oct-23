@@ -66,16 +66,6 @@ import { formatTimeTo12Hour } from "@/lib/utils";
 
 const ALL_VALUE = "all";
 
-type MeetingQueue =
-  | "all"
-  | "needsAction"
-  | "upcoming"
-  | "completed"
-  | "needsApproval"
-  | "needsFinalReview"
-  | "needsCorrection"
-  | "closed";
-
 const DEFAULT_FILTERS = {
   start: "",
   end: "",
@@ -90,12 +80,38 @@ const DEFAULT_FILTERS = {
 
 const DEFAULT_PAGE_SIZE = 10;
 
-const SINGLE_STATUS_BY_QUEUE: Partial<Record<MeetingQueue, string>> = {
-  needsApproval: "PENDING_APPROVAL",
-  upcoming: "APPROVED",
-  needsFinalReview: "REPORT_SUBMITTED",
-  needsCorrection: "CORRECTION_REQUIRED",
-  closed: "CLOSED",
+type StatusOption = {
+  status: string;
+  label: string;
+};
+
+type BackendStatusOption =
+  | string
+  | {
+      status?: string;
+      value?: string;
+      code?: string;
+      label?: string;
+      statusLabel?: string;
+      displayLabel?: string;
+      stageLabel?: string;
+      name?: string;
+    };
+
+const normalizeStatusOption = (item: BackendStatusOption): StatusOption | null => {
+  if (typeof item === "string") {
+    const status = item.trim();
+    return status ? { status, label: formatMeetingStatus(status) } : null;
+  }
+
+  const status = String(item.status || item.value || item.code || "").trim();
+  if (!status) return null;
+
+  const label = String(
+    item.label || item.statusLabel || item.displayLabel || item.stageLabel || item.name || formatMeetingStatus(status)
+  ).trim();
+
+  return { status, label: label || formatMeetingStatus(status) };
 };
 
 type MeetingRequestForm = {
@@ -184,19 +200,8 @@ const statusBadgeClass = (status?: string) => {
   }
 };
 
-const QUEUE_FILTERS: Record<MeetingQueue, { label: string; statuses: string[] }> = {
-  all: { label: "All", statuses: [] },
-  needsAction: {
-    label: "Needs Action",
-    statuses: ["PENDING_APPROVAL", "REPORT_SUBMITTED", "CORRECTION_REQUIRED"],
-  },
-  upcoming: { label: "Upcoming", statuses: ["APPROVED"] },
-  completed: { label: "Completed", statuses: ["CLOSED", "REJECTED", "CANCELLED"] },
-  needsApproval: { label: "Needs Approval", statuses: ["PENDING_APPROVAL"] },
-  needsFinalReview: { label: "Needs Final Review", statuses: ["REPORT_SUBMITTED"] },
-  needsCorrection: { label: "Needs Correction", statuses: ["CORRECTION_REQUIRED"] },
-  closed: { label: "Closed", statuses: ["CLOSED"] },
-};
+
+const ACTUAL_SUMMARY_STATUSES = new Set(["EXECUTED", "EXPENSE_SUBMITTED", "REPORT_SUBMITTED", "CLOSED"]);
 
 const normaliseMobile = (value: string) => value.replace(/\D/g, "");
 const formatMeetingTime = (value?: string) => (value ? formatTimeTo12Hour(value) || value : "");
@@ -734,7 +739,7 @@ export default function MeetingsList() {
   const [pageInfo, setPageInfo] = useState<MeetingPage<Meeting> | null>(null);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [meetingTypes, setMeetingTypes] = useState<string[]>([...MEETING_TYPES]);
-  const [statusOptions, setStatusOptions] = useState<Array<{ status: string; label: string }>>([]);
+  const [statusOptions, setStatusOptions] = useState<StatusOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isNewMeetingOpen, setIsNewMeetingOpen] = useState(false);
@@ -743,7 +748,6 @@ export default function MeetingsList() {
   const [workflowGuideStep, setWorkflowGuideStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [queueFilter, setQueueFilter] = useState<MeetingQueue>("all");
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const isAdmin = hasAdminSetupPrivileges(userRole, currentUser);
 
@@ -794,12 +798,8 @@ export default function MeetingsList() {
       .getStatuses()
       .then((items) => {
         const normalized = items
-          .map((item) =>
-            typeof item === "string"
-              ? { status: item, label: formatMeetingStatus(item) }
-              : { status: item.status, label: item.label || formatMeetingStatus(item.status) }
-          )
-          .filter((item) => item.status);
+          .map((item) => normalizeStatusOption(item as BackendStatusOption))
+          .filter((item): item is StatusOption => Boolean(item?.status));
         setStatusOptions(normalized);
       })
       .catch(() => setStatusOptions([]));
@@ -817,25 +817,31 @@ export default function MeetingsList() {
       filters.overBudget !== ALL_VALUE ? filters.overBudget : "",
       filters.city.trim(),
       filters.state.trim(),
-      queueFilter !== "all" ? queueFilter : "",
     ].filter(Boolean).length;
-  }, [filters, queueFilter, search]);
+  }, [filters, search]);
+
+  const statusFilterOptions = useMemo(() => {
+    const optionMap = new Map<string, StatusOption>();
+
+    statusOptions.forEach((option) => {
+      const status = option.status.trim();
+      if (!status) return;
+      optionMap.set(status, { status, label: option.label || formatMeetingStatus(status) });
+    });
+
+    meetings.forEach((meeting) => {
+      const status = String(meeting.status || "").trim();
+      if (!status) return;
+      optionMap.set(status, { status, label: getMeetingStatusLabel(meeting) });
+    });
+
+    return Array.from(optionMap.values());
+  }, [meetings, statusOptions]);
 
   const clearFilters = () => {
     setSearch("");
-    setQueueFilter("all");
     setFilters(DEFAULT_FILTERS);
     loadMeetings(DEFAULT_FILTERS, 0, pageSize);
-  };
-
-  const applyQueueFilter = (queue: MeetingQueue) => {
-    const status = SINGLE_STATUS_BY_QUEUE[queue] || ALL_VALUE;
-    setQueueFilter(queue);
-    setFilters((prev) => {
-      const nextFilters = { ...prev, status };
-      loadMeetings(nextFilters, 0, pageSize);
-      return nextFilters;
-    });
   };
 
   const openWorkflowGuide = () => {
@@ -862,16 +868,12 @@ export default function MeetingsList() {
   }, []);
 
   const filteredMeetings = useMemo(() => {
-    const queue = QUEUE_FILTERS[queueFilter];
-    const queueFiltered = queue.statuses.length
-      ? meetings.filter((meeting) => queue.statuses.includes(String(meeting.status || "")))
-      : meetings;
     const term = search.trim().toLowerCase();
     const dealer = filters.dealer.trim().toLowerCase();
     const owner = filters.owner.trim().toLowerCase();
     const overBudget = filters.overBudget;
 
-    return queueFiltered.filter((meeting) => {
+    return meetings.filter((meeting) => {
       const actualExpenseTotal = meeting.expenses?.reduce((sum, expense) => sum + Number(expense.amount || 0), 0) || 0;
       const isOverBudget = actualExpenseTotal > Number(meeting.expectedBudget || 0);
       if (overBudget === "yes" && !isOverBudget) return false;
@@ -898,7 +900,16 @@ export default function MeetingsList() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
     });
-  }, [filters.dealer, filters.owner, filters.overBudget, meetings, queueFilter, search]);
+  }, [filters.dealer, filters.owner, filters.overBudget, meetings, search]);
+
+  const getAttendanceDisplay = (meeting: Meeting) => {
+    if (ACTUAL_SUMMARY_STATUSES.has(String(meeting.status || ""))) {
+      const actualCount = meeting.actualAttendeeCount ?? meeting.attendees?.filter((attendee) => attendee.present).length ?? 0;
+      const plannedCount = meeting.expectedAttendees || meeting.attendees?.length || 0;
+      return plannedCount ? `${actualCount}/${plannedCount}` : String(actualCount);
+    }
+    return String(meeting.expectedAttendees || meeting.attendees?.length || 0);
+  };
 
   const exportCsv = async () => {
     setIsExporting(true);
@@ -926,19 +937,8 @@ export default function MeetingsList() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex gap-2 overflow-x-auto">
-          {(["needsAction", "upcoming", "completed", "all"] as MeetingQueue[]).map((queue) => (
-            <Button
-              key={queue}
-              type="button"
-              variant={queueFilter === queue ? "default" : "outline"}
-              size="sm"
-              onClick={() => applyQueueFilter(queue)}
-              className="shrink-0"
-            >
-              {QUEUE_FILTERS[queue].label}
-            </Button>
-          ))}
+        <div className="text-sm text-muted-foreground">
+          Showing {filteredMeetings.length} of {pageInfo?.totalElements ?? meetings.length} meetings
         </div>
         <div className="flex flex-wrap gap-2 lg:justify-end">
           <Button variant="outline" onClick={() => setIsFiltersOpen((open) => !open)}>
@@ -992,29 +992,14 @@ export default function MeetingsList() {
             <div className="space-y-2">
               <Label>Status</Label>
               <Select value={filters.status} onValueChange={(value) => {
-                setQueueFilter("all");
                 setFilters((prev) => ({ ...prev, status: value }));
               }}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[100] max-h-48">
                   <SelectItem value={ALL_VALUE}>All statuses</SelectItem>
-                  {(statusOptions.length
-                    ? statusOptions
-                    : [
-                        "DRAFT",
-                        "PENDING_APPROVAL",
-                        "APPROVED",
-                        "EXECUTED",
-                        "EXPENSE_SUBMITTED",
-                        "REPORT_SUBMITTED",
-                        "CLOSED",
-                        "CORRECTION_REQUIRED",
-                        "REJECTED",
-                        "CANCELLED",
-                      ].map((status) => ({ status, label: formatMeetingStatus(status) }))
-                  ).map((status) => (
+                  {statusFilterOptions.map((status) => (
                     <SelectItem key={status.status} value={status.status}>
                       {status.label}
                     </SelectItem>
@@ -1142,7 +1127,7 @@ export default function MeetingsList() {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Users className="h-4 w-4 text-muted-foreground" />
-                        {meeting.attendees?.length || meeting.expectedAttendees || 0}
+                        {getAttendanceDisplay(meeting)}
                       </div>
                     </TableCell>
                     <TableCell>

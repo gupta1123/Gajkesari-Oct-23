@@ -659,12 +659,12 @@ export const meetingsApi = {
 
   getStatuses: () => meetingRequest<Array<{ status: string; label?: string; stageLabel?: string }> | string[]>("/meeting/statuses"),
 
-  getReportsPage: (filters: Pick<MeetingFilters, "start" | "end" | "page" | "size" | "sortBy" | "sortDir"> = {}) =>
+  getReportsPage: (filters: MeetingFilters = {}) =>
     meetingRequest<MeetingPageResponse<Meeting> | Meeting[]>(
       `/meeting/report/paged${buildQuery({ page: 0, size: 20, sortBy: "meetingDate", sortDir: "desc", ...filters })}`
     ).then((response) => normalizePage(response, Number(filters.size || 20))),
 
-  getReports: (filters: Pick<MeetingFilters, "start" | "end"> = {}) =>
+  getReports: (filters: MeetingFilters = {}) =>
     meetingRequest<MeetingPageResponse<Meeting> | Meeting[]>(
       `/meeting/report/paged${buildQuery({ page: 0, size: 20, sortBy: "meetingDate", sortDir: "desc", ...filters })}`
     ).then((response) => normalizePage(response, 20).content),

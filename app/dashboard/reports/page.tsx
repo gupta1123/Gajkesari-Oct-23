@@ -468,14 +468,16 @@ const ReportsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <Tabs defaultValue="fieldOfficerReport" className="w-full">
-        <TabsList className="mb-6 flex w-full flex-wrap gap-2 h-auto">
-          <TabsTrigger value="fieldOfficerReport">Field Officer Visit Report</TabsTrigger>
-          <TabsTrigger value="newCustomers">New Customers Report</TabsTrigger>
-          <TabsTrigger value="salesPerformance">Sales Performance Report</TabsTrigger>
-          <TabsTrigger value="monthlyTarget">Monthly Target Report</TabsTrigger>
-        </TabsList>
+    <div className="min-w-0 space-y-6 overflow-hidden">
+      <Tabs defaultValue="fieldOfficerReport" className="w-full min-w-0">
+        <div className="mb-6 overflow-x-auto">
+          <TabsList className="flex h-auto w-max min-w-full justify-start gap-2 p-1">
+            <TabsTrigger value="fieldOfficerReport">Field Officer Visit Report</TabsTrigger>
+            <TabsTrigger value="newCustomers">New Customers Report</TabsTrigger>
+            <TabsTrigger value="salesPerformance">Sales Performance Report</TabsTrigger>
+            <TabsTrigger value="monthlyTarget">Monthly Target Report</TabsTrigger>
+          </TabsList>
+        </div>
         
         <TabsContent value="fieldOfficerReport" className="space-y-6">
           <Card className="border-0 shadow-sm">

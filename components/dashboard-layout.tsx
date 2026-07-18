@@ -25,7 +25,9 @@ import {
   TrendingUp,
   Target,
   MapPin,
-  Handshake
+  Handshake,
+  PanelLeftClose,
+  PanelLeftOpen
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -124,6 +126,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const { logout } = useAuth();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
   // Get filtered sidebar categories based on user role
   const sidebarCategories = getFilteredSidebarCategories(userRole, currentUser);
@@ -171,6 +174,17 @@ export default function DashboardLayout({
     }
   }, [isManager, pathname, router]);
 
+  useEffect(() => {
+    const savedState = window.localStorage.getItem("gajkesari-sidebar-collapsed");
+    if (savedState) {
+      setSidebarCollapsed(savedState === "true");
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("gajkesari-sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
   const toggleCategory = (categoryName: string) => {
     setOpenCategories(prev => ({
       ...prev,
@@ -179,7 +193,10 @@ export default function DashboardLayout({
   };
 
   const isActive = (path: string) => {
-    return pathname === path;
+    if (path === "/dashboard") {
+      return pathname === path;
+    }
+    return pathname === path || pathname.startsWith(`${path}/`);
   };
 
   const handleLogout = async () => {
@@ -194,46 +211,68 @@ export default function DashboardLayout({
   };
 
   return (
-    <div className="min-h-screen w-full grid md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]">
+    <div className={`min-h-screen w-full grid ${sidebarCollapsed ? "md:grid-cols-[64px_1fr]" : "md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]"}`}>
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav sidebarCategories={sidebarCategories} isManager={isManager || false} />
 
       {/* Desktop sidebar */}
       <div className="hidden border-r bg-background md:block sticky top-0 h-screen">
         <div className="flex h-full max-h-screen flex-col">
-          <div className="flex h-10 items-center border-b px-4 lg:px-6">
-            <Link href="/dashboard" className="flex items-center gap-2 font-semibold">
-              <Home className="h-5 w-5" />
-              <span className="font-bold">Gajkesari</span>
-            </Link>
+          <div className={`flex h-10 items-center border-b ${sidebarCollapsed ? "justify-center px-2" : "justify-between px-4 lg:px-4"}`}>
+            {!sidebarCollapsed && (
+              <Link href="/dashboard" className="flex min-w-0 items-center gap-2 font-semibold">
+                <Home className="h-5 w-5 shrink-0" />
+                <span className="truncate font-bold">Gajkesari</span>
+              </Link>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={() => {
+                setUserMenuOpen(false);
+                setSidebarCollapsed((collapsed) => !collapsed);
+              }}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
           </div>
           <div className="flex-1 overflow-y-auto py-4">
             <nav className="grid gap-1 px-2">
               {/* Dashboard link (no category) */}
               <Link
                 href="/dashboard"
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
+                title="Dashboard"
+                className={`flex items-center rounded-lg py-2 transition-all ${
+                  sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"
+                } ${
                   pathname === "/dashboard"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
               >
                 <Home className="h-4 w-4" />
-                <span className="text-sm">Dashboard</span>
+                {!sidebarCollapsed && <span className="text-sm">Dashboard</span>}
               </Link>
               
               {/* Settings link - only show for non-managers */}
               {!isManager && (
                 <Link
                   href="/dashboard/settings"
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
+                  title="Settings"
+                  className={`flex items-center rounded-lg py-2 transition-all ${
+                    sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"
+                  } ${
                     pathname.startsWith("/dashboard/settings")
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   }`}
                 >
                   <Settings className="h-4 w-4" />
-                  <span className="text-sm">Settings</span>
+                  {!sidebarCollapsed && <span className="text-sm">Settings</span>}
                 </Link>
               )}
               
@@ -242,6 +281,31 @@ export default function DashboardLayout({
                 const CategoryIcon = category.icon;
                 const isOpen = openCategories[category.name];
                 
+                if (sidebarCollapsed) {
+                  return (
+                    <div key={category.name} className="mt-1 border-t pt-1">
+                      {category.items.map((item) => {
+                        const ItemIcon = item.icon;
+                        return (
+                          <Link
+                            key={item.name}
+                            href={item.href}
+                            title={item.name}
+                            aria-label={item.name}
+                            className={`flex items-center justify-center rounded-lg px-2 py-2 transition-all ${
+                              isActive(item.href)
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                            }`}
+                          >
+                            <ItemIcon className="h-4 w-4" />
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={category.name} className="flex flex-col">
                     <Button
@@ -286,25 +350,30 @@ export default function DashboardLayout({
               })}
             </nav>
           </div>
-          <div className="relative p-4 border-t">
+          <div className={`relative border-t ${sidebarCollapsed ? "p-2" : "p-4"}`}>
             <Button
               variant="ghost"
-              className="w-full justify-start gap-2 px-2 h-auto"
+              className={`w-full gap-2 px-2 h-auto ${sidebarCollapsed ? "justify-center py-2" : "justify-start"}`}
               onClick={() => setUserMenuOpen((open) => !open)}
               aria-expanded={userMenuOpen}
               aria-haspopup="menu"
+              title={currentUser?.username || "User"}
             >
               <CircleUser className="h-4 w-4" />
-              <div className="flex flex-col items-start">
-                <span className="font-medium text-xs">{currentUser?.username || "User"}</span>
-                <span className="text-xs text-muted-foreground">{getDisplayRole()}</span>
-              </div>
+              {!sidebarCollapsed && (
+                <div className="flex min-w-0 flex-col items-start">
+                  <span className="max-w-full truncate font-medium text-xs">{currentUser?.username || "User"}</span>
+                  <span className="text-xs text-muted-foreground">{getDisplayRole()}</span>
+                </div>
+              )}
             </Button>
 
             {userMenuOpen && (
               <div
                 role="menu"
-                className="absolute bottom-[calc(100%-0.5rem)] left-4 right-4 z-50 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+                className={`absolute bottom-[calc(100%-0.5rem)] z-50 rounded-md border bg-popover p-1 text-popover-foreground shadow-md ${
+                  sidebarCollapsed ? "left-2 w-48" : "left-4 right-4"
+                }`}
               >
                 {!isManager && (
                   <button
@@ -340,12 +409,12 @@ export default function DashboardLayout({
       </div>
 
       {/* Main content area */}
-      <div className="flex flex-col">
+      <div className="flex min-w-0 flex-col">
         {/* Topbar */}
         <Topbar heading={heading} subheading={subheading} backHref={backHref} />
         
         {/* Page content */}
-        <main className="flex flex-1 flex-col gap-4 p-3 lg:gap-6 lg:p-4 pb-24 md:pb-6">
+        <main className="flex min-w-0 flex-1 flex-col gap-4 p-3 lg:gap-6 lg:p-4 pb-24 md:pb-6">
           {children}
         </main>
       </div>
