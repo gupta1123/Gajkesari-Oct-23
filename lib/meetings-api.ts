@@ -52,6 +52,7 @@ export type MeetingAction =
   | "SUBMIT_EXPENSES"
   | "SUBMIT_FINAL_REPORT"
   | "APPROVE_FINAL_REPORT"
+  | "APPROVE_AND_CLOSE"
   | "CLOSE"
   | "CANCEL"
   | "EDIT_REQUEST"
@@ -177,10 +178,24 @@ export interface Meeting {
   allowWalkInAttendees?: boolean;
   remarks?: string;
   approvalRemarks?: string;
+  approvalPersonId?: number | null;
+  approvalPersonName?: string | null;
   correctionStage?: CorrectionStage | null;
   correctionRemarks?: string | null;
+  correctionRequestedAt?: string | null;
+  correctionRequestedById?: number | null;
+  correctionRequestedByName?: string | null;
+  correctionReturnStatus?: MeetingStatus | null;
   expenseVarianceRemarks?: string | null;
   cancellationRemarks?: string | null;
+  cancellationReason?: string | null;
+  cancelledAt?: string | null;
+  cancelledById?: number | null;
+  cancelledByName?: string | null;
+  rejectionReason?: string | null;
+  rejectedAt?: string | null;
+  rejectedById?: number | null;
+  rejectedByName?: string | null;
   actualMeetingDate?: string;
   actualMeetingTime?: string;
   actualLocation?: string;
@@ -200,7 +215,14 @@ export interface Meeting {
   actualBusinessOutcome?: string;
   finalRemarks?: string;
   finalReportApprovalRemarks?: string;
+  finalReportApproved?: boolean;
+  finalReportApprovedById?: number | null;
+  finalReportApprovedByName?: string | null;
   actualAttendeeCount?: number;
+  plannedExpenseTotal?: number;
+  actualExpenseTotal?: number;
+  expenseVariance?: number;
+  actualGiftQuantity?: number;
   status: MeetingStatus;
   statusLabel?: string;
   stageLabel?: string;

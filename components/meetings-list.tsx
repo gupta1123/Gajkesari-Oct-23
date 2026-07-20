@@ -210,64 +210,71 @@ const MEETING_STAGE_GUIDE = [
   {
     phase: "Phase 1: Preparation",
     stage: "Draft",
-    meaning: "The request is still being prepared.",
+    meaning: "The field team is still preparing the meeting request. The plan may be incomplete and has not been submitted.",
     adminAction: "No approval action is needed yet.",
     tone: "normal",
   },
   {
     phase: "Phase 2: Authorization",
-    stage: "Pending Approval",
-    meaning: "The field team submitted the meeting plan for approval.",
-    adminAction: "Review the plan, attendees, budget, and gifts. Approve, reject, or ask for correction.",
+    stage: "Submitted for Approval",
+    meaning: "The complete meeting plan has been submitted for an admin or manager decision.",
+    adminAction: "Review the dealer, purpose, turnout, named attendees, impact, budget, planned expenses, gifts, and contribution. Approve, reject, or request correction.",
     tone: "normal",
   },
   {
     phase: "Phase 3: Schedule Locked",
-    stage: "Approved",
+    stage: "Scheduled",
     meaning: "The meeting is scheduled and the field team can execute it.",
     adminAction: "Monitor only. Execution is handled by the field team.",
     tone: "normal",
   },
   {
     phase: "Phase 4: Post-Meeting Review",
-    stage: "Executed",
-    meaning: "The meeting happened and attendance has been recorded.",
-    adminAction: "Review progress if needed.",
+    stage: "Meeting Conducted",
+    meaning: "The meeting happened and final attendance is available. Gifts and expenses may still be in progress.",
+    adminAction: "Monitor completion. Gift and expense differences are final only after each section is completed or marked as none.",
     tone: "normal",
   },
   {
     phase: "Phase 5: Financial Reconciliation",
-    stage: "Expense Submitted",
-    meaning: "Actual meeting expenses have been added.",
-    adminAction: "Check actual spend against the approved budget.",
+    stage: "Expenses Submitted",
+    meaning: "Attendance, gifts, and expenses are finalized. The meeting now waits for the field team's final report.",
+    adminAction: "Review the completed gift and expense records if needed. No final decision is required until the report is submitted.",
     tone: "normal",
   },
   {
     phase: "Phase 6: Final Review",
-    stage: "Report Submitted",
-    meaning: "The final report is ready for admin review.",
-    adminAction: "Review the report and close the meeting or send it back for correction.",
+    stage: "Submitted for Final Review",
+    meaning: "The final report and plan-versus-actual results are ready for admin review.",
+    adminAction: "Approve and close the meeting, or request correction for the specific attendance, gifts, expenses, leads, or final-report section.",
     tone: "normal",
   },
   {
     phase: "Phase 7: Complete",
     stage: "Closed",
-    meaning: "The workflow is complete.",
-    adminAction: "View or export the final record.",
+    meaning: "The final report has been approved and the workflow is complete.",
+    adminAction: "The record is read-only. View the outcome, comparisons, history, or export the final record.",
     tone: "normal",
   },
   {
     phase: "Exception: Correction",
     stage: "Correction Required",
-    meaning: "A section has been sent back to the field team to fix.",
-    adminAction: "Wait for resubmission unless another correction is needed.",
+    meaning: "A specific request or post-meeting section has been sent back to the field team.",
+    adminAction: "The detail page opens the requested section and keeps the correct planning or actual context. Wait for the field team to correct and resubmit it.",
     tone: "warning",
   },
   {
-    phase: "Exception: Terminated",
-    stage: "Rejected / Cancelled",
-    meaning: "The meeting will not move ahead.",
-    adminAction: "Open the row to view the reason.",
+    phase: "Exception: Rejected",
+    stage: "Rejected",
+    meaning: "The submitted request was rejected and cannot continue through execution.",
+    adminAction: "Open the meeting to view the rejection reason and decision history.",
+    tone: "danger",
+  },
+  {
+    phase: "Exception: Cancelled",
+    stage: "Cancelled",
+    meaning: "The meeting was cancelled before execution and will not continue.",
+    adminAction: "Open the meeting to view the cancellation reason and decision history.",
     tone: "danger",
   },
 ];
@@ -1261,7 +1268,7 @@ export default function MeetingsList() {
                 <div className={`rounded-xl border p-5 ${workflowTone.card}`}>
                   <div className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide ${workflowTone.label}`}>
                     <Info className="h-4 w-4" />
-                    Admin Action Required
+                    What the admin should do
                   </div>
                   <p className="text-sm font-medium leading-6 text-foreground">{currentWorkflowStep.adminAction}</p>
                 </div>
