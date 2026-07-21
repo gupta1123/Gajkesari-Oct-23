@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   Download,
   Filter,
   FileText,
@@ -935,56 +936,6 @@ function QuantityChip({ value }: { value?: number }) {
   );
 }
 
-function ExpenseMetricCard({
-  label,
-  value,
-  valueClassName = "",
-  badge,
-}: {
-  label: string;
-  value: string;
-  valueClassName?: string;
-  badge?: ReactNode;
-}) {
-  return (
-    <Card className="gap-0 rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
-      <CardContent className="flex flex-col gap-1.5 p-6">
-        <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
-        <span className={`text-2xl font-extrabold tracking-tight text-foreground ${valueClassName}`}>
-          {value}
-        </span>
-        {badge}
-      </CardContent>
-    </Card>
-  );
-}
-
-function CompletionStateNotice({
-  title,
-  detail,
-  state,
-}: {
-  title: string;
-  detail: string;
-  state: "complete" | "pending" | "none";
-}) {
-  const isComplete = state === "complete" || state === "none";
-
-  return (
-    <div
-      className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
-        isComplete ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"
-      }`}
-    >
-      {isComplete ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
-      <div className="space-y-1">
-        <div className="font-bold">{title}</div>
-        <div className="text-xs leading-5 opacity-90">{detail}</div>
-      </div>
-    </div>
-  );
-}
-
 function AdminStageNotice({ notice }: { notice: AdminMeetingPresentation["notice"] }) {
   const toneClass: Record<AdminMeetingTone, string> = {
     neutral: "border-border bg-muted/30 text-foreground",
@@ -1010,52 +961,61 @@ function AdminStageNotice({ notice }: { notice: AdminMeetingPresentation["notice
   );
 }
 
-function ExpenseLedgerCard({
-  label,
-  value,
-  tag,
-  tagTone = "success",
-  metrics,
-}: {
+type AdminSummaryMetric = {
   label: string;
   value: ReactNode;
-  tag?: string;
-  tagTone?: "success" | "warning";
-  metrics: Array<{ label: string; value: ReactNode; valueClassName?: string }>;
-}) {
+  detail?: ReactNode;
+  valueClassName?: string;
+};
+
+function AdminSummaryStrip({ metrics }: { metrics: AdminSummaryMetric[] }) {
   return (
-    <Card className="gap-0 rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
-      <CardContent className="flex min-h-[156px] flex-col justify-between gap-4 p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</div>
-            <div className="break-words text-2xl font-extrabold tracking-tight text-foreground">{value}</div>
+    <div className="grid overflow-hidden rounded-lg border border-border/70 bg-card/40 sm:grid-cols-3">
+      {metrics.map((metric, index) => (
+        <div
+          key={metric.label}
+          className={`min-w-0 px-4 py-3 ${index < metrics.length - 1 ? "border-b sm:border-b-0 sm:border-r" : ""}`}
+        >
+          <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{metric.label}</div>
+          <div className={`mt-1 truncate text-lg font-extrabold text-foreground ${metric.valueClassName || ""}`}>
+            {metric.value}
           </div>
-          {tag && (
-            <Badge
-              variant="outline"
-              className={
-                tagTone === "warning"
-                  ? "border-amber-200 bg-amber-50 text-amber-700"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
-              }
-            >
-              {tag}
-            </Badge>
-          )}
+          {metric.detail != null && <div className="mt-1 text-xs text-muted-foreground">{metric.detail}</div>}
         </div>
-        <div className={`grid gap-3 border-t border-dashed pt-4 ${metrics.length > 2 ? "grid-cols-3" : "grid-cols-2"}`}>
-          {metrics.map((metric) => (
-            <div key={metric.label} className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{metric.label}</div>
-              <div className={`mt-1 break-words text-sm font-extrabold text-foreground ${metric.valueClassName || ""}`}>
-                {metric.value}
-              </div>
-            </div>
-          ))}
+      ))}
+    </div>
+  );
+}
+
+function ProgressiveSection({
+  title,
+  summary,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  summary?: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/70 bg-card/30">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-muted/30"
+        onClick={() => setIsOpen((open) => !open)}
+        aria-expanded={isOpen}
+      >
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-foreground">{title}</div>
+          {summary != null && <div className="mt-1 text-xs leading-5 text-muted-foreground">{summary}</div>}
         </div>
-      </CardContent>
-    </Card>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+      {isOpen && <div className="border-t border-border/60 p-5">{children}</div>}
+    </section>
   );
 }
 
@@ -1129,53 +1089,74 @@ function MeetingKpiGrid({
   attendanceSubMetrics,
 }: MeetingKpiGridProps) {
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
-      <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
-        <CardContent className="grid min-h-[132px] grid-cols-2 p-0">
-          <div className="flex flex-col justify-center gap-2 px-5 py-5">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Status</span>
-            <span className="inline-flex items-center gap-2 text-base font-extrabold text-foreground">
-              <span className={`h-2 w-2 rounded-full shadow-[0_0_0_4px] ${statusDotClass(status)}`} />
-              {statusValue}
-            </span>
-          </div>
-          <div className="flex flex-col justify-center gap-2 border-l px-5 py-5">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{secondaryLabel}</span>
-            <span className={`inline-flex w-fit items-center rounded-md border border-primary/20 bg-primary/10 px-2.5 py-1 text-sm font-bold text-primary ${secondaryClassName}`}>
-              {secondaryValue}
-            </span>
-          </div>
-        </CardContent>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Status Card */}
+      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Status</span>
+          <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${statusBadgeClass(status)}`}>
+            {statusValue}
+          </Badge>
+        </div>
+        <div className="mt-2.5 flex items-center justify-between text-xs">
+          <span className="text-muted-foreground font-semibold">{secondaryLabel}</span>
+          <span className="font-extrabold text-foreground">{secondaryValue}</span>
+        </div>
       </Card>
 
-      <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
-        <CardContent className="p-0">
-          <div className="flex min-h-[86px] items-center justify-between gap-4 px-5 py-5">
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{financialLabel}</div>
-              <div className="mt-1 break-words text-2xl font-extrabold tracking-tight text-foreground">{financialValue}</div>
-            </div>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-600">
-              <IndianRupee className="h-5 w-5" />
-            </span>
+      {/* Financial Card */}
+      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{financialLabel}</div>
+            <div className="mt-0.5 text-xl font-extrabold text-foreground tracking-tight whitespace-nowrap">{financialValue}</div>
           </div>
-          <KpiSubMetrics metrics={financialSubMetrics} />
-        </CardContent>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600">
+            <IndianRupee className="h-4.5 w-4.5" />
+          </div>
+        </div>
+        {financialSubMetrics && financialSubMetrics.length > 0 && (
+          <div className="mt-2 flex items-center justify-between text-[11px] border-t border-border/20 pt-1.5">
+            <span className="text-muted-foreground">{financialSubMetrics[0].label}: <strong className="text-foreground">{financialSubMetrics[0].value}</strong></span>
+            {financialSubMetrics[1] && (
+              <span className="text-muted-foreground">{financialSubMetrics[1].label}: <strong className="text-foreground">{financialSubMetrics[1].value}</strong></span>
+            )}
+          </div>
+        )}
       </Card>
 
-      <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
-        <CardContent className="p-0">
-          <div className="flex min-h-[86px] items-center justify-between gap-4 px-5 py-5">
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{attendanceLabel}</div>
-              <div className="mt-1 break-words text-2xl font-extrabold tracking-tight text-foreground">{attendanceValue}</div>
-            </div>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-              <UserCheck className="h-5 w-5" />
-            </span>
+      {/* Attendance Card */}
+      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{attendanceLabel}</div>
+            <div className="mt-0.5 text-xl font-extrabold text-foreground tracking-tight whitespace-nowrap">{attendanceValue}</div>
           </div>
-          <KpiSubMetrics metrics={attendanceSubMetrics} />
-        </CardContent>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+            <UserCheck className="h-4.5 w-4.5" />
+          </div>
+        </div>
+        {attendanceSubMetrics && attendanceSubMetrics.length > 0 && (
+          <div className="mt-2 flex items-center justify-between text-[11px] border-t border-border/20 pt-1.5">
+            <span className="text-muted-foreground">{attendanceSubMetrics[0].label}: <strong className="text-foreground">{attendanceSubMetrics[0].value}</strong></span>
+          </div>
+        )}
+      </Card>
+
+      {/* Gifts Card */}
+      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{secondaryLabel}</div>
+            <div className="mt-0.5 text-xl font-extrabold text-foreground tracking-tight whitespace-nowrap">{secondaryValue}</div>
+          </div>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-600">
+            <Gift className="h-4.5 w-4.5" />
+          </div>
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[11px] border-t border-border/20 pt-1.5">
+          <span className="text-muted-foreground">Allocation Progress</span>
+        </div>
       </Card>
     </div>
   );
@@ -2245,104 +2226,114 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     const attendanceDelta = actualAttendanceCount - Number(expectedTurnout || 0);
     const expenseDelta = actualExpenseTotal - Number(meeting.expectedBudget || 0);
     const expensePlanDelta = actualExpenseTotal - plannedExpenseTotal;
-    const companyPlanDelta = companyPaidTotal - plannedCompanyContribution;
-    const dealerPlanDelta = dealerPaidTotal - plannedDealerContribution;
     const giftDelta = issuedGiftQuantity - plannedGiftQuantity;
+    const showStageNotice = adminPresentation.notice.tone === "warning" || adminPresentation.notice.tone === "danger";
+    const adminSummaryMetrics: AdminSummaryMetric[] = showActualSummary
+      ? [
+          {
+            label: "Actual attendance",
+            value: String(actualAttendanceCount),
+            detail: `${expectedTurnout || 0} expected · ${namedAttendeeCount} named`,
+          },
+          {
+            label: adminPresentation.expenseComparisonReady ? "Actual expenses" : "Expenses recorded",
+            value: formatCurrency(actualExpenseTotal),
+            detail: adminPresentation.expenseComparisonReady
+              ? `${formatSignedCurrency(expenseDelta)} against budget`
+              : "Final difference is not available yet",
+            valueClassName: adminPresentation.expenseComparisonReady && expenseDelta > 0 ? "text-amber-600" : "",
+          },
+          {
+            label: adminPresentation.giftComparisonReady ? "Gifts issued" : "Gifts recorded",
+            value: String(issuedGiftQuantity || 0),
+            detail: adminPresentation.giftComparisonReady
+              ? `${plannedGiftQuantity || 0} planned · ${formatSignedNumber(giftDelta)} difference`
+              : `${plannedGiftQuantity || 0} planned · completion pending`,
+          },
+        ]
+      : [
+          {
+            label: "Expected budget",
+            value: formatCurrency(meeting.expectedBudget),
+            detail: `Company ${formatCurrency(plannedCompanyContribution)} · Dealer ${formatCurrency(plannedDealerContribution)}`,
+          },
+          {
+            label: "Expected turnout",
+            value: String(expectedTurnout || 0),
+            detail: `${namedAttendeeCount} named attendees`,
+          },
+          {
+            label: "Planned allocation",
+            value: `${plannedGiftQuantity || 0} gifts`,
+            detail: `${plannedExpenses.length} expense ${plannedExpenses.length === 1 ? "category" : "categories"}`,
+          },
+        ];
 
     return (
-      <div className="space-y-4">
-        <MeetingKpiGrid
-          status={meeting.status}
-          statusValue={getMeetingStageLabel(meeting)}
-          secondaryLabel={showActualSummary ? "Gifts Issued" : "Planned Gifts"}
-          secondaryValue={
-            showActualSummary
-              ? adminPresentation.giftComparisonReady
-                ? issuedGiftDisplay
-                : meeting.status === "CLOSED"
-                  ? issuedGiftQuantity
-                    ? `${issuedGiftQuantity} recorded`
-                    : "Completion not recorded"
-                  : "In progress"
-              : plannedGiftDisplay
-          }
-          financialLabel={
-            showActualSummary
-              ? adminPresentation.expenseComparisonReady
-                ? "Actual Expenses"
-                : meeting.status === "CLOSED"
-                  ? "Expense Record"
-                  : "Expense Progress"
-              : "Expected Budget"
-          }
-          financialValue={
-            showActualSummary
-              ? adminPresentation.expenseComparisonReady
-                ? formatCurrency(actualExpenseTotal)
-                : meeting.expenses?.length
-                  ? `${formatCurrency(actualExpenseTotal)} recorded`
-                  : actualExpenseTotal > 0
-                    ? `${formatCurrency(actualExpenseTotal)} recorded`
-                    : meeting.status === "CLOSED"
-                      ? "Completion not recorded"
-                      : "Awaiting completion"
-              : formatCurrency(meeting.expectedBudget)
-          }
-          financialSubMetrics={
-            showActualSummary
-              ? adminPresentation.expenseComparisonReady
-                ? [
-                    { label: "Expected Budget", value: formatCurrency(meeting.expectedBudget) },
-                    {
-                      label: "Difference",
-                      value: formatCurrency(budgetDifference),
-                      valueClassName: budgetDifference <= 0 ? "text-emerald-600" : "text-amber-600",
-                    },
-                  ]
-                : [
-                    { label: "Planned", value: formatCurrency(plannedExpenseTotal) },
-                    { label: meeting.status === "CLOSED" ? "Recorded" : "Recorded so far", value: formatCurrency(actualExpenseTotal) },
-                  ]
-              : [
-                  { label: "Company Share", value: formatCurrency(meeting.plan?.companyContribution) },
-                  { label: "Dealer Share", value: formatCurrency(meeting.plan?.dealerContribution) },
-                ]
-          }
-          attendanceLabel={showActualSummary ? "Actual Attendance" : "Expected Turnout"}
-          attendanceValue={showActualSummary ? String(actualAttendanceCount) : String(expectedTurnout || 0)}
-          attendanceSubMetrics={
-            showActualSummary
-              ? [
-                  { label: "Expected Turnout", value: String(expectedTurnout || 0) },
-                  { label: "Named Attendees", value: String(namedAttendeeCount) },
-                ]
-              : [{ label: "Named Attendees", value: String(namedAttendeeCount) }]
-          }
-        />
+      <>
+      <div className="flex min-w-0 flex-col gap-4 lg:h-[calc(100vh-6.5rem)] lg:overflow-hidden">
+        <div className="flex shrink-0 flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl font-extrabold text-foreground">{meeting.meetingType} Meeting</h1>
+              <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${statusBadgeClass(meeting.status)}`}>
+                {getMeetingStatusLabel(meeting)}
+              </Badge>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
+              <span>{formatDate(meeting.meetingDate)} at {formatMeetingTime(meeting.meetingTime)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{[meeting.city, meeting.state].filter(Boolean).join(", ") || "No location set"}</span>
+              {(meeting.storeName || meeting.dealerName) && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{meeting.storeName || meeting.dealerName}</span>
+                </>
+              )}
+            </div>
+          </div>
 
-        <AdminStageNotice notice={adminPresentation.notice} />
-
-        {message && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
-        {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-
-        <div className="flex flex-wrap justify-end gap-2">
-          {showApprovalDecision && (
-            <Button onClick={() => setIsApprovalDecisionOpen(true)}>
-              <CheckCircle2 className="h-4 w-4" />
-              Review Decision
-            </Button>
-          )}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {showApprovalDecision && (
+              <Button size="sm" className="h-9 font-bold" onClick={() => setIsApprovalDecisionOpen(true)}>
+                <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                Review Decision
+              </Button>
+            )}
+            {showFinalReviewDecision && (
+              <Button size="sm" className="h-9 font-bold" onClick={() => setIsFinalReviewDecisionOpen(true)}>
+                <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                Final Review Decision
+              </Button>
+            )}
+            {canCancel && (
+              <Button variant="outline" size="sm" className="h-9 text-destructive hover:text-destructive" onClick={() => setIsCancelMeetingOpen(true)}>
+                <XCircle className="mr-1.5 h-4 w-4" />
+                Cancel
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div role="tablist" aria-label="Meeting review sections" className="flex gap-2 overflow-x-auto rounded-lg border bg-muted/30 p-1">
+        {showStageNotice && <AdminStageNotice notice={adminPresentation.notice} />}
+        <div className="shrink-0"><AdminSummaryStrip metrics={adminSummaryMetrics} /></div>
+        {message && <div className="rounded-xl border border-emerald-200/30 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-600 shrink-0">{message}</div>}
+        {error && <div className="rounded-xl border border-red-200/30 bg-red-500/10 p-3 text-xs font-semibold text-red-600 shrink-0">{error}</div>}
+
+        {/* Full-Width Segmented Navigation Tabs */}
+        <div role="tablist" aria-label="Meeting review sections" className="flex gap-1.5 overflow-x-auto rounded-xl border border-border/30 bg-muted/40 p-1.5 shrink-0 scrollbar-none">
           {adminTabs.map((tab) => (
             <Button
               key={tab.key}
               type="button"
-              variant={adminTab === tab.key ? "default" : "ghost"}
+              variant="ghost"
               size="sm"
               onClick={() => setAdminTab(tab.key)}
-              className="shrink-0"
+              className={`shrink-0 rounded-lg text-xs font-bold transition-all px-4 py-2 ${
+                adminTab === tab.key
+                  ? "bg-background text-foreground shadow-md font-extrabold"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              }`}
               role="tab"
               aria-selected={adminTab === tab.key}
               aria-controls={`meeting-admin-panel-${tab.key}`}
@@ -2352,526 +2343,367 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           ))}
         </div>
 
-        {adminTab === "details" && (
-          <div id="meeting-admin-panel-details" role="tabpanel" className="space-y-6">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <MeetingDetailCard title="Schedule" icon={<CalendarDays className="h-4 w-4" />}>
-                <dl>
-                  <MeetingDataRow label="Meeting type" value={meeting.meetingType} />
-                  <MeetingDataRow label="Date" value={formatDate(meeting.meetingDate)} />
-                  <MeetingDataRow label="Time" value={formatMeetingTime(meeting.meetingTime)} />
-                  <MeetingDataRow label="City" value={meeting.city} />
-                  <MeetingDataRow label="State" value={meeting.state} />
-                  <MeetingDataRow label="Location" value={meeting.location} />
-                </dl>
-              </MeetingDetailCard>
+        {/* Full-Width Scrollable Tab Content Panel */}
+        <div className="flex-1 lg:overflow-y-auto pb-4 pr-1 scrollbar-thin space-y-5">
+          {adminTab === "details" && (
+            <div id="meeting-admin-panel-details" role="tabpanel" className="space-y-5">
+              {meeting.status === "DRAFT" && draftMissingItems.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-800">
+                  Draft plan is incomplete. Missing items: {draftMissingItems.join(", ")}.
+                </div>
+              )}
 
-              <MeetingDetailCard title="Request" icon={<FileText className="h-4 w-4" />}>
-                <dl>
-                  <MeetingDataRow label="Created by" value={meeting.creatorName} />
-                  <MeetingDataRow label="Dealer / shop" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
-                  <MeetingDataRow label="Store ID" value={meeting.storeId} />
-                  <MeetingDataRow label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
-                  <MeetingDataRow label="Expected turnout" value={expectedTurnout} />
-                  <MeetingDataRow label="Named attendees" value={namedAttendeeCount} />
-                  <MeetingDataRow label="Company share" value={formatCurrency(meeting.plan?.companyContribution)} />
-                  <MeetingDataRow label="Dealer share" value={formatCurrency(meeting.plan?.dealerContribution)} />
-                  <MeetingDataRow
-                    label="Status"
-                    value={
-                      <Badge variant="outline" className={statusBadgeClass(meeting.status)}>
-                        {getMeetingStatusLabel(meeting)}
-                      </Badge>
-                    }
-                  />
-                  {showActualSummary && (
-                    <>
-                      <MeetingDataRow label="Actual attendance" value={actualAttendanceCount} />
-                      <MeetingDataRow label="Expected turnout" value={expectedTurnout} />
-                      <MeetingDataRow label="Named attendees" value={namedAttendeeCount} />
-                      <MeetingDataRow
-                        label="Actual expenses"
-                        value={adminPresentation.expenseComparisonReady ? formatCurrency(actualExpenseTotal) : "Awaiting completion"}
-                      />
-                      {adminPresentation.expenseComparisonReady && (
-                        <MeetingDataRow label="Budget difference" value={formatCurrency(actualExpenseTotal - Number(meeting.expectedBudget || 0))} />
-                      )}
-                    </>
-                  )}
-                </dl>
-              </MeetingDetailCard>
-            </div>
-
-            {meeting.status === "DRAFT" && draftMissingItems.length > 0 && (
-              <Card className="rounded-lg border-amber-200 bg-amber-50 py-0 text-amber-900 shadow-sm">
-                <CardContent className="p-4 text-sm">
-                  Draft incomplete: {draftMissingItems.join(", ")}.
+              <Card className="rounded-lg border-border/70 bg-card/40 shadow-sm">
+                <CardContent className="p-5">
+                  <div className="mb-4 flex items-center gap-2 text-sm font-bold text-foreground">
+                    <FileText className="h-4 w-4 text-primary" />
+                    Request at a glance
+                  </div>
+                  <dl className={`grid gap-5 ${showActualSummary ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
+                    <MeetingNoteBlock label="Purpose / objective" value={meeting.objective} />
+                    <MeetingNoteBlock label="Expected business impact" value={meeting.expectedBusinessImpact} />
+                    <MeetingNoteBlock label="Dealer / shop" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
+                    {showActualSummary && (
+                      <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
+                    )}
+                  </dl>
                 </CardContent>
               </Card>
-            )}
 
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-              <CardContent className="p-8">
-                <dl className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-                  <MeetingNoteBlock label="Purpose / objective" value={meeting.objective} />
-                  <MeetingNoteBlock label="Expected business impact" value={meeting.expectedBusinessImpact} />
-                  {showActualSummary && (
-                    <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
-                  )}
-                  <MeetingNoteBlock
-                    label="Expected gifts / materials"
-                    value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />}
-                  />
-                  <MeetingNoteBlock label="Planned expense details" value={plannedExpenses.length ? `${plannedExpenses.length} categories planned` : meeting.plan?.plannedExpenseDetails as string} />
+              <ProgressiveSection
+                title="Schedule, ownership and notes"
+                summary="Open the full request record only when you need to verify its supporting details."
+                defaultOpen={meeting.status === "PENDING_APPROVAL" || (meeting.status === "CORRECTION_REQUIRED" && meeting.correctionStage === "REQUEST")}
+              >
+                <div className="grid gap-6 md:grid-cols-2">
+                  <section>
+                    <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      <CalendarDays className="h-4 w-4 text-primary" /> Schedule
+                    </div>
+                    <dl>
+                      <MeetingDataRow label="Meeting type" value={meeting.meetingType} />
+                      <MeetingDataRow label="Date" value={formatDate(meeting.meetingDate)} />
+                      <MeetingDataRow label="Time" value={formatMeetingTime(meeting.meetingTime)} />
+                      <MeetingDataRow label="City / State" value={[meeting.city, meeting.state].filter(Boolean).join(", ")} />
+                      <MeetingDataRow label="Location" value={meeting.location} />
+                    </dl>
+                  </section>
+                  <section>
+                    <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      <FileText className="h-4 w-4 text-primary" /> Ownership and budget
+                    </div>
+                    <dl>
+                      <MeetingDataRow label="Created by" value={meeting.creatorName} />
+                      <MeetingDataRow label="Dealer / shop" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
+                      <MeetingDataRow label="Store ID" value={meeting.storeId} />
+                      <MeetingDataRow label="Company share" value={formatCurrency(meeting.plan?.companyContribution)} />
+                      <MeetingDataRow label="Dealer share" value={formatCurrency(meeting.plan?.dealerContribution)} />
+                    </dl>
+                  </section>
+                </div>
+                <dl className="mt-6 grid gap-5 border-t border-border/60 pt-5 sm:grid-cols-2 lg:grid-cols-3">
+                  <MeetingNoteBlock label="Expected gifts / materials" value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />} />
                   <MeetingNoteBlock label="Budget remarks" value={meeting.plan?.budgetRemarks} />
-                  <MeetingNoteBlock label="Remarks" value={meeting.remarks} />
-                  {meeting.approvalRemarks && (
-                    <MeetingNoteBlock label="Approval / rejection note" value={meeting.approvalRemarks} />
-                  )}
-                  {meeting.status === "CORRECTION_REQUIRED" && meeting.correctionRemarks && (
-                    <MeetingNoteBlock label={`Correction requested${meeting.correctionStage ? `: ${meeting.correctionStage}` : ""}`} value={meeting.correctionRemarks} />
-                  )}
+                  <MeetingNoteBlock label="Request remarks" value={meeting.remarks} />
+                  {meeting.approvalRemarks && <MeetingNoteBlock label="Approval / rejection note" value={meeting.approvalRemarks} />}
                   {meeting.status === "CANCELLED" && (meeting.cancellationReason || meeting.cancellationRemarks) && (
                     <MeetingNoteBlock label="Cancellation reason" value={meeting.cancellationReason || meeting.cancellationRemarks} />
                   )}
-                  {meeting.status === "REJECTED" && meeting.rejectionReason && (
-                    <MeetingNoteBlock label="Rejection reason" value={meeting.rejectionReason} />
-                  )}
+                  {meeting.status === "REJECTED" && meeting.rejectionReason && <MeetingNoteBlock label="Rejection reason" value={meeting.rejectionReason} />}
                 </dl>
-              </CardContent>
-            </Card>
+              </ProgressiveSection>
 
-            <div className="grid gap-6 xl:grid-cols-2">
-              <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-                <CardHeader className="border-b px-6 py-5">
-                  <CardTitle className="text-base">Planned Gifts</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {plannedGifts.length ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="px-6">Item</TableHead>
-                          <TableHead>Quantity</TableHead>
-                          <TableHead className="pr-6 text-right">Estimated Amount</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {plannedGifts.map((gift, index) => (
-                          <TableRow key={`${gift.giftItem}-${index}`}>
-                            <TableCell className="px-6 font-medium">{gift.giftItem || "-"}</TableCell>
-                            <TableCell>{Number(gift.quantity || 0)}</TableCell>
-                            <TableCell className="pr-6 text-right">{formatCurrency(gift.estimatedAmount)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <div className="p-6 text-sm text-muted-foreground">No planned gifts were added.</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-                <CardHeader className="border-b px-6 py-5">
-                  <CardTitle className="text-base">Planned Expenses</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {plannedExpenses.length ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="px-6">Expense Head</TableHead>
-                          <TableHead className="pr-6 text-right">Planned Amount</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {plannedExpenses.map((expense, index) => (
-                          <TableRow key={`${expense.expenseHead}-${index}`}>
-                            <TableCell className="px-6 font-medium">{expense.expenseHead || "Other"}</TableCell>
-                            <TableCell className="pr-6 text-right font-medium">{formatCurrency(expense.amount)}</TableCell>
-                          </TableRow>
-                        ))}
-                        <TableRow className="bg-muted/30">
-                          <TableCell className="px-6 font-bold">Total</TableCell>
-                          <TableCell className="pr-6 text-right font-bold">{formatCurrency(plannedExpenseTotal)}</TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <div className="p-6 text-sm text-muted-foreground">No planned expenses were added.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        )}
-
-        {adminTab === "attendees" && (
-          <Card id="meeting-admin-panel-attendees" role="tabpanel">
-            <CardHeader>
-              <CardTitle>{showAttendanceResults ? "Attendance" : "Expected Attendees"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {showAttendanceResults && (
-                <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
-                  <span><span className="text-muted-foreground">Actual attended:</span> <strong>{actualAttendanceCount}</strong></span>
-                  <span><span className="text-muted-foreground">Expected turnout:</span> <strong>{expectedTurnout || 0}</strong></span>
-                  <span><span className="text-muted-foreground">Named attendees:</span> <strong>{namedAttendeeCount}</strong></span>
-                </div>
-              )}
-              {meeting.attendees?.length ? (
-                <div className="overflow-x-auto">
-                <Table className="min-w-[860px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Mobile</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>City / Area</TableHead>
-                      <TableHead>Company / Project</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {meeting.attendees.map((attendee) => (
-                      <TableRow key={attendee.id || attendee.mobileNumber}>
-                        <TableCell>{attendee.name}</TableCell>
-                        <TableCell>{attendee.mobileNumber}</TableCell>
-                        <TableCell>{attendee.category}</TableCell>
-                        <TableCell>{attendee.cityArea || "-"}</TableCell>
-                        <TableCell>{attendee.companyShopProject || "-"}</TableCell>
-                        <TableCell>
-                          {showAttendanceResults ? (
-                            attendee.present ? (
-                              <div className="flex flex-wrap gap-2">
-                                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Present</Badge>
-                                {attendee.expected === false && <Badge variant="outline">Walk-in</Badge>}
-                              </div>
-                            ) : meeting.attendanceFinalized ? (
-                              <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">Absent</Badge>
-                            ) : (
-                              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Not recorded</Badge>
-                            )
-                          ) : attendee.expected === false ? (
-                            <Badge variant="outline">Walk-in</Badge>
-                          ) : (
-                            <Badge variant="outline">Expected</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                </div>
-              ) : (
-                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">No attendees found.</div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {adminTab === "gifts" && (
-          <div id="meeting-admin-panel-gifts" role="tabpanel" className="space-y-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-2xl font-bold tracking-tight">Gifts</h2>
-              <Badge
-                variant="outline"
-                className={`w-fit rounded-full px-4 py-1.5 text-sm font-semibold ${
-                  meeting.giftsCompleted || meeting.noGifts
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-700"
-                }`}
+              <ProgressiveSection
+                title="Planned gifts and expenses"
+                summary={`${plannedGiftQuantity || 0} gifts and ${formatCurrency(plannedExpenseTotal)} in planned expenses.`}
               >
-                {meeting.noGifts ? "No Gifts" : meeting.giftsCompleted ? "Completed" : meeting.status === "CLOSED" ? "Not Recorded" : "Pending"}
-              </Badge>
+                <div className="grid gap-5 md:grid-cols-2">
+                  <section className="overflow-hidden rounded-md border border-border/60">
+                    <div className="border-b bg-muted/20 px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">Planned Gifts</div>
+                    {plannedGifts.length ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/20">
+                            <TableHead className="px-5 py-2.5 text-xs">Item</TableHead>
+                            <TableHead className="py-2.5 text-xs">Quantity</TableHead>
+                            <TableHead className="pr-5 py-2.5 text-xs text-right">Estimated Amount</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {plannedGifts.map((gift, index) => (
+                            <TableRow key={`${gift.giftItem}-${index}`}>
+                              <TableCell className="px-5 py-3 font-semibold text-xs">{gift.giftItem || "-"}</TableCell>
+                              <TableCell className="py-3 text-xs">{Number(gift.quantity || 0)}</TableCell>
+                              <TableCell className="pr-5 py-3 text-right font-bold text-xs">{formatCurrency(gift.estimatedAmount)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <div className="p-5 text-xs text-muted-foreground">No planned gifts were added.</div>
+                    )}
+                  </section>
+
+                  <section className="overflow-hidden rounded-md border border-border/60">
+                    <div className="border-b bg-muted/20 px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">Planned Expenses</div>
+                    {plannedExpenses.length ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/20">
+                            <TableHead className="px-5 py-2.5 text-xs">Expense Head</TableHead>
+                            <TableHead className="pr-5 py-2.5 text-xs text-right">Planned Amount</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {plannedExpenses.map((expense, index) => (
+                            <TableRow key={`${expense.expenseHead}-${index}`}>
+                              <TableCell className="px-5 py-3 font-semibold text-xs">{expense.expenseHead || "Other"}</TableCell>
+                              <TableCell className="pr-5 py-3 text-right font-bold text-xs">{formatCurrency(expense.amount)}</TableCell>
+                            </TableRow>
+                          ))}
+                          <TableRow className="bg-muted/30 hover:bg-muted/30">
+                            <TableCell className="px-5 py-3 font-extrabold text-xs">Total</TableCell>
+                            <TableCell className="pr-5 py-3 text-right font-extrabold text-xs text-primary">{formatCurrency(plannedExpenseTotal)}</TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <div className="p-5 text-xs text-muted-foreground">No planned expenses were added.</div>
+                    )}
+                  </section>
+                </div>
+              </ProgressiveSection>
             </div>
+          )}
 
-            <CompletionStateNotice
-              state={meeting.noGifts ? "none" : meeting.giftsCompleted ? "complete" : "pending"}
-              title={
-                meeting.noGifts
-                  ? "No gifts were issued"
-                  : meeting.giftsCompleted
-                    ? "Gift section completed"
-                    : meeting.status === "CLOSED"
-                      ? "Gift completion not recorded"
-                      : "Awaiting gift completion"
-              }
-              detail={
-                meeting.noGifts
-                  ? `The field team marked No Gifts. Planned quantity ${plannedGiftQuantity || 0}, issued quantity ${issuedGiftQuantity || 0}.`
-                  : meeting.giftsCompleted
-                    ? `The gift section is complete. Planned quantity ${plannedGiftQuantity || 0}, issued quantity ${issuedGiftQuantity || 0}.`
-                    : meeting.status === "CLOSED"
-                      ? "This closed record does not contain a gift completion flag. Saved gift rows are shown, but no final difference is concluded."
-                      : "The field team is still recording gifts. Final differences will appear after this section is completed or marked as No Gifts."
-              }
-            />
-
-            <div className={`grid gap-5 ${adminPresentation.giftComparisonReady ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
-              <ExpenseMetricCard label="Planned Quantity" value={String(plannedGiftQuantity || 0)} />
-              <ExpenseMetricCard label={adminPresentation.giftComparisonReady ? "Issued Quantity" : "Issued So Far"} value={String(issuedGiftQuantity || 0)} />
-              {adminPresentation.giftComparisonReady && (
-                <ExpenseMetricCard
-                  label="Difference"
-                  value={formatSignedNumber(issuedGiftQuantity - plannedGiftQuantity)}
-                  valueClassName={issuedGiftQuantity >= plannedGiftQuantity ? "text-emerald-600" : "text-amber-600"}
-                />
-              )}
-              <ExpenseMetricCard label="Gift Rows" value={String(meeting.gifts?.length || 0)} />
-            </div>
-
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-              <CardHeader>
-                <CardTitle>{adminPresentation.giftComparisonReady ? "Planned vs Issued" : "Approved Gift Plan and Progress"}</CardTitle>
+          {adminTab === "attendees" && (
+            <Card id="meeting-admin-panel-attendees" role="tabpanel" className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm overflow-hidden">
+              <CardHeader className="border-b border-border/20 px-5 py-4">
+                <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{showAttendanceResults ? "Attendance Outcomes" : "Expected Attendees"}</CardTitle>
               </CardHeader>
-              <CardContent>
-                {giftComparisonRows.length ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Gift / Item</TableHead>
-                        <TableHead>Planned</TableHead>
-                        <TableHead>{adminPresentation.giftComparisonReady ? "Issued" : "Issued So Far"}</TableHead>
-                        {adminPresentation.giftComparisonReady && <TableHead>Difference</TableHead>}
-                        <TableHead>Estimated Amount</TableHead>
-                        {adminPresentation.giftComparisonReady && <TableHead>Status</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {giftComparisonRows.map((row) => (
-                        <TableRow key={row.item}>
-                          <TableCell className="font-medium">{row.item}</TableCell>
-                          <TableCell>{row.planned}</TableCell>
-                          <TableCell>{row.issued}</TableCell>
-                          {adminPresentation.giftComparisonReady && (
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={row.difference >= 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}
-                              >
-                                {formatSignedNumber(row.difference)}
-                              </Badge>
-                            </TableCell>
-                          )}
-                          <TableCell>{formatCurrency(row.estimatedAmount)}</TableCell>
-                          {adminPresentation.giftComparisonReady && (
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  meeting.noGifts
-                                    ? "border-slate-200 bg-slate-50 text-slate-700"
-                                    : row.difference === 0
-                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                      : row.difference > 0
-                                        ? "border-blue-200 bg-blue-50 text-blue-700"
-                                        : "border-amber-200 bg-amber-50 text-amber-700"
-                                }
-                              >
-                                {meeting.noGifts
-                                  ? "No gifts issued"
-                                  : row.difference === 0
-                                    ? "Matched"
-                                    : row.difference > 0
-                                      ? "Extra issued"
-                                      : `Short by ${Math.abs(row.difference)}`}
-                              </Badge>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                    No planned or issued gift data found.
+              <CardContent className="p-0 space-y-4">
+                {showAttendanceResults && (
+                  <div className="flex flex-wrap gap-x-6 gap-y-2 bg-muted/20 px-5 py-3 text-xs border-b border-border/10">
+                    <span><span className="text-muted-foreground font-semibold">Actual attended:</span> <strong>{actualAttendanceCount}</strong></span>
+                    <span><span className="text-muted-foreground font-semibold">Expected turnout:</span> <strong>{expectedTurnout || 0}</strong></span>
+                    <span><span className="text-muted-foreground font-semibold">Named attendees:</span> <strong>{namedAttendeeCount}</strong></span>
                   </div>
+                )}
+                {meeting.attendees?.length ? (
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[800px]">
+                      <TableHeader>
+                        <TableRow className="bg-muted/20">
+                          <TableHead className="px-5 text-xs">Name</TableHead>
+                          <TableHead className="text-xs">Mobile</TableHead>
+                          <TableHead className="text-xs">Category</TableHead>
+                          <TableHead className="text-xs">City / Area</TableHead>
+                          <TableHead className="text-xs">Company / Project</TableHead>
+                          <TableHead className="pr-5 text-xs text-right">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {meeting.attendees.map((attendee) => (
+                          <TableRow key={attendee.id || attendee.mobileNumber}>
+                            <TableCell className="px-5 font-semibold text-xs">{attendee.name}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{attendee.mobileNumber}</TableCell>
+                            <TableCell className="text-xs font-medium text-foreground">{attendee.category}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{attendee.cityArea || "-"}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{attendee.companyShopProject || "-"}</TableCell>
+                            <TableCell className="pr-5 text-right">
+                              {showAttendanceResults ? (
+                                attendee.present ? (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] px-2 font-bold rounded-full">Present</Badge>
+                                    {attendee.expected === false && <Badge variant="outline" className="text-[10px] px-2 rounded-full">Walk-in</Badge>}
+                                  </div>
+                                ) : meeting.attendanceFinalized ? (
+                                  <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700 text-[10px] px-2 font-bold rounded-full">Absent</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700 text-[10px] px-2 font-bold rounded-full">Not recorded</Badge>
+                                )
+                              ) : attendee.expected === false ? (
+                                <Badge variant="outline" className="text-[10px] px-2 rounded-full">Walk-in</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] px-2 rounded-full font-bold">Expected</Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="p-5 text-xs text-muted-foreground text-center">No expected attendees found.</div>
                 )}
               </CardContent>
             </Card>
+          )}
 
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm transition-colors hover:border-border hover:bg-muted/10">
-              {meeting.gifts?.length ? (
-                <CardContent className="p-8">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[35%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Attendee
-                        </TableHead>
-                        <TableHead className="w-[20%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Gift / Item
-                        </TableHead>
-                        <TableHead className="w-[15%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Quantity
-                        </TableHead>
-                        <TableHead className="w-[30%] px-4 pb-4 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Remarks
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {meeting.gifts.map((gift, index) => {
-                        const attendee = meeting.attendees?.find((item) => item.id === gift.meetingAttendeeId);
-                        const attendeeName = gift.attendeeName || attendee?.name;
-                        const isWalkIn = attendee?.expected === false;
+          {adminTab === "gifts" && (
+            <div id="meeting-admin-panel-gifts" role="tabpanel" className="space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Planned vs Actual Gifts</h3>
+                <Badge
+                  variant="outline"
+                  className={`rounded-full px-3 py-1 text-xs font-bold ${
+                    meeting.giftsCompleted || meeting.noGifts
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-amber-200 bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  {meeting.noGifts ? "No Gifts Distributed" : meeting.giftsCompleted ? "Completed" : meeting.status === "CLOSED" ? "Not Recorded" : "Pending"}
+                </Badge>
+              </div>
 
-                        return (
-                          <TableRow key={gift.id || index} className="hover:bg-transparent">
-                            <TableCell className="px-4 py-4 align-middle">
-                              <GiftAttendeeCell name={attendeeName} isWalkIn={isWalkIn} />
-                            </TableCell>
-                            <TableCell className="px-4 py-4 align-middle">
-                              <span className="font-semibold text-foreground">{gift.giftItem || "-"}</span>
-                            </TableCell>
-                            <TableCell className="px-4 py-4 align-middle">
-                              <QuantityChip value={gift.quantity} />
-                            </TableCell>
-                            <TableCell className="px-4 py-4 align-middle">
-                              <span className="text-sm font-medium leading-5 text-muted-foreground">{gift.remarks || "-"}</span>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              ) : (
-                <CardContent className="p-8">
-                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">No gifts recorded yet.</div>
-                </CardContent>
-              )}
-            </Card>
-          </div>
-        )}
-
-        {adminTab === "expenses" && (
-          <div id="meeting-admin-panel-expenses" role="tabpanel" className="space-y-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-2xl font-bold tracking-tight">Expenses</h2>
-              <Badge
-                variant="outline"
-                className={`w-fit rounded-full px-4 py-1.5 text-sm font-semibold ${
-                  meeting.expensesCompleted || meeting.noExpenses
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-700"
-                }`}
-              >
-                {meeting.noExpenses ? "No Expenses" : meeting.expensesCompleted ? "Completed" : meeting.status === "CLOSED" ? "Not Recorded" : "Pending"}
-              </Badge>
-            </div>
-
-            <CompletionStateNotice
-              state={meeting.noExpenses ? "none" : meeting.expensesCompleted ? "complete" : "pending"}
-              title={
-                meeting.noExpenses
-                  ? "No expenses were submitted"
-                  : meeting.expensesCompleted
-                    ? "Expense section completed"
-                    : meeting.status === "CLOSED"
-                      ? "Expense completion not recorded"
-                      : "Awaiting expense completion"
-              }
-              detail={
-                meeting.noExpenses
-                  ? `The field team marked No Expenses. Planned expenses ${formatCurrency(plannedExpenseTotal)}, actual expenses ${formatCurrency(actualExpenseTotal)}.`
-                  : meeting.expensesCompleted
-                    ? `The expense section is complete. Planned expenses ${formatCurrency(plannedExpenseTotal)}, actual expenses ${formatCurrency(actualExpenseTotal)}.`
-                    : meeting.status === "CLOSED"
-                      ? "This closed record does not contain an expense completion flag. Saved expense rows are shown, but no final difference or over-budget result is concluded."
-                      : "The field team is still recording expenses. Final totals, differences, and over-budget results will appear after this section is completed or marked as No Expenses."
-              }
-            />
-
-            <div className="grid gap-5 lg:grid-cols-3">
-              <ExpenseLedgerCard
-                label="Expected Budget"
-                value={formatCurrency(meeting.expectedBudget)}
-                metrics={
-                  adminPresentation.expenseComparisonReady
-                    ? [
-                        { label: "Planned", value: formatCurrency(plannedExpenseTotal) },
-                        { label: "Actual", value: formatCurrency(actualExpenseTotal) },
-                        {
-                          label: expensePlanDelta > 0 ? "Over Plan" : "Savings",
-                          value: formatSignedCurrency(expensePlanDelta),
-                          valueClassName: expensePlanDelta > 0 ? "text-amber-600" : "text-emerald-600",
-                        },
-                      ]
-                    : [
-                        { label: "Planned", value: formatCurrency(plannedExpenseTotal) },
-                        { label: "Recorded So Far", value: formatCurrency(actualExpenseTotal) },
-                      ]
-                }
+              <AdminSummaryStrip
+                metrics={[
+                  { label: "Planned quantity", value: String(plannedGiftQuantity || 0), detail: `${plannedGifts.length} planned ${plannedGifts.length === 1 ? "item" : "items"}` },
+                  { label: adminPresentation.giftComparisonReady ? "Issued quantity" : "Issued so far", value: String(issuedGiftQuantity || 0), detail: `${meeting.gifts?.length || 0} saved issue rows` },
+                  adminPresentation.giftComparisonReady
+                    ? {
+                        label: "Difference",
+                        value: formatSignedNumber(issuedGiftQuantity - plannedGiftQuantity),
+                        detail: meeting.noGifts ? "Marked as no gifts distributed" : "Final saved variance",
+                        valueClassName: issuedGiftQuantity >= plannedGiftQuantity ? "text-emerald-600" : "text-amber-600",
+                      }
+                    : {
+                        label: "Completion",
+                        value: meeting.status === "CLOSED" ? "Not recorded" : "In progress",
+                        detail: "Difference will appear after completion",
+                      },
+                ]}
               />
-              <ExpenseLedgerCard
-                label="Company Planned Allocation"
-                value={formatCurrency(plannedCompanyContribution)}
-                tag={adminPresentation.expenseComparisonReady ? (companyPlanDelta > 0 ? "Over planned" : "Within planned") : undefined}
-                tagTone={companyPlanDelta > 0 ? "warning" : "success"}
-                metrics={
-                  adminPresentation.expenseComparisonReady
-                    ? [
-                        { label: "Planned", value: formatCurrency(plannedCompanyContribution) },
-                        { label: "Actual", value: formatCurrency(companyPaidTotal) },
-                        {
-                          label: "Difference",
-                          value: formatSignedCurrency(companyPlanDelta),
-                          valueClassName: companyPlanDelta > 0 ? "text-amber-600" : "text-emerald-600",
-                        },
-                      ]
-                    : [
-                        { label: "Planned", value: formatCurrency(plannedCompanyContribution) },
-                        { label: "Recorded So Far", value: formatCurrency(companyPaidTotal) },
-                      ]
-                }
-              />
-              <ExpenseLedgerCard
-                label="Dealer Planned Allocation"
-                value={formatCurrency(plannedDealerContribution)}
-                tag={adminPresentation.expenseComparisonReady ? (dealerPlanDelta > 0 ? "Over planned" : "Within planned") : undefined}
-                tagTone={dealerPlanDelta > 0 ? "warning" : "success"}
-                metrics={
-                  adminPresentation.expenseComparisonReady
-                    ? [
-                        { label: "Planned", value: formatCurrency(plannedDealerContribution) },
-                        { label: "Actual", value: formatCurrency(dealerPaidTotal) },
-                        {
-                          label: "Difference",
-                          value: formatSignedCurrency(dealerPlanDelta),
-                          valueClassName: dealerPlanDelta > 0 ? "text-amber-600" : "text-emerald-600",
-                        },
-                      ]
-                    : [
-                        { label: "Planned", value: formatCurrency(plannedDealerContribution) },
-                        { label: "Recorded So Far", value: formatCurrency(dealerPaidTotal) },
-                      ]
-                }
-              />
-            </div>
 
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-              <CardHeader className="border-b px-6 py-5">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <IndianRupee className="h-5 w-5 text-primary" />
-                  {adminPresentation.expenseComparisonReady ? "Planned vs Actual Spends by Category" : "Approved Expense Plan and Progress"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-5 p-6">
-                {expenseComparisonRows.length ? (
-                  <div className="overflow-x-auto rounded-lg border">
-                    <Table className="min-w-[780px]">
+              <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm overflow-hidden">
+                <CardHeader className="border-b border-border/20 px-5 py-3">
+                  <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {adminPresentation.giftComparisonReady ? "Planned vs Issued Analysis" : "Approved Gift Plan and Progress"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {giftComparisonRows.length ? (
+                    <Table>
                       <TableHeader>
-                        <TableRow className="bg-muted/40">
-                          <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Expense Head</TableHead>
-                          <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Planned</TableHead>
-                          <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{adminPresentation.expenseComparisonReady ? "Actual" : "Recorded So Far"}</TableHead>
-                          {adminPresentation.expenseComparisonReady && <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Difference</TableHead>}
-                          <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Company</TableHead>
-                          <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Dealer</TableHead>
-                          {adminPresentation.expenseComparisonReady && <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Status</TableHead>}
+                        <TableRow className="bg-muted/20">
+                          <TableHead className="text-xs">Gift / Item</TableHead>
+                          <TableHead className="text-xs">Planned</TableHead>
+                          <TableHead className="text-xs">{adminPresentation.giftComparisonReady ? "Issued" : "Issued So Far"}</TableHead>
+                          {adminPresentation.giftComparisonReady && <TableHead className="text-xs">Difference</TableHead>}
+                          <TableHead className="text-xs">Estimated Cost</TableHead>
+                          {adminPresentation.giftComparisonReady && <TableHead className="pr-5 text-right text-xs">Status</TableHead>}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {giftComparisonRows.map((row) => (
+                          <TableRow key={row.item}>
+                            <TableCell className="px-5 font-semibold text-xs">{row.item}</TableCell>
+                            <TableCell className="text-xs font-medium">{row.planned}</TableCell>
+                            <TableCell className="text-xs font-medium">{row.issued}</TableCell>
+                            {adminPresentation.giftComparisonReady && (
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] px-2 rounded-full font-bold ${row.difference >= 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
+                                >
+                                  {formatSignedNumber(row.difference)}
+                                </Badge>
+                              </TableCell>
+                            )}
+                            <TableCell className="text-xs font-bold">{formatCurrency(row.estimatedAmount)}</TableCell>
+                            {adminPresentation.giftComparisonReady && (
+                              <TableCell className="pr-5 text-right">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] px-2 rounded-full font-semibold ${
+                                    meeting.noGifts
+                                      ? "border-slate-200 bg-slate-50 text-slate-700"
+                                      : row.difference === 0
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                        : row.difference > 0
+                                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                                          : "border-amber-200 bg-amber-50 text-amber-700"
+                                  }`}
+                                >
+                                  {meeting.noGifts
+                                    ? "No gifts issued"
+                                    : row.difference === 0
+                                      ? "Matched"
+                                      : row.difference > 0
+                                        ? "Extra issued"
+                                        : `Short by ${Math.abs(row.difference)}`}
+                                </Badge>
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <div className="p-5 text-xs text-muted-foreground text-center">No planned or issued gift data found.</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {adminTab === "expenses" && (
+            <div id="meeting-admin-panel-expenses" role="tabpanel" className="space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Planned vs Actual Expenses</h3>
+                <Badge
+                  variant="outline"
+                  className={`rounded-full px-3 py-1 text-xs font-bold ${
+                    meeting.expensesCompleted || meeting.noExpenses
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-amber-200 bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  {meeting.noExpenses ? "No Expenses Incurred" : meeting.expensesCompleted ? "Completed" : meeting.status === "CLOSED" ? "Not Recorded" : "Pending"}
+                </Badge>
+              </div>
+
+              <AdminSummaryStrip
+                metrics={[
+                  {
+                    label: "Planned expenses",
+                    value: formatCurrency(plannedExpenseTotal),
+                    detail: `${formatCurrency(meeting.expectedBudget)} approved budget`,
+                  },
+                  {
+                    label: adminPresentation.expenseComparisonReady ? "Actual expenses" : "Recorded so far",
+                    value: formatCurrency(actualExpenseTotal),
+                    detail: adminPresentation.expenseComparisonReady
+                      ? `${formatSignedCurrency(expensePlanDelta)} against plan`
+                      : "Final variance is not available yet",
+                    valueClassName: adminPresentation.expenseComparisonReady && expensePlanDelta > 0 ? "text-amber-600" : "",
+                  },
+                  {
+                    label: "Actual contribution",
+                    value: `Company ${formatCurrency(companyPaidTotal)}`,
+                    detail: `Dealer ${formatCurrency(dealerPaidTotal)}`,
+                  },
+                ]}
+              />
+
+              <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm overflow-hidden">
+                <CardHeader className="border-b border-border/20 px-5 py-3">
+                  <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {adminPresentation.expenseComparisonReady ? "Category-Wise Plan vs Actual Comparison" : "Approved Expense Plan and Progress"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {expenseComparisonRows.length ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/20">
+                          <TableHead className="text-xs">Expense Head</TableHead>
+                          <TableHead className="text-xs">Planned</TableHead>
+                          <TableHead className="text-xs">{adminPresentation.expenseComparisonReady ? "Actual" : "Recorded"}</TableHead>
+                          {adminPresentation.expenseComparisonReady && <TableHead className="text-xs">Difference</TableHead>}
+                          <TableHead className="text-xs">Company</TableHead>
+                          <TableHead className="text-xs">Dealer</TableHead>
+                          {adminPresentation.expenseComparisonReady && <TableHead className="pr-5 text-right text-xs">Status</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2881,674 +2713,725 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                           const isOverBudget = row.difference > 0;
 
                           return (
-                            <TableRow key={row.head} className={isOverBudget ? "bg-amber-50/40 hover:bg-amber-50/60" : undefined}>
-                              <TableCell>
+                            <TableRow key={row.head} className={isOverBudget ? "bg-amber-500/5 hover:bg-amber-500/10" : undefined}>
+                              <TableCell className="px-5 py-2">
                                 <ExpenseHeadChip head={row.head} />
                               </TableCell>
-                              <TableCell className="font-bold">{formatCurrency(row.planned)}</TableCell>
-                              <TableCell className="font-bold">{formatCurrency(row.actual)}</TableCell>
+                              <TableCell className="text-xs font-semibold">{formatCurrency(row.planned)}</TableCell>
+                              <TableCell className="text-xs font-semibold">{formatCurrency(row.actual)}</TableCell>
                               {adminPresentation.expenseComparisonReady && (
-                                <TableCell className={`font-bold ${isOverBudget ? "text-amber-600" : "text-emerald-600"}`}>
+                                <TableCell className={`text-xs font-bold ${isOverBudget ? "text-amber-600" : "text-emerald-600"}`}>
                                   {formatSignedCurrency(row.difference)}
                                 </TableCell>
                               )}
-                              <TableCell className="font-bold">{formatCurrency(row.company)}</TableCell>
-                              <TableCell className="font-bold">{formatCurrency(row.dealer)}</TableCell>
-                              {adminPresentation.expenseComparisonReady && <TableCell>
-                                <Badge
-                                  variant="outline"
-                                  className={
-                                    isOverBudget
-                                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                  }
-                                >
-                                  {isUnplannedSpend ? "Unplanned spend" : isOverBudget ? "Over budget" : isNotSpent ? "Not spent" : "Within plan"}
-                                </Badge>
-                              </TableCell>}
+                              <TableCell className="text-xs font-semibold text-muted-foreground">{formatCurrency(row.company)}</TableCell>
+                              <TableCell className="text-xs font-semibold text-muted-foreground">{formatCurrency(row.dealer)}</TableCell>
+                              {adminPresentation.expenseComparisonReady && (
+                                <TableCell className="pr-5 text-right">
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-[10px] px-2 rounded-full font-semibold ${
+                                      isOverBudget
+                                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    }`}
+                                  >
+                                    {isUnplannedSpend ? "Unplanned spend" : isOverBudget ? "Over budget" : isNotSpent ? "Not spent" : "Within plan"}
+                                  </Badge>
+                                </TableCell>
+                              )}
                             </TableRow>
                           );
                         })}
                       </TableBody>
                     </Table>
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                    No planned or actual expense data found.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-              <CardHeader className="border-b px-6 py-5">
-                <CardTitle className="text-base">Actual Expense Logs</CardTitle>
-              </CardHeader>
-              {meeting.expenses?.length ? (
-                <CardContent className="p-6">
-                  <div className="overflow-x-auto rounded-lg border">
-                    <Table className="min-w-[860px]">
-                    <TableHeader>
-                      <TableRow className="bg-muted/40">
-                        <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Head
-                        </TableHead>
-                        <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Amount
-                        </TableHead>
-                        <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Paid By
-                        </TableHead>
-                        <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Company
-                        </TableHead>
-                        <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Dealer
-                        </TableHead>
-                        <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Date
-                        </TableHead>
-                        <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                          Remarks
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {meeting.expenses.map((expense, index) => (
-                        <TableRow key={expense.id || index} className="hover:bg-transparent">
-                          <TableCell className="px-4 py-4 align-middle">
-                            <ExpenseHeadChip head={expense.expenseHead} />
-                          </TableCell>
-                          <TableCell className="px-4 py-4 align-middle">
-                            <span className="font-bold text-foreground">{formatCurrency(expense.amount)}</span>
-                          </TableCell>
-                          <TableCell className="px-4 py-4 align-middle">{expense.paidBy || "-"}</TableCell>
-                          <TableCell className="px-4 py-4 align-middle">{formatCurrency(expense.companyAmount)}</TableCell>
-                          <TableCell className="px-4 py-4 align-middle">{formatCurrency(expense.dealerAmount)}</TableCell>
-                          <TableCell className="px-4 py-4 align-middle">
-                            <span className="font-medium text-foreground">{formatDate(expense.expenseDate)}</span>
-                          </TableCell>
-                          <TableCell className="px-4 py-4 align-middle">
-                            <span className="text-sm font-medium leading-5 text-muted-foreground">{expense.remarks || "-"}</span>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                    </Table>
-                  </div>
+                  ) : (
+                    <div className="p-5 text-xs text-muted-foreground text-center">No planned or actual expense data found.</div>
+                  )}
                 </CardContent>
-              ) : (
-                <CardContent className="p-6">
-                  <div className="rounded-lg border border-dashed p-6 text-center text-sm font-medium text-muted-foreground">
-                    No transactional actual expense logs were generated.
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-          </div>
-        )}
+              </Card>
 
-        {adminTab === "finalReport" && (
-          <div id="meeting-admin-panel-finalReport" role="tabpanel" className="space-y-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-2xl font-bold tracking-tight">Final Report</h2>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className={hasFinalReportContent(meeting) ? "w-fit border-emerald-200 bg-emerald-50 text-emerald-700" : "w-fit"}
-                  >
-                    {hasFinalReportContent(meeting) ? "Report Available" : "Not Submitted"}
-                  </Badge>
-                  <Badge variant="outline" className={statusBadgeClass(meeting.status)}>
-                    {getMeetingStatusLabel(meeting)}
-                  </Badge>
-                </div>
-              </div>
-              {showFinalReviewDecision && (
-                <Button onClick={() => setIsFinalReviewDecisionOpen(true)}>
-                  <CheckCircle2 className="h-4 w-4" />
-                  Final Review Decision
-                </Button>
-              )}
-            </div>
-
-            {adminPresentation.showFinalReportContent ? (
-              <>
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-              <CardContent className="space-y-6 p-6">
-                <section className="space-y-4 border-b pb-6">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                    Review Readiness
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {reportReadiness.map((item) => (
-                      <div key={item.label} className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
-                        <span className="font-medium text-muted-foreground">{item.label}:</span>
-                        <span className={item.ready ? "text-xs font-bold uppercase tracking-wide text-emerald-600" : "text-xs font-bold uppercase tracking-wide text-amber-600"}>
-                          {item.ready ? "Ready" : item.pendingLabel}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="space-y-4">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                    <FileText className="h-4 w-4 text-primary" />
-                    Plan vs Actual Analysis
-                  </div>
-                  <div className="overflow-x-auto rounded-lg border">
+              <ProgressiveSection
+                title="Actual expense entries"
+                summary={`${meeting.expenses?.length || 0} saved ${meeting.expenses?.length === 1 ? "entry" : "entries"}. Open to inspect payer, date and remarks.`}
+              >
+                  {meeting.expenses?.length ? (
                     <Table>
                       <TableHeader>
-                        <TableRow>
-                          <TableHead>Comparison Parameter</TableHead>
-                          <TableHead>Expected Plan</TableHead>
-                          <TableHead>Actual Execution</TableHead>
-                          <TableHead>Variance / Outcome</TableHead>
+                        <TableRow className="bg-muted/20">
+                          <TableHead className="px-5 text-xs">Head</TableHead>
+                          <TableHead className="text-xs">Amount</TableHead>
+                          <TableHead className="text-xs">Paid By</TableHead>
+                          <TableHead className="text-xs">Company</TableHead>
+                          <TableHead className="text-xs">Dealer</TableHead>
+                          <TableHead className="text-xs">Date</TableHead>
+                          <TableHead className="pr-5 text-xs">Remarks</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        <TableRow>
-                          <TableCell className="font-semibold">Turnout / Attendance</TableCell>
-                          <TableCell>
-                            {expectedTurnout || 0}
-                            <span className="text-muted-foreground"> ({namedAttendeeCount} named)</span>
-                          </TableCell>
-                          <TableCell>
-                            {meeting.attendanceFinalized
-                              ? `${actualAttendanceCount} attended`
-                              : actualAttendanceCount > 0
-                                ? `${actualAttendanceCount} recorded (completion not marked)`
-                                : "Completion not recorded"}
-                          </TableCell>
-                          <TableCell className={meeting.attendanceFinalized ? (attendanceDelta >= 0 ? "font-semibold text-emerald-600" : "font-semibold text-red-600") : "text-muted-foreground"}>
-                            {meeting.attendanceFinalized ? `${attendanceDelta >= 0 ? `+${attendanceDelta}` : attendanceDelta} attendance variance` : "-"}
-                          </TableCell>
+                        {meeting.expenses.map((expense, index) => (
+                          <TableRow key={expense.id || index}>
+                            <TableCell className="px-5 py-2"><ExpenseHeadChip head={expense.expenseHead} /></TableCell>
+                            <TableCell className="text-xs font-bold text-foreground">{formatCurrency(expense.amount)}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{expense.paidBy || "-"}</TableCell>
+                            <TableCell className="text-xs font-medium">{formatCurrency(expense.companyAmount)}</TableCell>
+                            <TableCell className="text-xs font-medium">{formatCurrency(expense.dealerAmount)}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{formatDate(expense.expenseDate)}</TableCell>
+                            <TableCell className="pr-5 text-xs text-muted-foreground">{expense.remarks || "-"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <div className="p-5 text-xs text-muted-foreground text-center">No actual expense logs recorded.</div>
+                  )}
+              </ProgressiveSection>
+            </div>
+          )}
+
+          {adminTab === "finalReport" && (
+            <div id="meeting-admin-panel-finalReport" role="tabpanel" className="space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Final Report Outcomes</h3>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${hasFinalReportContent(meeting) ? "border-emerald-200 bg-emerald-50 text-emerald-700" : ""}`}
+                    >
+                      {hasFinalReportContent(meeting) ? "Report Available" : "Not Submitted"}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              {adminPresentation.showFinalReportContent ? (
+                <>
+                  {hasFinalReportContent(meeting) && (
+                    <Card className="rounded-lg border-border/70 bg-card/40 shadow-sm">
+                      <CardContent className="p-5">
+                        <div className="mb-4 flex items-center gap-2 text-sm font-bold text-foreground">
+                          <FileText className="h-4 w-4 text-primary" />
+                          Submitted outcome
+                        </div>
+                        <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                          <MeetingNoteBlock label="Meeting summary" value={meeting.meetingSummary} />
+                          <MeetingNoteBlock label="Key discussion points" value={meeting.keyDiscussionPoints} />
+                          <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
+                          <MeetingNoteBlock label="Lead details" value={meeting.leadDetails || meeting.leadsGenerated} />
+                          <MeetingNoteBlock label="Interested customers" value={meeting.interestedCustomers} />
+                          <MeetingNoteBlock label="Competitor information" value={meeting.competitorInformation} />
+                          <MeetingNoteBlock label="Final remarks" value={meeting.finalRemarks} />
+                          {meeting.finalReportApprovalRemarks && <MeetingNoteBlock label="Final approval remarks" value={meeting.finalReportApprovalRemarks} />}
+                        </dl>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <ProgressiveSection
+                    title="Review checks and plan comparison"
+                    summary="Open readiness checks and the approved-plan versus actual-outcome comparison."
+                    defaultOpen={meeting.status === "REPORT_SUBMITTED"}
+                  >
+                    <div className="space-y-5">
+                      <section className="space-y-3 border-b border-border/60 pb-5">
+                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                          <CheckCircle2 className="h-4 w-4 text-primary" />
+                          Workflow Verification Readiness
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {reportReadiness.map((item) => (
+                            <div key={item.label} className="inline-flex items-center gap-1.5 rounded-lg border border-border/20 bg-background/50 px-2.5 py-1 text-xs">
+                              <span className="font-semibold text-muted-foreground">{item.label}:</span>
+                              <span className={`font-bold ${item.ready ? "text-emerald-600" : "text-amber-600"}`}>
+                                {item.ready ? "Ready" : item.pendingLabel}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="space-y-3">
+                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                          <FileText className="h-4 w-4 text-primary" />
+                          Planned vs Actual Outcomes Summary
+                        </div>
+                        <div className="overflow-x-auto rounded-lg border border-border/30">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-muted/20">
+                                <TableHead className="text-xs">Comparison Metric</TableHead>
+                                <TableHead className="text-xs">Expected Plan</TableHead>
+                                <TableHead className="text-xs">Actual Execution</TableHead>
+                                <TableHead className="text-xs">Variance / Impact</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              <TableRow>
+                                <TableCell className="font-bold text-xs">Turnout / Attendance</TableCell>
+                                <TableCell className="text-xs">
+                                  {expectedTurnout || 0}
+                                  <span className="text-muted-foreground font-normal"> ({namedAttendeeCount} named)</span>
+                                </TableCell>
+                                <TableCell className="text-xs font-medium">
+                                  {meeting.attendanceFinalized
+                                    ? `${actualAttendanceCount} present`
+                                    : actualAttendanceCount > 0
+                                      ? `${actualAttendanceCount} recorded (pending confirmation)`
+                                      : "Not recorded"}
+                                </TableCell>
+                                <TableCell className={`text-xs font-extrabold ${meeting.attendanceFinalized ? (attendanceDelta >= 0 ? "text-emerald-600" : "text-red-600") : "text-muted-foreground"}`}>
+                                  {meeting.attendanceFinalized ? `${attendanceDelta >= 0 ? `+${attendanceDelta}` : attendanceDelta} turnout` : "-"}
+                                </TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell className="font-bold text-xs">Budget / Spend</TableCell>
+                                <TableCell className="text-xs">{formatCurrency(meeting.expectedBudget)}</TableCell>
+                                <TableCell className="text-xs font-medium">
+                                  {adminPresentation.expenseComparisonReady
+                                    ? formatCurrency(actualExpenseTotal)
+                                    : actualExpenseTotal > 0
+                                      ? `${formatCurrency(actualExpenseTotal)} recorded (pending confirmation)`
+                                      : "Not recorded"}
+                                </TableCell>
+                                <TableCell className={`text-xs font-extrabold ${adminPresentation.expenseComparisonReady ? (expenseDelta <= 0 ? "text-emerald-600" : "text-amber-600") : "text-muted-foreground"}`}>
+                                  {adminPresentation.expenseComparisonReady ? formatSignedCurrency(expenseDelta) : "-"}
+                                </TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell className="font-bold text-xs">Gift Allocations</TableCell>
+                                <TableCell className="text-xs">{plannedGiftQuantity || 0} planned</TableCell>
+                                <TableCell className="text-xs font-medium">
+                                  {adminPresentation.giftComparisonReady
+                                    ? `${issuedGiftQuantity || 0} issued`
+                                    : issuedGiftQuantity > 0
+                                      ? `${issuedGiftQuantity} recorded (pending confirmation)`
+                                      : "Not recorded"}
+                                </TableCell>
+                                <TableCell className={`text-xs font-extrabold ${adminPresentation.giftComparisonReady ? (giftDelta >= 0 ? "text-emerald-600" : "text-red-600") : "text-muted-foreground"}`}>
+                                  {adminPresentation.giftComparisonReady ? `${giftDelta >= 0 ? `+${giftDelta}` : giftDelta} gifts` : "-"}
+                                </TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell className="font-bold text-xs">Business Impact</TableCell>
+                                <TableCell className="max-w-[200px] whitespace-pre-wrap text-xs text-muted-foreground">{meeting.expectedBusinessImpact || "-"}</TableCell>
+                                <TableCell className="max-w-[200px] whitespace-pre-wrap text-xs font-medium">{meeting.actualBusinessOutcome || "-"}</TableCell>
+                                <TableCell className="max-w-[200px] whitespace-pre-wrap text-xs font-bold text-primary">{meeting.leadCount ? `${meeting.leadCount} leads` : meeting.leadsGenerated || "-"}</TableCell>
+                              </TableRow>
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </section>
+
+                    </div>
+                  </ProgressiveSection>
+
+                  <ProgressiveSection
+                    title="Report data and CSV export"
+                    summary="Open filters, export the authorized meeting data, or inspect management report views."
+                  >
+                    <div className="space-y-4">
+                  <Card className="rounded-lg border-border/60 bg-background/40 shadow-none overflow-hidden">
+                    <CardHeader className="flex flex-col gap-3 border-b border-border/20 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Report Export Options</CardTitle>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setIsReportFiltersOpen((open) => !open)} className="rounded-lg">
+                          <Filter className="h-3.5 w-3.5 mr-1" />
+                          {isReportFiltersOpen ? "Hide Filter" : "Filter"}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => exportMeetingReport(reportFilters)} disabled={isExportingReport} className="rounded-lg">
+                          {isExportingReport ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Download className="h-3.5 w-3.5 mr-1" />}
+                          Export CSV
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    {isReportFiltersOpen && (
+                      <CardContent className="space-y-4 border-b border-border/20 p-5 bg-muted/10">
+                        <div className="grid gap-3 grid-cols-2 md:grid-cols-6">
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold">Start Date</Label>
+                            <Input
+                              type="date"
+                              className="h-8 text-xs rounded-lg"
+                              value={reportFilters.start}
+                              onChange={(event) => setReportFilters((prev) => ({ ...prev, start: event.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold">End Date</Label>
+                            <Input
+                              type="date"
+                              className="h-8 text-xs rounded-lg"
+                              value={reportFilters.end}
+                              onChange={(event) => setReportFilters((prev) => ({ ...prev, end: event.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold">Status</Label>
+                            <Select
+                              value={reportFilters.status}
+                              onValueChange={(value) => setReportFilters((prev) => ({ ...prev, status: value }))}
+                            >
+                              <SelectTrigger className="h-8 text-xs rounded-lg">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={REPORT_ALL_VALUE}>All statuses</SelectItem>
+                                {REPORT_STATUS_OPTIONS.map((status) => (
+                                  <SelectItem key={status} value={status}>
+                                    {formatMeetingStatus(status)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold">Meeting Type</Label>
+                            <Select
+                              value={reportFilters.meetingType}
+                              onValueChange={(value) => setReportFilters((prev) => ({ ...prev, meetingType: value }))}
+                            >
+                              <SelectTrigger className="h-8 text-xs rounded-lg">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={REPORT_ALL_VALUE}>All types</SelectItem>
+                                {reportMeetingTypeOptions.map((type) => (
+                                  <SelectItem key={type} value={type}>
+                                    {type}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold">City</Label>
+                            <Input
+                              className="h-8 text-xs rounded-lg"
+                              value={reportFilters.city}
+                              onChange={(event) => setReportFilters((prev) => ({ ...prev, city: event.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold">State</Label>
+                            <Input
+                              className="h-8 text-xs rounded-lg"
+                              value={reportFilters.state}
+                              onChange={(event) => setReportFilters((prev) => ({ ...prev, state: event.target.value }))}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={useCurrentMeetingReportFilters} className="text-xs h-7 rounded-md">
+                            This Meeting
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={resetReportToMonth} className="text-xs h-7 rounded-md">
+                            Month View
+                          </Button>
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+
+                  <Card className="rounded-lg border-border/60 bg-background/40 shadow-none overflow-hidden">
+                    <CardContent className="p-0">
+                      <div className="grid lg:grid-cols-[220px_1fr]">
+                        <aside className="border-b lg:border-b-0 lg:border-r border-border/20 p-4 bg-muted/10 shrink-0">
+                          <div className="mb-2 px-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            Summary Views
+                          </div>
+                          <div className="flex gap-1.5 overflow-x-auto lg:flex-col lg:overflow-visible scrollbar-none">
+                            {REPORT_VIEW_OPTIONS.map((option) => (
+                              <button
+                                key={option.key}
+                                type="button"
+                                onClick={() => setActiveReportView(option.key)}
+                                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs font-bold transition-all shrink-0 ${
+                                  activeReportView === option.key
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                }`}
+                              >
+                                <span className={`h-1.5 w-1.5 rounded-full ${activeReportView === option.key ? "bg-primary" : "bg-border"}`} />
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </aside>
+
+                        <div className="p-4 space-y-3 min-w-0">
+                          <div className="flex items-center justify-between gap-3 border-b border-border/10 pb-2">
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">{activeReportMeta.label}</h4>
+                            <span className="text-[10px] font-bold text-muted-foreground">{activeReportCount} records</span>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            {activeReportView === "summary" && (
+                              <ReportSectionCard title="Meeting Summary Database">
+                                {reportMeetings.length ? (
+                                  <Table className="min-w-[700px]">
+                                    <TableHeader>
+                                      <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">Meeting</TableHead>
+                                        <TableHead className="text-xs">Date</TableHead>
+                                        <TableHead className="text-xs">Dealer</TableHead>
+                                        <TableHead className="text-xs">Location</TableHead>
+                                        <TableHead className="text-xs">Owner</TableHead>
+                                        <TableHead className="text-xs">Status</TableHead>
+                                        <TableHead className="text-xs">Budget</TableHead>
+                                        <TableHead className="text-xs">Attendance</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {reportMeetings.map((item) => (
+                                        <TableRow key={item.id}>
+                                          <TableCell className="py-2.5">
+                                            <div className="font-semibold text-xs">{item.meetingType || "-"}</div>
+                                            <div className="max-w-[150px] truncate text-[10px] text-muted-foreground">
+                                              {item.objective || `ID: #${item.id}`}
+                                            </div>
+                                          </TableCell>
+                                          <TableCell className="text-xs">{formatDate(item.meetingDate)}</TableCell>
+                                          <TableCell className="text-xs font-medium">{getMeetingDealerLabel(item)}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">{[item.city, item.state].filter(Boolean).join(", ") || "-"}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">{item.creatorName || "-"}</TableCell>
+                                          <TableCell>
+                                            <Badge variant="outline" className={`text-[9px] px-1.5 font-bold ${statusBadgeClass(item.status)}`}>
+                                              {getMeetingStatusLabel(item)}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell className="text-xs font-bold">{formatCurrency(item.expectedBudget)}</TableCell>
+                                          <TableCell className="text-xs font-medium">
+                                            {getActualAttendanceCount(item)}/{item.expectedAttendees || item.attendees?.length || 0}
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                ) : (
+                                  <ReportEmptyState label="No meetings found for these filters." />
+                                )}
+                              </ReportSectionCard>
+                            )}
+
+                            {activeReportView === "expenses" && (
+                              <ReportSectionCard title="Planned vs Actual Spends Summary">
+                                {reportExpenseRows.length ? (
+                                  <Table className="min-w-[600px]">
+                                    <TableHeader>
+                                      <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">Expense Head</TableHead>
+                                        <TableHead className="text-xs">Planned</TableHead>
+                                        <TableHead className="text-xs">Actual</TableHead>
+                                        <TableHead className="text-xs">Difference</TableHead>
+                                        <TableHead className="text-xs">Company</TableHead>
+                                        <TableHead className="text-xs">Dealer</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {reportExpenseRows.map((row) => (
+                                        <TableRow key={row.head}>
+                                          <TableCell className="py-2"><ExpenseHeadChip head={row.head} /></TableCell>
+                                          <TableCell className="text-xs font-semibold">{formatCurrency(row.planned)}</TableCell>
+                                          <TableCell className="text-xs font-semibold">{formatCurrency(row.actual)}</TableCell>
+                                          <TableCell className={`text-xs font-bold ${row.difference > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                                            {formatSignedCurrency(row.difference)}
+                                          </TableCell>
+                                          <TableCell className="text-xs font-medium text-muted-foreground">{formatCurrency(row.company)}</TableCell>
+                                          <TableCell className="text-xs font-medium text-muted-foreground">{formatCurrency(row.dealer)}</TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                ) : (
+                                  <ReportEmptyState label="No planned or actual expenses found." />
+                                )}
+                              </ReportSectionCard>
+                            )}
+
+                            {activeReportView === "gifts" && (
+                              <ReportSectionCard title="Planned vs Issued Gifts Summary">
+                                {reportGiftRows.length ? (
+                                  <Table className="min-w-[500px]">
+                                    <TableHeader>
+                                      <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">Gift / Item</TableHead>
+                                        <TableHead className="text-xs">Planned</TableHead>
+                                        <TableHead className="text-xs">Issued</TableHead>
+                                        <TableHead className="text-xs">Difference</TableHead>
+                                        <TableHead className="text-xs">Estimated Cost</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {reportGiftRows.map((row) => (
+                                        <TableRow key={row.item}>
+                                          <TableCell className="py-2.5 font-semibold text-xs">{row.item}</TableCell>
+                                          <TableCell className="text-xs font-semibold">{row.planned}</TableCell>
+                                          <TableCell className="text-xs font-semibold">{row.issued}</TableCell>
+                                          <TableCell className={`text-xs font-bold ${row.difference > 0 ? "text-blue-600" : "text-amber-600"}`}>
+                                            {formatSignedNumber(row.difference)}
+                                          </TableCell>
+                                          <TableCell className="text-xs font-bold">{formatCurrency(row.estimatedAmount)}</TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                ) : (
+                                  <ReportEmptyState label="No planned or issued gifts found." />
+                                )}
+                              </ReportSectionCard>
+                            )}
+
+                            {activeReportView === "dealer" && (
+                              <ReportSectionCard title="Dealer Contribution Summary">
+                                <ReportPerformanceTable rows={dealerPerformanceRows} labelHeader="Dealer / Shop" />
+                              </ReportSectionCard>
+                            )}
+
+                            {activeReportView === "city" && (
+                              <ReportSectionCard title="City Contribution Summary">
+                                <ReportPerformanceTable rows={cityPerformanceRows} labelHeader="City / State" />
+                              </ReportSectionCard>
+                            )}
+
+                            {activeReportView === "officer" && (
+                              <ReportSectionCard title="Field Officer Performance Log">
+                                <ReportPerformanceTable rows={fieldOfficerPerformanceRows} labelHeader="Field Officer" />
+                              </ReportSectionCard>
+                            )}
+
+                            {activeReportView === "market" && (
+                              <ReportSectionCard title="Market Contacts Database">
+                                {marketDatabaseRows.length ? (
+                                  <Table className="min-w-[800px]">
+                                    <TableHeader>
+                                      <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">Name</TableHead>
+                                        <TableHead className="text-xs">Mobile</TableHead>
+                                        <TableHead className="text-xs">Category</TableHead>
+                                        <TableHead className="text-xs">City / Area</TableHead>
+                                        <TableHead className="text-xs">Company / Project</TableHead>
+                                        <TableHead className="text-xs">Meeting Type</TableHead>
+                                        <TableHead className="text-xs">Dealer Reference</TableHead>
+                                        <TableHead className="text-xs">Status</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {marketDatabaseRows.map((row) => (
+                                        <TableRow key={`${row.mobile}-${row.name}`}>
+                                          <TableCell className="font-semibold text-xs py-2">{row.name}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">{row.mobile}</TableCell>
+                                          <TableCell className="text-xs font-medium">{row.category}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">{row.cityArea}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">{row.companyShopProject}</TableCell>
+                                          <TableCell className="text-xs font-semibold">{row.meetingType}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">{row.dealer}</TableCell>
+                                          <TableCell className="text-xs">
+                                            <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold">
+                                              {row.status}
+                                            </Badge>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                ) : (
+                                  <ReportEmptyState label="No attendee contact data found." />
+                                )}
+                              </ReportSectionCard>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                    </div>
+                  </ProgressiveSection>
+                </>
+              ) : (
+                <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
+                  <CardContent className="flex flex-col items-center gap-3 px-5 py-10 text-center">
+                    <FileText className="h-7 w-7 text-muted-foreground animate-pulse" />
+                    <div className="space-y-1">
+                      <div className="font-bold text-foreground text-sm">Awaiting Final Outcome Report</div>
+                      <div className="max-w-md text-xs leading-relaxed text-muted-foreground">
+                        The final report details, comparison charts, and CSV data downloads will unlock here once the field team finishes compiling their post-meeting summaries.
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {adminTab === "history" && (
+            <Card id="meeting-admin-panel-history" role="tabpanel" className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm overflow-hidden">
+              <CardHeader className="border-b border-border/20 px-5 py-4">
+                <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground font-semibold">Workflow History Trail</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {auditHistory.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[700px]">
+                      <TableHeader>
+                        <TableRow className="bg-muted/20">
+                          <TableHead className="px-5 text-xs">Action Taken</TableHead>
+                          <TableHead className="text-xs">Transition</TableHead>
+                          <TableHead className="text-xs">Correction Section</TableHead>
+                          <TableHead className="text-xs">Decision Remarks</TableHead>
+                          <TableHead className="text-xs">Performed By</TableHead>
+                          <TableHead className="pr-5 text-xs text-right">Timestamp</TableHead>
                         </TableRow>
-                        <TableRow>
-                          <TableCell className="font-semibold">Budget / Expenses</TableCell>
-                          <TableCell>{formatCurrency(meeting.expectedBudget)}</TableCell>
-                          <TableCell>
-                            {adminPresentation.expenseComparisonReady
-                              ? formatCurrency(actualExpenseTotal)
-                              : actualExpenseTotal > 0
-                                ? `${formatCurrency(actualExpenseTotal)} recorded (completion not marked)`
-                                : "Completion not recorded"}
-                          </TableCell>
-                          <TableCell className={adminPresentation.expenseComparisonReady ? (expenseDelta <= 0 ? "font-semibold text-emerald-600" : "font-semibold text-amber-600") : "text-muted-foreground"}>
-                            {adminPresentation.expenseComparisonReady ? formatSignedCurrency(expenseDelta) : "-"}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell className="font-semibold">Planned Gifts</TableCell>
-                          <TableCell>{plannedGiftQuantity || 0} planned</TableCell>
-                          <TableCell>
-                            {adminPresentation.giftComparisonReady
-                              ? `${issuedGiftQuantity || 0} issued`
-                              : issuedGiftQuantity > 0
-                                ? `${issuedGiftQuantity} recorded (completion not marked)`
-                                : "Completion not recorded"}
-                          </TableCell>
-                          <TableCell className={adminPresentation.giftComparisonReady ? (giftDelta >= 0 ? "font-semibold text-emerald-600" : "font-semibold text-red-600") : "text-muted-foreground"}>
-                            {adminPresentation.giftComparisonReady ? `${giftDelta >= 0 ? `+${giftDelta}` : giftDelta} gift variance` : "-"}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell className="font-semibold">Business Impact</TableCell>
-                          <TableCell className="max-w-[280px] whitespace-pre-wrap">{meeting.expectedBusinessImpact || "-"}</TableCell>
-                          <TableCell className="max-w-[280px] whitespace-pre-wrap">{meeting.actualBusinessOutcome || "-"}</TableCell>
-                          <TableCell className="max-w-[280px] whitespace-pre-wrap">{meeting.leadCount ? `${meeting.leadCount} leads` : meeting.leadsGenerated || "-"}</TableCell>
-                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {auditHistory.map((entry) => (
+                          <TableRow key={entry.id}>
+                            <TableCell className="px-5 font-bold text-xs py-3 text-primary">{entry.action}</TableCell>
+                            <TableCell className="text-xs font-semibold">
+                              {[entry.fromStatus, entry.toStatus].filter(Boolean).join(" → ") || "-"}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {entry.correctionStage ? (
+                                <Badge variant="outline" className="text-[10px] px-2 rounded-full border-amber-200/50 bg-amber-500/10 text-amber-600 font-bold">
+                                  {entry.correctionStage}
+                                </Badge>
+                              ) : "-"}
+                            </TableCell>
+                            <TableCell className="max-w-[220px] truncate text-xs font-medium text-muted-foreground" title={entry.remarks || ""}>
+                              {entry.remarks || "-"}
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground font-semibold">{entry.performedByName || entry.performedById || "-"}</TableCell>
+                            <TableCell className="pr-5 text-right text-[11px] text-muted-foreground">
+                              {entry.performedAt ? format(new Date(entry.performedAt), "dd MMM yyyy, HH:mm") : "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
                       </TableBody>
                     </Table>
                   </div>
-                </section>
-
-                {hasFinalReportContent(meeting) ? (
-                  <section className="border-t pt-6">
-                    <dl className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                      <MeetingNoteBlock label="Meeting summary" value={meeting.meetingSummary} />
-                      <MeetingNoteBlock label="Key discussion points" value={meeting.keyDiscussionPoints} />
-                      <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
-                      <MeetingNoteBlock label="Lead details" value={meeting.leadDetails || meeting.leadsGenerated} />
-                      <MeetingNoteBlock label="Interested customers / contractors" value={meeting.interestedCustomers} />
-                      <MeetingNoteBlock label="Competitor information" value={meeting.competitorInformation} />
-                      <MeetingNoteBlock label="Final remarks" value={meeting.finalRemarks} />
-                      {meeting.finalReportApprovalRemarks && (
-                        <MeetingNoteBlock label="Final approval remarks" value={meeting.finalReportApprovalRemarks} />
-                      )}
-                    </dl>
-                  </section>
                 ) : (
-                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                    Final report details will appear here once the field team submits the report.
-                  </div>
+                  <div className="p-5 text-xs text-muted-foreground text-center">No history trail logs recorded yet.</div>
                 )}
               </CardContent>
             </Card>
-
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>Report Export</CardTitle>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setIsReportFiltersOpen((open) => !open)}>
-                    <Filter className="h-4 w-4" />
-                    {isReportFiltersOpen ? "Hide Filters" : "Filters"}
-                  </Button>
-                  <Button variant="outline" onClick={() => exportMeetingReport(reportFilters)} disabled={isExportingReport}>
-                    {isExportingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    Export CSV
-                  </Button>
-                </div>
-              </CardHeader>
-              {isReportFiltersOpen && (
-                <CardContent className="space-y-5 border-t pt-5">
-                  <div className="grid gap-3 md:grid-cols-6">
-                    <div className="space-y-2">
-                      <Label>Start Date</Label>
-                      <Input
-                        type="date"
-                        value={reportFilters.start}
-                        onChange={(event) => setReportFilters((prev) => ({ ...prev, start: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>End Date</Label>
-                      <Input
-                        type="date"
-                        value={reportFilters.end}
-                        onChange={(event) => setReportFilters((prev) => ({ ...prev, end: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Status</Label>
-                      <Select
-                        value={reportFilters.status}
-                        onValueChange={(value) => setReportFilters((prev) => ({ ...prev, status: value }))}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={REPORT_ALL_VALUE}>All statuses</SelectItem>
-                          {REPORT_STATUS_OPTIONS.map((status) => (
-                            <SelectItem key={status} value={status}>
-                              {formatMeetingStatus(status)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Meeting Type</Label>
-                      <Select
-                        value={reportFilters.meetingType}
-                        onValueChange={(value) => setReportFilters((prev) => ({ ...prev, meetingType: value }))}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={REPORT_ALL_VALUE}>All types</SelectItem>
-                          {reportMeetingTypeOptions.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {type}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>City</Label>
-                      <Input
-                        value={reportFilters.city}
-                        onChange={(event) => setReportFilters((prev) => ({ ...prev, city: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>State</Label>
-                      <Input
-                        value={reportFilters.state}
-                        onChange={(event) => setReportFilters((prev) => ({ ...prev, state: event.target.value }))}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={useCurrentMeetingReportFilters}>
-                      This Meeting
-                    </Button>
-                    <Button variant="outline" onClick={resetReportToMonth}>
-                      Month View
-                    </Button>
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-
-            <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-              <CardContent className="p-6">
-                <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-                  <aside className="border-b pb-4 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5">
-                    <div className="mb-3 px-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                      Meeting Summary Views
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-                      {REPORT_VIEW_OPTIONS.map((option) => (
-                        <button
-                          key={option.key}
-                          type="button"
-                          onClick={() => setActiveReportView(option.key)}
-                          className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold transition ${
-                            activeReportView === option.key
-                              ? "bg-primary/10 text-primary"
-                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                          }`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${activeReportView === option.key ? "bg-primary" : "bg-border"}`} />
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </aside>
-
-                  <div className="min-w-0 space-y-4">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <h3 className="text-lg font-bold">{activeReportMeta.label}</h3>
-                      <span className="text-sm font-medium text-muted-foreground">{activeReportCount} records</span>
-                    </div>
-
-            {activeReportView === "summary" && (
-            <ReportSectionCard title="Meeting Summary">
-              {reportMeetings.length ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Meeting</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Dealer</TableHead>
-                      <TableHead>City</TableHead>
-                      <TableHead>Owner</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Budget</TableHead>
-                      <TableHead>Attendance</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {reportMeetings.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <div className="font-medium">{item.meetingType || "-"}</div>
-                          <div className="max-w-[240px] truncate text-xs text-muted-foreground">
-                            {item.objective || `Meeting #${item.id}`}
-                          </div>
-                        </TableCell>
-                        <TableCell>{formatDate(item.meetingDate)}</TableCell>
-                        <TableCell>{getMeetingDealerLabel(item)}</TableCell>
-                        <TableCell>{[item.city, item.state].filter(Boolean).join(", ") || "-"}</TableCell>
-                        <TableCell>{item.creatorName || "-"}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={statusBadgeClass(item.status)}>
-                            {getMeetingStatusLabel(item)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{formatCurrency(item.expectedBudget)}</TableCell>
-                        <TableCell>
-                          {getActualAttendanceCount(item)}/{item.expectedAttendees || item.attendees?.length || 0}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <ReportEmptyState label="No meetings found for these filters." />
-              )}
-            </ReportSectionCard>
-            )}
-
-            {activeReportView === "expenses" && (
-              <ReportSectionCard title="Planned versus Actual Expenses">
-                {reportExpenseRows.length ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Expense Head</TableHead>
-                        <TableHead>Planned</TableHead>
-                        <TableHead>Actual</TableHead>
-                        <TableHead>Difference</TableHead>
-                        <TableHead>Company</TableHead>
-                        <TableHead>Dealer</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reportExpenseRows.map((row) => (
-                        <TableRow key={row.head}>
-                          <TableCell>
-                            <ExpenseHeadChip head={row.head} />
-                          </TableCell>
-                          <TableCell>{formatCurrency(row.planned)}</TableCell>
-                          <TableCell>{formatCurrency(row.actual)}</TableCell>
-                          <TableCell>{formatCurrency(row.difference)}</TableCell>
-                          <TableCell>{formatCurrency(row.company)}</TableCell>
-                          <TableCell>{formatCurrency(row.dealer)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <ReportEmptyState label="No planned or actual expenses found." />
-                )}
-              </ReportSectionCard>
-            )}
-
-            {activeReportView === "gifts" && (
-              <ReportSectionCard title="Planned versus Issued Gifts">
-                {reportGiftRows.length ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Gift / Item</TableHead>
-                        <TableHead>Planned</TableHead>
-                        <TableHead>Issued</TableHead>
-                        <TableHead>Difference</TableHead>
-                        <TableHead>Estimated Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reportGiftRows.map((row) => (
-                        <TableRow key={row.item}>
-                          <TableCell className="font-medium">{row.item}</TableCell>
-                          <TableCell>{row.planned}</TableCell>
-                          <TableCell>{row.issued}</TableCell>
-                          <TableCell>{row.difference}</TableCell>
-                          <TableCell>{formatCurrency(row.estimatedAmount)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <ReportEmptyState label="No planned or issued gifts found." />
-                )}
-              </ReportSectionCard>
-            )}
-
-            {activeReportView === "dealer" && (
-              <ReportSectionCard title="Dealer Performance">
-                <ReportPerformanceTable rows={dealerPerformanceRows} labelHeader="Dealer / Shop" />
-              </ReportSectionCard>
-            )}
-
-            {activeReportView === "city" && (
-              <ReportSectionCard title="City Performance">
-                <ReportPerformanceTable rows={cityPerformanceRows} labelHeader="City / State" />
-              </ReportSectionCard>
-            )}
-
-            {activeReportView === "officer" && (
-            <ReportSectionCard title="Field Officer Performance">
-              <ReportPerformanceTable rows={fieldOfficerPerformanceRows} labelHeader="Field Officer" />
-            </ReportSectionCard>
-            )}
-
-            {activeReportView === "market" && (
-            <ReportSectionCard title="Market Database">
-              {marketDatabaseRows.length ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Mobile</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>City / Area</TableHead>
-                      <TableHead>Company / Project</TableHead>
-                      <TableHead>Meeting</TableHead>
-                      <TableHead>Dealer</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {marketDatabaseRows.map((row) => (
-                      <TableRow key={`${row.mobile}-${row.name}`}>
-                        <TableCell className="font-medium">{row.name}</TableCell>
-                        <TableCell>{row.mobile}</TableCell>
-                        <TableCell>{row.category}</TableCell>
-                        <TableCell>{row.cityArea}</TableCell>
-                        <TableCell>{row.companyShopProject}</TableCell>
-                        <TableCell>{row.meetingType}</TableCell>
-                        <TableCell>{row.dealer}</TableCell>
-                        <TableCell>{row.status}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <ReportEmptyState label="No attendee contact data found." />
-              )}
-            </ReportSectionCard>
-            )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-              </>
-            ) : (
-              <Card className="rounded-lg border-border/80 py-0 shadow-sm">
-                <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-                  <FileText className="h-8 w-8 text-muted-foreground" />
-                  <div className="space-y-1">
-                    <div className="font-bold text-foreground">Waiting for the final report</div>
-                    <div className="max-w-xl text-sm leading-6 text-muted-foreground">
-                      The final report has not been submitted yet. The plan-versus-actual review and export will appear after the field team submits it.
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
-
-        {adminTab === "history" && (
-          <Card id="meeting-admin-panel-history" role="tabpanel" className="rounded-lg border-border/80 py-0 shadow-sm">
-            <CardHeader>
-              <CardTitle>History</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {auditHistory.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Section</TableHead>
-                      <TableHead>Remarks</TableHead>
-                      <TableHead>By</TableHead>
-                      <TableHead>At</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {auditHistory.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell className="font-medium">{entry.action}</TableCell>
-                        <TableCell>
-                          {[entry.fromStatus, entry.toStatus].filter(Boolean).join(" → ") || "-"}
-                        </TableCell>
-                        <TableCell>{entry.correctionStage || "-"}</TableCell>
-                        <TableCell className="max-w-[280px] whitespace-pre-wrap">{entry.remarks || "-"}</TableCell>
-                        <TableCell>{entry.performedByName || entry.performedById || "-"}</TableCell>
-                        <TableCell>{entry.performedAt ? format(new Date(entry.performedAt), "dd MMM yyyy, HH:mm") : "-"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  No history recorded yet.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-        {approvalDecisionDialog}
-        {finalReviewDecisionDialog}
-        {cancelMeetingDialog}
+          )}
+        </div>
       </div>
+      {approvalDecisionDialog}
+      {finalReviewDecisionDialog}
+      {cancelMeetingDialog}
+      </>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={loadMeeting} disabled={isSaving}>
-            <RefreshCw className="h-4 w-4" />
+    <>
+    <div className="flex flex-col gap-4 lg:h-[calc(100vh-6.5rem)] lg:overflow-hidden min-w-0">
+      {/* Top Header & Actions Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm shrink-0">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push("/dashboard/meetings")}
+            className="shrink-0 rounded-xl h-9"
+          >
+            <ArrowLeft className="h-4 w-4 mr-1.5" />
+            Back
+          </Button>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-extrabold tracking-tight text-foreground truncate">
+                {meeting.meetingType} Meeting
+              </h1>
+              <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${statusBadgeClass(meeting.status)}`}>
+                {getMeetingStatusLabel(meeting)}
+              </Badge>
+            </div>
+            <div className="text-xs text-muted-foreground font-medium mt-0.5 flex items-center gap-2">
+              <span>{[meeting.city, meeting.state].filter(Boolean).join(", ") || "No location set"}</span>
+              <span>•</span>
+              <span>{formatDate(meeting.meetingDate)} at {formatMeetingTime(meeting.meetingTime)}</span>
+              {meeting.storeName && (
+                <>
+                  <span>•</span>
+                  <span>Store: {meeting.storeName}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={loadMeeting} disabled={isSaving} className="rounded-xl h-9">
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isSaving ? "animate-spin" : ""}`} />
             Refresh
           </Button>
           {canSubmit && (
-            <Button onClick={submitForApproval} disabled={isSaving}>
-              <Send className="h-4 w-4" />
-              Submit
+            <Button size="sm" onClick={submitForApproval} disabled={isSaving} className="rounded-xl h-9 font-bold">
+              <Send className="h-3.5 w-3.5 mr-1.5" />
+              Submit Plan
             </Button>
           )}
         </div>
       </div>
 
-      <MeetingKpiGrid
-        status={meeting.status}
-        statusValue={getMeetingStageLabel(meeting)}
-        secondaryLabel={showActualSummary ? "Gifts Issued" : "Planned Gifts"}
-        secondaryValue={showActualSummary ? issuedGiftDisplay : plannedGiftDisplay}
-        financialLabel="Expected Budget"
-        financialValue={formatCurrency(meeting.expectedBudget)}
-        financialSubMetrics={[
-          { label: "Actual Expenses", value: formatCurrency(actualExpenseTotal) },
-          {
-            label: "Difference",
-            value: formatCurrency(budgetDifference),
-            valueClassName: budgetDifference <= 0 ? "text-emerald-600" : "text-amber-600",
-          },
-        ]}
-        attendanceLabel={showActualSummary ? "Actual Attendance" : "Expected Turnout"}
-        attendanceValue={showActualSummary ? `${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}` : String(expectedTurnout || 0)}
-        attendanceSubMetrics={[{ label: "Named Attendees", value: String(namedAttendeeCount) }]}
-      />
+      {/* Top KPI Bar */}
+      <div className="shrink-0">
+        <MeetingKpiGrid
+          status={meeting.status}
+          statusValue={getMeetingStageLabel(meeting)}
+          secondaryLabel={showActualSummary ? "Gifts Issued" : "Planned Gifts"}
+          secondaryValue={showActualSummary ? issuedGiftDisplay : plannedGiftDisplay}
+          financialLabel="Expected Budget"
+          financialValue={formatCurrency(meeting.expectedBudget)}
+          financialSubMetrics={[
+            { label: "Actual Expenses", value: formatCurrency(actualExpenseTotal) },
+            {
+              label: "Difference",
+              value: formatCurrency(budgetDifference),
+              valueClassName: budgetDifference <= 0 ? "text-emerald-600 font-extrabold" : "text-amber-600 font-extrabold",
+            },
+          ]}
+          attendanceLabel={showActualSummary ? "Actual Attendance" : "Expected Turnout"}
+          attendanceValue={showActualSummary ? `${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}` : String(expectedTurnout || 0)}
+          attendanceSubMetrics={[{ label: "Named Attendees", value: String(namedAttendeeCount) }]}
+        />
+      </div>
 
-      {message && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
-      {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {/* Notices */}
+      {message && <div className="rounded-xl border border-emerald-200/30 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-600 shrink-0">{message}</div>}
+      {error && <div className="rounded-xl border border-red-200/30 bg-red-500/10 p-3 text-xs font-semibold text-red-600 shrink-0">{error}</div>}
 
-      <div className="flex gap-2 overflow-x-auto rounded-lg border bg-muted/30 p-1">
+      {meeting.status === "CORRECTION_REQUIRED" && meeting.correctionRemarks && (
+        <div className="rounded-xl border border-orange-200 bg-orange-50/50 p-3.5 text-xs text-orange-900 space-y-1 shrink-0">
+          <div className="font-extrabold flex items-center gap-1">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            Correction Stage: {correctionStageLabel(meeting.correctionStage)}
+          </div>
+          <div className="leading-relaxed opacity-90">{meeting.correctionRemarks}</div>
+        </div>
+      )}
+
+      {/* Full-Width Segmented Navigation Tabs */}
+      <div role="tablist" className="flex gap-1.5 overflow-x-auto rounded-xl border border-border/30 bg-muted/40 p-1.5 shrink-0 scrollbar-none">
         {WORKFLOW_TABS.map((tab) => {
           const enabled = isMeetingTabEnabled(meeting, tab.key);
           return (
             <Button
               key={tab.key}
               type="button"
-              variant={activeTab === tab.key ? "default" : "ghost"}
+              variant="ghost"
               size="sm"
               disabled={!enabled}
               onClick={() => setActiveTab(tab.key)}
-              className="shrink-0"
+              className={`shrink-0 rounded-lg text-xs font-bold transition-all px-4 py-2 flex items-center gap-1.5 ${
+                activeTab === tab.key
+                  ? "bg-background text-foreground shadow-md font-extrabold"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              }`}
             >
               {!enabled && <Lock className="h-3.5 w-3.5" />}
               {tab.label}
@@ -3557,622 +3440,684 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         })}
       </div>
 
-      {activeTab === "request" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Request</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {canEditRequest ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Meeting type</Label>
-                  <Select value={requestForm.meetingType} onValueChange={(value) => updateRequestForm("meetingType", value)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {typeOptions.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Expected budget</Label>
-                  <Input type="number" value={requestForm.expectedBudget} onChange={(event) => updateRequestForm("expectedBudget", event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Expected turnout</Label>
-                  <Input type="number" min="0" value={requestForm.expectedAttendees} onChange={(event) => updateRequestForm("expectedAttendees", event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Date</Label>
-                  <Input type="date" value={requestForm.meetingDate} onChange={(event) => updateRequestForm("meetingDate", event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Time</Label>
-                  <Input type="time" value={requestForm.meetingTime} onChange={(event) => updateRequestForm("meetingTime", event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>City</Label>
-                  <Input value={requestForm.city} onChange={(event) => updateRequestForm("city", event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>State</Label>
-                  <Input value={requestForm.state} onChange={(event) => updateRequestForm("state", event.target.value)} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Location</Label>
-                  <Input value={requestForm.location} onChange={(event) => updateRequestForm("location", event.target.value)} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Dealer / counter / customer reference</Label>
-                  <Input value={requestForm.customerReference} onChange={(event) => updateRequestForm("customerReference", event.target.value)} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Purpose / objective</Label>
-                  <Textarea value={requestForm.objective} onChange={(event) => updateRequestForm("objective", event.target.value)} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Expected business impact</Label>
-                  <Textarea value={requestForm.expectedBusinessImpact} onChange={(event) => updateRequestForm("expectedBusinessImpact", event.target.value)} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Expected gifts / materials</Label>
-                  <Textarea value={requestForm.expectedGiftsMaterials} onChange={(event) => updateRequestForm("expectedGiftsMaterials", event.target.value)} />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Remarks</Label>
-                  <Textarea value={requestForm.remarks} onChange={(event) => updateRequestForm("remarks", event.target.value)} />
-                </div>
-                <label className="flex items-center gap-2 rounded-md border p-3 text-sm md:col-span-2">
-                  <Checkbox
-                    checked={requestForm.allowWalkInAttendees}
-                    onCheckedChange={(checked) => updateRequestForm("allowWalkInAttendees", checked === true)}
-                  />
-                  Allow walk-in attendees during execution
-                </label>
-                <div className="md:col-span-2">
-                  <Button onClick={saveRequest} disabled={isSaving}>
-                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Save Request
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-3">
-                <ReadOnlyField label="Meeting type" value={meeting.meetingType} />
-                <ReadOnlyField label="Date" value={formatDate(meeting.meetingDate)} />
-                <ReadOnlyField label="Time" value={formatMeetingTime(meeting.meetingTime)} />
-                <ReadOnlyField label="City" value={meeting.city} />
-                <ReadOnlyField label="State" value={meeting.state} />
-                <ReadOnlyField label="Location" value={meeting.location} />
-                <ReadOnlyField label="Reference" value={meeting.customerReference} />
-                <ReadOnlyField label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
-                <ReadOnlyField label="Expected turnout" value={meeting.expectedAttendees} />
-                <ReadOnlyField label="Named attendees" value={meeting.attendees?.length || 0} />
-                <div className="md:col-span-3">
-                  <ReadOnlyField label="Objective" value={meeting.objective} />
-                </div>
-                <div className="md:col-span-3">
-                  <ReadOnlyField label="Expected business impact" value={meeting.expectedBusinessImpact} />
-                </div>
-                <div className="md:col-span-3">
-                  <ReadOnlyField
-                    label="Expected gifts / materials"
-                    value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />}
-                  />
-                </div>
-                <div className="md:col-span-3">
-                  <ReadOnlyField label="Remarks" value={meeting.remarks} />
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === "attendees" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Expected Attendees</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {canEditRequest ? (
-              <>
-                <div className="flex justify-end">
-                  <Button variant="outline" size="sm" onClick={() => setAttendees((prev) => [...prev, attendeeDraft()])}>
-                    <Plus className="h-4 w-4" />
-                    Add Attendee
-                  </Button>
-                </div>
-                {attendees.map((attendee, index) => (
-                  <div key={index} className="rounded-lg border p-3">
-                    <div className="mb-3 flex items-center justify-between">
-                      <span className="text-sm font-medium">Attendee {index + 1}</span>
-                      {attendees.length > 1 && (
-                        <Button variant="ghost" size="sm" onClick={() => setAttendees((prev) => prev.filter((_, currentIndex) => currentIndex !== index))}>
-                          Remove
-                        </Button>
-                      )}
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <Input placeholder="Name" value={attendee.name} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, name: event.target.value } : item))} />
-                      <Input placeholder="Mobile" value={attendee.mobileNumber} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, mobileNumber: event.target.value } : item))} />
-                      <Select value={attendee.category || "mason"} onValueChange={(value) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, category: value } : item))}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ATTENDEE_CATEGORIES.map((category) => (
-                            <SelectItem key={category} value={category}>
-                              {category}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input placeholder="City / area" value={attendee.cityArea || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, cityArea: event.target.value } : item))} />
-                      <Input placeholder="Company / shop / project" value={attendee.companyShopProject || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, companyShopProject: event.target.value } : item))} />
-                      <Input placeholder="Email" value={attendee.email || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, email: event.target.value } : item))} />
-                      <Input className="md:col-span-3" placeholder="Remarks" value={attendee.remarks || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
-                    </div>
-                  </div>
-                ))}
-                <Button onClick={saveAttendees} disabled={isSaving}>
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save Attendees
-                </Button>
-              </>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Mobile</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>City / Area</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(meeting.attendees || []).map((attendee) => (
-                    <TableRow key={attendee.id || attendee.mobileNumber}>
-                      <TableCell>{attendee.name}</TableCell>
-                      <TableCell>{attendee.mobileNumber}</TableCell>
-                      <TableCell>{attendee.category}</TableCell>
-                      <TableCell>{attendee.cityArea || "-"}</TableCell>
-                      <TableCell>
-                        {attendee.present ? (
-                          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Present</Badge>
-                        ) : attendee.expected ? (
-                          <Badge variant="outline">Expected</Badge>
-                        ) : (
-                          <Badge variant="outline">Walk-in</Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === "approval" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Approval</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
-              <ReadOnlyField label="Status" value={getMeetingStatusLabel(meeting)} />
-              <ReadOnlyField label="Current approval remarks" value={meeting.approvalRemarks} />
-              <ReadOnlyField label="Budget" value={formatCurrency(meeting.expectedBudget)} />
-            </div>
-            {canApprove || canReject || canRequestCorrection ? (
-              <Button className="w-fit" onClick={() => setIsApprovalDecisionOpen(true)}>
-                <CheckCircle2 className="h-4 w-4" />
-                Review Decision
-              </Button>
-            ) : (
-              <LockedPanel label="Approval actions are available only when this meeting is pending approval." />
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === "execution" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Execution</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {canExecute || canMarkAttendance ? (
-              <>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label>Actual date</Label>
-                    <Input type="date" value={executionForm.actualMeetingDate} onChange={(event) => setExecutionForm((prev) => ({ ...prev, actualMeetingDate: event.target.value }))} disabled={!canExecute} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Actual time</Label>
-                    <Input type="time" value={executionForm.actualMeetingTime} onChange={(event) => setExecutionForm((prev) => ({ ...prev, actualMeetingTime: event.target.value }))} disabled={!canExecute} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Actual location</Label>
-                    <Input value={executionForm.actualLocation} onChange={(event) => setExecutionForm((prev) => ({ ...prev, actualLocation: event.target.value }))} disabled={!canExecute} />
-                  </div>
-                  <div className="space-y-2 md:col-span-3">
-                    <Label>Execution remarks</Label>
-                    <Textarea value={executionForm.executionRemarks} onChange={(event) => setExecutionForm((prev) => ({ ...prev, executionRemarks: event.target.value }))} disabled={!canExecute} />
-                  </div>
-                </div>
-                {canExecute && (
-                  <Button onClick={executeMeeting} disabled={isSaving}>
-                    <UserCheck className="h-4 w-4" />
-                    Start Execution
-                  </Button>
-                )}
-                {canMarkAttendance && (
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-medium">Actual attendance</h3>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Present</TableHead>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Mobile</TableHead>
-                          <TableHead>Category</TableHead>
-                          <TableHead>Remarks</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(meeting.attendees || []).map((attendee) => (
-                          <TableRow key={attendee.id || attendee.mobileNumber}>
-                            <TableCell>
-                              <Checkbox
-                                checked={attendee.id != null ? attendance[attendee.id]?.present === true : false}
-                                disabled={attendee.id == null}
-                                onCheckedChange={(checked) =>
-                                  attendee.id != null &&
-                                  setAttendance((prev) => ({
-                                    ...prev,
-                                    [attendee.id as number]: {
-                                      present: checked === true,
-                                      remarks: prev[attendee.id as number]?.remarks || "",
-                                    },
-                                  }))
-                                }
-                              />
-                            </TableCell>
-                            <TableCell>{attendee.name}</TableCell>
-                            <TableCell>{attendee.mobileNumber}</TableCell>
-                            <TableCell>{attendee.category}</TableCell>
-                            <TableCell>
-                              <Input
-                                value={attendee.id != null ? attendance[attendee.id]?.remarks || "" : ""}
-                                disabled={attendee.id == null}
-                                onChange={(event) =>
-                                  attendee.id != null &&
-                                  setAttendance((prev) => ({
-                                    ...prev,
-                                    [attendee.id as number]: {
-                                      present: prev[attendee.id as number]?.present === true,
-                                      remarks: event.target.value,
-                                    },
-                                  }))
-                                }
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    <Button onClick={saveAttendance} disabled={isSaving}>
-                      <Save className="h-4 w-4" />
-                      Finalise Attendance
-                    </Button>
-                  </div>
-                )}
-                {meeting.allowWalkInAttendees !== false && canMarkAttendance && (
-                  <div className="space-y-3 rounded-lg border p-3">
-                    <h3 className="text-sm font-medium">Add walk-in attendee</h3>
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <Input placeholder="Name" value={walkIn.name} onChange={(event) => setWalkIn((prev) => ({ ...prev, name: event.target.value }))} />
-                      <Input placeholder="Mobile" value={walkIn.mobileNumber} onChange={(event) => setWalkIn((prev) => ({ ...prev, mobileNumber: event.target.value }))} />
-                      <Select value={walkIn.category || "mason"} onValueChange={(value) => setWalkIn((prev) => ({ ...prev, category: value }))}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ATTENDEE_CATEGORIES.map((category) => (
-                            <SelectItem key={category} value={category}>
-                              {category}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input placeholder="City / area" value={walkIn.cityArea || ""} onChange={(event) => setWalkIn((prev) => ({ ...prev, cityArea: event.target.value }))} />
-                      <Input placeholder="Company / project" value={walkIn.companyShopProject || ""} onChange={(event) => setWalkIn((prev) => ({ ...prev, companyShopProject: event.target.value }))} />
-                      <Input placeholder="Remarks" value={walkIn.remarks || ""} onChange={(event) => setWalkIn((prev) => ({ ...prev, remarks: event.target.value }))} />
-                    </div>
-                    <Button variant="outline" onClick={addWalkIn} disabled={isSaving}>
-                      <Plus className="h-4 w-4" />
-                      Add Walk-in
-                    </Button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <LockedPanel label="Execution unlocks only after approval." />
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === "gifts" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Gifts</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {canIssueGifts ? (
-              <>
-                <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                  Gifts can be issued only to attendees marked present.
-                </div>
-                <div className="flex justify-end">
-                  <Button variant="outline" size="sm" onClick={() => setGifts((prev) => [...prev, giftDraft(presentAttendees[0]?.id)])}>
-                    <Plus className="h-4 w-4" />
-                    Add Gift
-                  </Button>
-                </div>
-                {gifts.map((gift, index) => (
-                  <div key={index} className="grid gap-3 rounded-lg border p-3 md:grid-cols-4">
-                    <Select
-                      value={gift.meetingAttendeeId ? String(gift.meetingAttendeeId) : ""}
-                      onValueChange={(value) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, meetingAttendeeId: Number(value) } : item))}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Present attendee" />
+      {/* Full-Width Scrollable Tab Content Panel */}
+      <div className="flex-1 lg:overflow-y-auto pb-4 pr-1 scrollbar-thin space-y-5">
+        {activeTab === "request" && (
+          <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
+            <CardHeader className="border-b border-border/20 px-5 py-4">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Request Details</CardTitle>
+            </CardHeader>
+            <CardContent className="p-5">
+              {canEditRequest ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Meeting type</Label>
+                    <Select value={requestForm.meetingType} onValueChange={(value) => updateRequestForm("meetingType", value)}>
+                      <SelectTrigger className="w-full rounded-lg h-9">
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {presentAttendees.map((attendee) => (
-                          <SelectItem key={attendee.id} value={String(attendee.id)}>
-                            {attendee.name}
+                        {typeOptions.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {currentGiftOptions.length ? (
-                      <Select
-                        value={gift.giftItem || ""}
-                        onValueChange={(value) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, giftItem: value } : item))}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Gift / item" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {currentGiftOptions.map((item) => (
-                            <SelectItem key={item} value={item}>
-                              {item}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input placeholder="Gift / item" value={gift.giftItem} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, giftItem: event.target.value } : item))} />
-                    )}
-                    <Input type="number" min="1" placeholder="Qty" value={gift.quantity} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, quantity: Number(event.target.value) } : item))} />
-                    <div className="flex gap-2">
-                      <Input placeholder="Remarks" value={gift.remarks || ""} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
-                      {gifts.length > 1 && (
-                        <Button variant="ghost" size="icon" onClick={() => removeGift(index)} disabled={isSaving}>
-                          <XCircle className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
                   </div>
-                ))}
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={saveGifts} disabled={isSaving || presentAttendees.length === 0}>
-                    <Gift className="h-4 w-4" />
-                    Save Gifts
-                  </Button>
-                  <Button variant="outline" onClick={markNoGifts} disabled={isSaving}>
-                    No Gifts Distributed
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <LockedPanel label="Gifts unlock after execution and can be issued only to present attendees." />
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === "expenses" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Expenses</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {canSubmitExpenses ? (
-              <>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <ReadOnlyField label="Approved budget" value={formatCurrency(meeting.expectedBudget)} />
-                  <ReadOnlyField label="Actual expense total" value={formatCurrency(totalExpenses)} />
-                  <ReadOnlyField label="Difference" value={formatCurrency(totalExpenses - Number(meeting.expectedBudget || 0))} />
-                </div>
-                <div className="flex justify-end">
-                  <Button variant="outline" size="sm" onClick={() => setExpenses((prev) => [...prev, expenseDraft(executionForm.actualMeetingDate || meeting.meetingDate)])}>
-                    <Plus className="h-4 w-4" />
-                    Add Expense
-                  </Button>
-                </div>
-                {expenses.map((expense, index) => (
-                  <div key={index} className="grid gap-3 rounded-lg border p-3 md:grid-cols-6">
-                    <Select value={expense.expenseHead} onValueChange={(value) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseHead: value } : item))}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {currentExpenseHeadOptions.map((head) => (
-                          <SelectItem key={head} value={head}>
-                            {head}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input type="number" min="0" value={expense.amount} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, amount: Number(event.target.value) } : item))} />
-                    <Select value={expense.paidBy || "COMPANY"} onValueChange={(value) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, paidBy: value } : item))}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="COMPANY">Company</SelectItem>
-                        <SelectItem value="DEALER">Dealer</SelectItem>
-                        <SelectItem value="SHARED">Shared</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input type="date" value={expense.expenseDate || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseDate: event.target.value } : item))} />
-                    <Input placeholder="Remarks" value={expense.remarks || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
-                    <Button variant="ghost" size="icon" disabled={expenses.length === 1 || isSaving} onClick={() => removeExpense(index)}>
-                      <XCircle className="h-4 w-4" />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Expected budget (INR)</Label>
+                    <Input type="number" className="rounded-lg h-9" value={requestForm.expectedBudget} onChange={(event) => updateRequestForm("expectedBudget", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Expected turnout</Label>
+                    <Input type="number" className="rounded-lg h-9" min="0" value={requestForm.expectedAttendees} onChange={(event) => updateRequestForm("expectedAttendees", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Planned Date</Label>
+                    <Input type="date" className="rounded-lg h-9" value={requestForm.meetingDate} onChange={(event) => updateRequestForm("meetingDate", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Planned Time</Label>
+                    <Input type="time" className="rounded-lg h-9" value={requestForm.meetingTime} onChange={(event) => updateRequestForm("meetingTime", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">City</Label>
+                    <Input className="rounded-lg h-9" value={requestForm.city} onChange={(event) => updateRequestForm("city", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">State</Label>
+                    <Input className="rounded-lg h-9" value={requestForm.state} onChange={(event) => updateRequestForm("state", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Execution Location Address</Label>
+                    <Input className="rounded-lg h-9" value={requestForm.location} onChange={(event) => updateRequestForm("location", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Dealer / Shop / Customer Reference</Label>
+                    <Input className="rounded-lg h-9" value={requestForm.customerReference} onChange={(event) => updateRequestForm("customerReference", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Purpose / Objective</Label>
+                    <Textarea className="rounded-lg min-h-20" value={requestForm.objective} onChange={(event) => updateRequestForm("objective", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Expected Business Impact</Label>
+                    <Textarea className="rounded-lg min-h-20" value={requestForm.expectedBusinessImpact} onChange={(event) => updateRequestForm("expectedBusinessImpact", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Expected Gifts / Materials</Label>
+                    <Textarea className="rounded-lg min-h-20" value={requestForm.expectedGiftsMaterials} onChange={(event) => updateRequestForm("expectedGiftsMaterials", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Remarks</Label>
+                    <Textarea className="rounded-lg min-h-20" value={requestForm.remarks} onChange={(event) => updateRequestForm("remarks", event.target.value)} />
+                  </div>
+                  <label className="flex items-center gap-2 rounded-xl border border-border/20 bg-muted/10 p-3 text-xs font-semibold sm:col-span-2 cursor-pointer hover:bg-muted/20 transition-all">
+                    <Checkbox
+                      checked={requestForm.allowWalkInAttendees}
+                      onCheckedChange={(checked) => updateRequestForm("allowWalkInAttendees", checked === true)}
+                    />
+                    Allow walk-in attendees during execution
+                  </label>
+                  <div className="sm:col-span-2">
+                    <Button onClick={saveRequest} disabled={isSaving} className="rounded-xl font-bold">
+                      {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}
+                      Save Request Plan
                     </Button>
-                    {expense.paidBy === "SHARED" && (
-                      <>
-                        <Input
-                          type="number"
-                          min="0"
-                          placeholder="Company amount"
-                          value={expense.companyAmount ?? ""}
-                          onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, companyAmount: Number(event.target.value) } : item))}
-                        />
-                        <Input
-                          type="number"
-                          min="0"
-                          placeholder="Dealer amount"
-                          value={expense.dealerAmount ?? ""}
-                          onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, dealerAmount: Number(event.target.value) } : item))}
-                        />
-                      </>
-                    )}
                   </div>
-                ))}
-                <div className="space-y-2">
-                  <Label>Expense remarks {totalExpenses > Number(meeting.expectedBudget || 0) ? "(required because actual is higher)" : ""}</Label>
-                  <Textarea value={expenseRemarks} onChange={(event) => setExpenseRemarks(event.target.value)} />
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={submitExpenses} disabled={isSaving}>
-                    <Send className="h-4 w-4" />
-                    Submit Expenses
-                  </Button>
-                  <Button variant="outline" onClick={markNoExpenses} disabled={isSaving}>
-                    No Expenses Incurred
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <LockedPanel label="Expenses unlock after meeting execution." />
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === "finalReport" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Final Report</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {isMeetingTabEnabled(meeting, "finalReport") ? (
-              <>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <ReadOnlyField label="Actual attendee count" value={(meeting.attendees || []).filter((attendee) => attendee.present).length} />
-                  <ReadOnlyField label="Expense summary" value={formatCurrency(actualExpenseTotal || totalExpenses)} />
-                  <ReadOnlyField label="Gift summary" value={`${meeting.gifts?.length || 0} gift rows`} />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2 md:col-span-2">
-                    <Label>Meeting summary</Label>
-                    <Textarea value={finalReport.meetingSummary} onChange={(event) => setFinalReport((prev) => ({ ...prev, meetingSummary: event.target.value }))} disabled={!canSubmitFinalReport} />
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                  <ReadOnlyField label="Meeting type" value={meeting.meetingType} />
+                  <ReadOnlyField label="Planned Date" value={formatDate(meeting.meetingDate)} />
+                  <ReadOnlyField label="Planned Time" value={formatMeetingTime(meeting.meetingTime)} />
+                  <ReadOnlyField label="City" value={meeting.city} />
+                  <ReadOnlyField label="State" value={meeting.state} />
+                  <ReadOnlyField label="Location" value={meeting.location} />
+                  <ReadOnlyField label="Reference" value={meeting.customerReference} />
+                  <ReadOnlyField label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
+                  <ReadOnlyField label="Expected turnout" value={meeting.expectedAttendees} />
+                  <ReadOnlyField label="Named attendees" value={meeting.attendees?.length || 0} />
+                  <div className="sm:col-span-2 md:col-span-3">
+                    <ReadOnlyField label="Objective" value={meeting.objective} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Key discussion points</Label>
-                    <Textarea value={finalReport.keyDiscussionPoints} onChange={(event) => setFinalReport((prev) => ({ ...prev, keyDiscussionPoints: event.target.value }))} disabled={!canSubmitFinalReport} />
+                  <div className="sm:col-span-2 md:col-span-3">
+                    <ReadOnlyField label="Expected business impact" value={meeting.expectedBusinessImpact} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Actual business outcome</Label>
-                    <Textarea value={finalReport.actualBusinessOutcome} onChange={(event) => setFinalReport((prev) => ({ ...prev, actualBusinessOutcome: event.target.value }))} disabled={!canSubmitFinalReport} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Leads generated</Label>
-                    <Textarea value={finalReport.leadsGenerated} onChange={(event) => setFinalReport((prev) => ({ ...prev, leadsGenerated: event.target.value }))} disabled={!canSubmitFinalReport} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Lead count</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={finalReport.leadCount ?? ""}
-                      onChange={(event) => setFinalReport((prev) => ({ ...prev, leadCount: event.target.value === "" ? undefined : Number(event.target.value) }))}
-                      disabled={!canSubmitFinalReport}
+                  <div className="sm:col-span-2 md:col-span-3">
+                    <ReadOnlyField
+                      label="Expected gifts / materials"
+                      value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Lead details</Label>
-                    <Textarea value={finalReport.leadDetails} onChange={(event) => setFinalReport((prev) => ({ ...prev, leadDetails: event.target.value }))} disabled={!canSubmitFinalReport} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Interested customers / contractors</Label>
-                    <Textarea value={finalReport.interestedCustomers} onChange={(event) => setFinalReport((prev) => ({ ...prev, interestedCustomers: event.target.value }))} disabled={!canSubmitFinalReport} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Competitor information</Label>
-                    <Textarea value={finalReport.competitorInformation} onChange={(event) => setFinalReport((prev) => ({ ...prev, competitorInformation: event.target.value }))} disabled={!canSubmitFinalReport} />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label>Final remarks</Label>
-                    <Textarea value={finalReport.finalRemarks} onChange={(event) => setFinalReport((prev) => ({ ...prev, finalRemarks: event.target.value }))} disabled={!canSubmitFinalReport} />
+                  <div className="sm:col-span-2 md:col-span-3">
+                    <ReadOnlyField label="Remarks" value={meeting.remarks} />
                   </div>
                 </div>
-                {canSubmitFinalReport && (
-                  <Button onClick={submitFinalReport} disabled={isSaving}>
-                    <Send className="h-4 w-4" />
-                    Submit Final Report
-                  </Button>
-                )}
-                {(canApproveFinalReport || canClose || canCancel) && (
-                  <div className="flex flex-wrap gap-2 border-t pt-4">
-                    {(canApproveFinalReport || canClose) && (
-                      <Button onClick={() => setIsFinalReviewDecisionOpen(true)}>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Final Review Decision
-                      </Button>
-                    )}
-                    {canCancel && (
-                      <Button variant="destructive" onClick={() => setIsCancelMeetingOpen(true)}>
-                        Cancel Meeting
-                      </Button>
-                    )}
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "attendees" && (
+          <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm overflow-hidden">
+            <CardHeader className="border-b border-border/20 px-5 py-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Expected Attendees</CardTitle>
+              {canEditRequest && (
+                <Button variant="outline" size="sm" onClick={() => setAttendees((prev) => [...prev, attendeeDraft()])} className="rounded-lg font-bold text-xs h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add Row
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              {canEditRequest ? (
+                <>
+                  <div className="space-y-3">
+                    {attendees.map((attendee, index) => (
+                      <div key={index} className="rounded-xl border border-border/20 bg-muted/5 p-4 relative group hover:border-border/40 transition-all">
+                        <div className="mb-3.5 flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-primary uppercase tracking-wider">Attendee #{index + 1}</span>
+                          {attendees.length > 1 && (
+                            <Button variant="ghost" size="sm" onClick={() => setAttendees((prev) => prev.filter((_, currentIndex) => currentIndex !== index))} className="h-6 text-red-600 hover:text-red-700 hover:bg-red-50 text-[11px] font-bold rounded-md">
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                          <Input placeholder="Full Name" className="rounded-lg h-9 text-xs" value={attendee.name} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, name: event.target.value } : item))} />
+                          <Input placeholder="Mobile Number" className="rounded-lg h-9 text-xs" value={attendee.mobileNumber} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, mobileNumber: event.target.value } : item))} />
+                          <Select value={attendee.category || "mason"} onValueChange={(value) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, category: value } : item))}>
+                            <SelectTrigger className="w-full rounded-lg h-9 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ATTENDEE_CATEGORIES.map((category) => (
+                                <SelectItem key={category} value={category} className="text-xs">
+                                  {category}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input placeholder="City / area" className="rounded-lg h-9 text-xs" value={attendee.cityArea || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, cityArea: event.target.value } : item))} />
+                          <Input placeholder="Company / shop / project" className="rounded-lg h-9 text-xs" value={attendee.companyShopProject || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, companyShopProject: event.target.value } : item))} />
+                          <Input placeholder="Email Address" className="rounded-lg h-9 text-xs" value={attendee.email || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, email: event.target.value } : item))} />
+                          <Input className="sm:col-span-2 md:col-span-3 rounded-lg h-9 text-xs" placeholder="Remarks" value={attendee.remarks || ""} onChange={(event) => setAttendees((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                )}
-              </>
-            ) : (
-              <LockedPanel label="Final report unlocks after expenses are submitted." />
-            )}
-          </CardContent>
-        </Card>
-      )}
-      {approvalDecisionDialog}
-      {finalReviewDecisionDialog}
-      {cancelMeetingDialog}
+                  <Button onClick={saveAttendees} disabled={isSaving} className="rounded-xl font-bold">
+                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}
+                    Save Expected Attendees
+                  </Button>
+                </>
+              ) : (
+                <div className="overflow-x-auto border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/20">
+                        <TableHead className="px-4 py-3 text-xs">Name</TableHead>
+                        <TableHead className="px-4 py-3 text-xs">Mobile</TableHead>
+                        <TableHead className="px-4 py-3 text-xs">Category</TableHead>
+                        <TableHead className="px-4 py-3 text-xs">City / Area</TableHead>
+                        <TableHead className="px-4 py-3 text-xs text-right">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(meeting.attendees || []).map((attendee) => (
+                        <TableRow key={attendee.id || attendee.mobileNumber}>
+                          <TableCell className="px-4 py-3 font-semibold text-xs">{attendee.name}</TableCell>
+                          <TableCell className="px-4 py-3 text-xs text-muted-foreground">{attendee.mobileNumber}</TableCell>
+                          <TableCell className="px-4 py-3 text-xs font-semibold">{attendee.category}</TableCell>
+                          <TableCell className="px-4 py-3 text-xs text-muted-foreground">{attendee.cityArea || "-"}</TableCell>
+                          <TableCell className="px-4 py-3 text-right">
+                            {attendee.present ? (
+                              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[9px] px-1.5 font-bold rounded-full">Present</Badge>
+                            ) : attendee.expected ? (
+                              <Badge variant="outline" className="text-[9px] px-1.5 rounded-full font-bold">Expected</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[9px] px-1.5 rounded-full">Walk-in</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "approval" && (
+          <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
+            <CardHeader className="border-b border-border/20 px-5 py-4">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Admin Approval Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <ReadOnlyField label="Workflow Status" value={getMeetingStatusLabel(meeting)} />
+                <ReadOnlyField label="Budget Request" value={formatCurrency(meeting.expectedBudget)} />
+                <ReadOnlyField label="Admin Review Remarks" value={meeting.approvalRemarks} />
+              </div>
+              {canApprove || canReject || canRequestCorrection ? (
+                <Button className="rounded-xl font-bold" onClick={() => setIsApprovalDecisionOpen(true)}>
+                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                  Review Decision Actions
+                </Button>
+              ) : (
+                <LockedPanel label="Admin decision controls are locked. They open only when a meeting is in PENDING_APPROVAL status." />
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "execution" && (
+          <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
+            <CardHeader className="border-b border-border/20 px-5 py-4">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Meeting Execution Log</CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-5">
+              {canExecute || canMarkAttendance ? (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-muted-foreground">Actual date conducted</Label>
+                      <Input type="date" className="rounded-lg h-9 text-xs" value={executionForm.actualMeetingDate} onChange={(event) => setExecutionForm((prev) => ({ ...prev, actualMeetingDate: event.target.value }))} disabled={!canExecute} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-muted-foreground">Actual time conducted</Label>
+                      <Input type="time" className="rounded-lg h-9 text-xs" value={executionForm.actualMeetingTime} onChange={(event) => setExecutionForm((prev) => ({ ...prev, actualMeetingTime: event.target.value }))} disabled={!canExecute} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-muted-foreground">Actual execution location address</Label>
+                      <Input className="rounded-lg h-9 text-xs" value={executionForm.actualLocation} onChange={(event) => setExecutionForm((prev) => ({ ...prev, actualLocation: event.target.value }))} disabled={!canExecute} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2 md:col-span-3">
+                      <Label className="text-xs font-bold text-muted-foreground">Execution remarks</Label>
+                      <Textarea className="rounded-lg min-h-16" value={executionForm.executionRemarks} onChange={(event) => setExecutionForm((prev) => ({ ...prev, executionRemarks: event.target.value }))} disabled={!canExecute} />
+                    </div>
+                  </div>
+                  {canExecute && (
+                    <Button onClick={executeMeeting} disabled={isSaving} className="rounded-xl font-bold">
+                      <UserCheck className="h-4 w-4 mr-1.5" />
+                      Save & Start Execution
+                    </Button>
+                  )}
+                  {canMarkAttendance && (
+                    <div className="space-y-3.5 border-t border-border/20 pt-4">
+                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">Mark Actual Attendance Turnout</h3>
+                      <div className="overflow-x-auto border rounded-xl bg-background/50">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/20">
+                              <TableHead className="w-16 text-center text-xs">Present</TableHead>
+                              <TableHead className="text-xs">Attendee Name</TableHead>
+                              <TableHead className="text-xs">Mobile Number</TableHead>
+                              <TableHead className="text-xs">Category</TableHead>
+                              <TableHead className="pr-4 text-xs">Individual Remarks</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(meeting.attendees || []).map((attendee) => (
+                              <TableRow key={attendee.id || attendee.mobileNumber}>
+                                <TableCell className="text-center py-2.5">
+                                  <Checkbox
+                                    className="rounded"
+                                    checked={attendee.id != null ? attendance[attendee.id]?.present === true : false}
+                                    disabled={attendee.id == null}
+                                    onCheckedChange={(checked) =>
+                                      attendee.id != null &&
+                                      setAttendance((prev) => ({
+                                        ...prev,
+                                        [attendee.id as number]: {
+                                          present: checked === true,
+                                          remarks: prev[attendee.id as number]?.remarks || "",
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell className="text-xs font-semibold">{attendee.name}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{attendee.mobileNumber}</TableCell>
+                                <TableCell className="text-xs font-medium text-foreground">{attendee.category}</TableCell>
+                                <TableCell className="pr-4 py-1.5">
+                                  <Input
+                                    className="h-8 rounded-md text-xs bg-background/70"
+                                    value={attendee.id != null ? attendance[attendee.id]?.remarks || "" : ""}
+                                    disabled={attendee.id == null}
+                                    onChange={(event) =>
+                                      attendee.id != null &&
+                                      setAttendance((prev) => ({
+                                        ...prev,
+                                        [attendee.id as number]: {
+                                          present: prev[attendee.id as number]?.present === true,
+                                          remarks: event.target.value,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <Button onClick={saveAttendance} disabled={isSaving} className="rounded-xl font-bold">
+                        <Save className="h-4 w-4 mr-1.5" />
+                        Finalise & Confirm Attendance
+                      </Button>
+                    </div>
+                  )}
+                  {meeting.allowWalkInAttendees !== false && canMarkAttendance && (
+                    <div className="space-y-3 rounded-xl border border-border/20 bg-muted/5 p-4 mt-2">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-primary">Record Walk-in Attendee</h3>
+                      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                        <Input placeholder="Name" className="rounded-lg h-9 text-xs" value={walkIn.name} onChange={(event) => setWalkIn((prev) => ({ ...prev, name: event.target.value }))} />
+                        <Input placeholder="Mobile Number" className="rounded-lg h-9 text-xs" value={walkIn.mobileNumber} onChange={(event) => setWalkIn((prev) => ({ ...prev, mobileNumber: event.target.value }))} />
+                        <Select value={walkIn.category || "mason"} onValueChange={(value) => setWalkIn((prev) => ({ ...prev, category: value }))}>
+                          <SelectTrigger className="w-full rounded-lg h-9 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ATTENDEE_CATEGORIES.map((category) => (
+                              <SelectItem key={category} value={category} className="text-xs">
+                                {category}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input placeholder="City / Area" className="rounded-lg h-9 text-xs" value={walkIn.cityArea || ""} onChange={(event) => setWalkIn((prev) => ({ ...prev, cityArea: event.target.value }))} />
+                        <Input placeholder="Company / Project / Shop" className="rounded-lg h-9 text-xs" value={walkIn.companyShopProject || ""} onChange={(event) => setWalkIn((prev) => ({ ...prev, companyShopProject: event.target.value }))} />
+                        <Input placeholder="Remarks" className="rounded-lg h-9 text-xs" value={walkIn.remarks || ""} onChange={(event) => setWalkIn((prev) => ({ ...prev, remarks: event.target.value }))} />
+                      </div>
+                      <Button variant="outline" onClick={addWalkIn} disabled={isSaving} className="rounded-lg font-bold text-xs h-9">
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        Add & Mark Present
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <LockedPanel label="Execution controls are locked. They open only after the request plan is approved." />
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "gifts" && (
+          <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
+            <CardHeader className="border-b border-border/20 px-5 py-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Distribute Gifts</CardTitle>
+              {canIssueGifts && (
+                <Button variant="outline" size="sm" onClick={() => setGifts((prev) => [...prev, giftDraft(presentAttendees[0]?.id)])} className="rounded-lg font-bold text-xs h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add Gift Line
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              {canIssueGifts ? (
+                <>
+                  <div className="rounded-lg border border-border/20 bg-muted/10 px-4 py-2.5 text-xs text-muted-foreground leading-relaxed">
+                    💡 Note: Gifts can be issued only to attendees who have been marked <strong>Present</strong>.
+                  </div>
+                  <div className="space-y-3">
+                    {gifts.map((gift, index) => (
+                      <div key={index} className="grid gap-3 rounded-xl border border-border/20 p-3 md:grid-cols-4 items-center bg-muted/5 relative">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] font-bold text-muted-foreground">Attendee</Label>
+                          <Select
+                            value={gift.meetingAttendeeId ? String(gift.meetingAttendeeId) : ""}
+                            onValueChange={(value) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, meetingAttendeeId: Number(value) } : item))}
+                          >
+                            <SelectTrigger className="w-full rounded-lg h-9 text-xs">
+                              <SelectValue placeholder="Select Present Attendee" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {presentAttendees.map((attendee) => (
+                                <SelectItem key={attendee.id} value={String(attendee.id)} className="text-xs">
+                                  {attendee.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] font-bold text-muted-foreground">Gift / Material Item</Label>
+                          {currentGiftOptions.length ? (
+                            <Select
+                              value={gift.giftItem || ""}
+                              onValueChange={(value) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, giftItem: value } : item))}
+                            >
+                              <SelectTrigger className="w-full rounded-lg h-9 text-xs">
+                                <SelectValue placeholder="Select Item" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {currentGiftOptions.map((item) => (
+                                  <SelectItem key={item} value={item} className="text-xs">
+                                    {item}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input placeholder="Enter Gift name" className="rounded-lg h-9 text-xs" value={gift.giftItem} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, giftItem: event.target.value } : item))} />
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] font-bold text-muted-foreground">Quantity</Label>
+                          <Input type="number" min="1" className="rounded-lg h-9 text-xs" placeholder="Qty" value={gift.quantity} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, quantity: Number(event.target.value) } : item))} />
+                        </div>
+                        <div className="space-y-1 flex items-end gap-2">
+                          <div className="flex-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground">Remarks</Label>
+                            <Input placeholder="Remarks" className="rounded-lg h-9 text-xs" value={gift.remarks || ""} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
+                          </div>
+                          {gifts.length > 1 && (
+                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-red-50 text-red-600 hover:text-red-700 shrink-0" onClick={() => removeGift(index)} disabled={isSaving}>
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button onClick={saveGifts} disabled={isSaving || presentAttendees.length === 0} className="rounded-xl font-bold">
+                      <Gift className="h-4 w-4 mr-1.5" />
+                      Save Gift Logs
+                    </Button>
+                    <Button variant="outline" onClick={markNoGifts} disabled={isSaving} className="rounded-xl text-xs h-10">
+                      Mark No Gifts Distributed
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <LockedPanel label="Gifts distribution panel is locked. It opens after meeting execution is started and requires present attendees to be recorded." />
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "expenses" && (
+          <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
+            <CardHeader className="border-b border-border/20 px-5 py-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Actual Expenses Spends</CardTitle>
+              {canSubmitExpenses && (
+                <Button variant="outline" size="sm" onClick={() => setExpenses((prev) => [...prev, expenseDraft(executionForm.actualMeetingDate || meeting.meetingDate)])} className="rounded-lg font-bold text-xs h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add Expense Line
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              {canSubmitExpenses ? (
+                <>
+                  <div className="grid gap-3 grid-cols-3">
+                    <ReadOnlyField label="Approved Budget" value={formatCurrency(meeting.expectedBudget)} />
+                    <ReadOnlyField label="Recorded Spent" value={formatCurrency(totalExpenses)} />
+                    <ReadOnlyField label="Variance Difference" value={formatCurrency(totalExpenses - Number(meeting.expectedBudget || 0))} />
+                  </div>
+                  <div className="space-y-3">
+                    {expenses.map((expense, index) => (
+                      <div key={index} className="rounded-xl border border-border/20 p-4 bg-muted/5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-wider">Expense Line #{index + 1}</span>
+                          {expenses.length > 1 && (
+                            <Button variant="ghost" size="sm" className="h-6 text-red-600 hover:bg-red-50 text-[10px] font-bold rounded-md" disabled={isSaving} onClick={() => removeExpense(index)}>
+                              Delete Line
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-5 items-end">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground">Expense Head</Label>
+                            <Select value={expense.expenseHead} onValueChange={(value) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseHead: value } : item))}>
+                              <SelectTrigger className="w-full rounded-lg h-9 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {currentExpenseHeadOptions.map((head) => (
+                                  <SelectItem key={head} value={head} className="text-xs">
+                                    {head}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground">Amount Spent (INR)</Label>
+                            <Input type="number" min="0" className="rounded-lg h-9 text-xs" value={expense.amount} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, amount: Number(event.target.value) } : item))} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground">Paid By</Label>
+                            <Select value={expense.paidBy || "COMPANY"} onValueChange={(value) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, paidBy: value } : item))}>
+                              <SelectTrigger className="w-full rounded-lg h-9 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="COMPANY" className="text-xs">Company</SelectItem>
+                                <SelectItem value="DEALER" className="text-xs">Dealer</SelectItem>
+                                <SelectItem value="SHARED" className="text-xs">Shared Allocation</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground">Spend Date</Label>
+                            <Input type="date" className="rounded-lg h-9 text-xs" value={expense.expenseDate || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseDate: event.target.value } : item))} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground">Remarks</Label>
+                            <Input placeholder="Remarks" className="rounded-lg h-9 text-xs" value={expense.remarks || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
+                          </div>
+                        </div>
+
+                        {expense.paidBy === "SHARED" && (
+                          <div className="grid gap-3 grid-cols-2 bg-muted/10 p-3 rounded-lg border border-border/10">
+                            <div className="space-y-1.5">
+                              <Label className="text-[10px] font-bold text-muted-foreground">Company Contribution Amount</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                className="h-8 text-xs rounded-md bg-background"
+                                value={expense.companyAmount ?? ""}
+                                placeholder="Company share"
+                                onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, companyAmount: Number(event.target.value) } : item))}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-[10px] font-bold text-muted-foreground">Dealer Contribution Amount</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                className="h-8 text-xs rounded-md bg-background"
+                                value={expense.dealerAmount ?? ""}
+                                placeholder="Dealer share"
+                                onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, dealerAmount: Number(event.target.value) } : item))}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-1.5 pt-2">
+                    <Label className="text-xs font-bold text-muted-foreground">
+                      Overall Expense Justification Remarks {totalExpenses > Number(meeting.expectedBudget || 0) ? "⚠️ (Mandatory: actual spend exceeds approved budget)" : ""}
+                    </Label>
+                    <Textarea className="rounded-lg min-h-16 text-xs" placeholder="Add justification or general expense remarks..." value={expenseRemarks} onChange={(event) => setExpenseRemarks(event.target.value)} />
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button onClick={submitExpenses} disabled={isSaving} className="rounded-xl font-bold">
+                      <Send className="h-4 w-4 mr-1.5" />
+                      Submit Expense Report
+                    </Button>
+                    <Button variant="outline" onClick={markNoExpenses} disabled={isSaving} className="rounded-xl text-xs h-10">
+                      Mark No Expenses Incurred
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <LockedPanel label="Expense reporting panel is locked. It opens after meeting execution is recorded." />
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "finalReport" && (
+          <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
+            <CardHeader className="border-b border-border/20 px-5 py-4">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Compile Final Report</CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-5">
+              {isMeetingTabEnabled(meeting, "finalReport") ? (
+                <>
+                  <div className="grid gap-3 grid-cols-3">
+                    <ReadOnlyField label="Total Attendees Present" value={(meeting.attendees || []).filter((attendee) => attendee.present).length} />
+                    <ReadOnlyField label="Actual Total Expenses" value={formatCurrency(actualExpenseTotal || totalExpenses)} />
+                    <ReadOnlyField label="Distributed Gift Categories" value={`${meeting.gifts?.length || 0} items logged`} />
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-muted-foreground">Executive Meeting Summary</Label>
+                      <Textarea className="rounded-lg min-h-24 text-xs" value={finalReport.meetingSummary} onChange={(event) => setFinalReport((prev) => ({ ...prev, meetingSummary: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-muted-foreground">Key Discussion Points</Label>
+                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.keyDiscussionPoints} onChange={(event) => setFinalReport((prev) => ({ ...prev, keyDiscussionPoints: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-muted-foreground">Actual Business Outcomes / Commitments</Label>
+                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.actualBusinessOutcome} onChange={(event) => setFinalReport((prev) => ({ ...prev, actualBusinessOutcome: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-muted-foreground">Leads Summary Remarks</Label>
+                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.leadsGenerated} onChange={(event) => setFinalReport((prev) => ({ ...prev, leadsGenerated: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-muted-foreground">Total Lead Count Captured</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        className="rounded-lg h-9 text-xs"
+                        value={finalReport.leadCount ?? ""}
+                        onChange={(event) => setFinalReport((prev) => ({ ...prev, leadCount: event.target.value === "" ? undefined : Number(event.target.value) }))}
+                        disabled={!canSubmitFinalReport}
+                      />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-muted-foreground">Detailed Leads Contact Info</Label>
+                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.leadDetails} onChange={(event) => setFinalReport((prev) => ({ ...prev, leadDetails: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-muted-foreground">Interested High-Value Customers / Contractors</Label>
+                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.interestedCustomers} onChange={(event) => setFinalReport((prev) => ({ ...prev, interestedCustomers: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-muted-foreground">Local Competitor Intel Collected</Label>
+                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.competitorInformation} onChange={(event) => setFinalReport((prev) => ({ ...prev, competitorInformation: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-muted-foreground">Final Closing Remarks</Label>
+                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.finalRemarks} onChange={(event) => setFinalReport((prev) => ({ ...prev, finalRemarks: event.target.value }))} disabled={!canSubmitFinalReport} />
+                    </div>
+                  </div>
+                  {canSubmitFinalReport && (
+                    <Button onClick={submitFinalReport} disabled={isSaving} className="rounded-xl font-bold mt-2">
+                      <Send className="h-4 w-4 mr-1.5" />
+                      Save & Submit Final Report
+                    </Button>
+                  )}
+                  {(canApproveFinalReport || canClose || canCancel) && (
+                    <div className="flex flex-wrap gap-2 border-t border-border/20 pt-4 mt-3">
+                      {(canApproveFinalReport || canClose) && (
+                        <Button onClick={() => setIsFinalReviewDecisionOpen(true)} className="rounded-xl font-bold">
+                          <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                          Review Final Approval
+                        </Button>
+                      )}
+                      {canCancel && (
+                        <Button variant="destructive" onClick={() => setIsCancelMeetingOpen(true)} className="rounded-xl font-bold">
+                          Cancel Meeting
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <LockedPanel label="Final outcome report is locked. It unlocks only after actual expenses spends are finalized and submitted." />
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
+    {approvalDecisionDialog}
+    {finalReviewDecisionDialog}
+    {cancelMeetingDialog}
+    </>
   );
 }
