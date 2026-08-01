@@ -48,7 +48,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ATTENDEE_CATEGORIES,
@@ -123,12 +122,9 @@ type MeetingRequestForm = {
   location: string;
   customerReference: string;
   expectedAttendees: string;
-  objective: string;
-  expectedBusinessImpact: string;
   expectedBudget: string;
-  expectedGiftsMaterials: string;
+  companyContribution: string;
   allowWalkInAttendees: boolean;
-  remarks: string;
 };
 
 type NewMeetingStep = "request" | "attendees";
@@ -144,12 +140,9 @@ const emptyRequestForm = (): MeetingRequestForm => ({
   location: "",
   customerReference: "",
   expectedAttendees: "",
-  objective: "",
-  expectedBusinessImpact: "",
   expectedBudget: "",
-  expectedGiftsMaterials: "",
+  companyContribution: "",
   allowWalkInAttendees: true,
-  remarks: "",
 });
 
 const emptyAttendee = (): MeetingAttendee => ({
@@ -218,7 +211,7 @@ const MEETING_STAGE_GUIDE = [
     phase: "Phase 2: Authorization",
     stage: "Submitted for Approval",
     meaning: "The complete meeting plan has been submitted for an admin or manager decision.",
-    adminAction: "Review the dealer, purpose, turnout, named attendees, impact, budget, planned expenses, gifts, and contribution. Approve, reject, or request correction.",
+    adminAction: "Review the dealer, expected people, named attendees, budget, planned expenses, gifts, and contribution. Approve, reject, or request correction.",
     tone: "normal",
   },
   {
@@ -350,6 +343,9 @@ function NewMeetingDialog({
   const creatorId = userData?.employeeId;
   const canCreateOnBehalf = hasAdminSetupPrivileges(userRole, currentUser);
   const validAttendees = useMemo(() => getValidAttendees(attendees), [attendees]);
+  const expectedBudget = Number(form.expectedBudget || 0);
+  const companyContribution = Math.min(Math.max(Number(form.companyContribution || 0), 0), expectedBudget);
+  const dealerContribution = Math.max(expectedBudget - companyContribution, 0);
 
   useEffect(() => {
     if (!open) return;
@@ -396,12 +392,15 @@ function NewMeetingDialog({
     if (!form.city.trim()) return "Enter the meeting city.";
     if (!form.state.trim()) return "Enter the meeting state.";
     if (!form.location.trim()) return "Enter the meeting location.";
-    if (!form.objective.trim()) return "Enter the purpose or objective.";
     const budget = Number(form.expectedBudget);
     if (!Number.isFinite(budget) || budget < 0) return "Enter a valid expected budget.";
-    const expectedTurnout = Number(form.expectedAttendees || validAttendees.length);
-    if (!Number.isFinite(expectedTurnout) || expectedTurnout < validAttendees.length) {
-      return "Expected turnout cannot be lower than named attendees.";
+    const contribution = Number(form.companyContribution || 0);
+    if (!Number.isFinite(contribution) || contribution < 0 || contribution > budget) {
+      return "Company contribution must be between 0 and the expected budget.";
+    }
+    const expectedPeople = Number(form.expectedAttendees || validAttendees.length);
+    if (!Number.isFinite(expectedPeople) || expectedPeople < validAttendees.length) {
+      return "Expected people cannot be lower than named attendees.";
     }
     return null;
   };
@@ -459,15 +458,12 @@ function NewMeetingDialog({
         location: form.location.trim() || undefined,
         customerReference: form.customerReference.trim() || undefined,
         expectedAttendees: Number(form.expectedAttendees || validAttendees.length || 0),
-        objective: form.objective.trim() || undefined,
-        expectedBusinessImpact: form.expectedBusinessImpact.trim() || undefined,
         expectedBudget: Number(form.expectedBudget || 0),
-        expectedGiftsMaterials: form.expectedGiftsMaterials.trim() || undefined,
         allowWalkInAttendees: form.allowWalkInAttendees,
-        remarks: form.remarks.trim() || undefined,
         plan: {
           expectedBudget: Number(form.expectedBudget || 0),
-          expectedGiftsMaterials: form.expectedGiftsMaterials.trim() || undefined,
+          companyContribution,
+          dealerContribution,
         },
         attendees: validAttendees,
       });
@@ -492,7 +488,7 @@ function NewMeetingDialog({
         <DialogHeader>
           <DialogTitle>New Meeting</DialogTitle>
           <DialogDescription>
-            Create the request first, then add expected attendees before submitting for approval.
+            Create the request first, then add named attendees before submitting for approval.
           </DialogDescription>
         </DialogHeader>
 
@@ -511,7 +507,7 @@ function NewMeetingDialog({
             size="sm"
             onClick={() => setStep("attendees")}
           >
-            2. Expected Attendees
+            2. Named Attendees
           </Button>
         </div>
 
@@ -543,7 +539,7 @@ function NewMeetingDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>Expected turnout</Label>
+              <Label>Expected people</Label>
               <Input
                 type="number"
                 min="0"
@@ -551,6 +547,22 @@ function NewMeetingDialog({
                 onChange={(event) => updateForm("expectedAttendees", event.target.value)}
                 placeholder="40"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Company contribution</Label>
+              <Input
+                type="number"
+                min="0"
+                max={form.expectedBudget || undefined}
+                value={form.companyContribution}
+                onChange={(event) => updateForm("companyContribution", event.target.value)}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Dealer contribution</Label>
+              <Input value={dealerContribution} readOnly aria-readonly="true" />
+              <p className="text-xs text-muted-foreground">Calculated from expected budget minus company contribution.</p>
             </div>
             <div className="space-y-2">
               <Label>Date</Label>
@@ -587,34 +599,6 @@ function NewMeetingDialog({
                 onChange={(event) => updateForm("customerReference", event.target.value)}
               />
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Purpose / objective</Label>
-              <Textarea
-                value={form.objective}
-                onChange={(event) => updateForm("objective", event.target.value)}
-                placeholder="What should this meeting achieve?"
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Expected business impact</Label>
-              <Textarea
-                value={form.expectedBusinessImpact}
-                onChange={(event) => updateForm("expectedBusinessImpact", event.target.value)}
-                placeholder="Expected leads, enquiries, or business impact"
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Expected gifts / materials</Label>
-              <Textarea
-                value={form.expectedGiftsMaterials}
-                onChange={(event) => updateForm("expectedGiftsMaterials", event.target.value)}
-                placeholder="Catalogs, diaries, sample material"
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Remarks</Label>
-              <Textarea value={form.remarks} onChange={(event) => updateForm("remarks", event.target.value)} />
-            </div>
             <label className="flex items-center gap-2 rounded-md border p-3 text-sm md:col-span-2">
               <Checkbox
                 checked={form.allowWalkInAttendees}
@@ -627,7 +611,7 @@ function NewMeetingDialog({
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-medium">Expected attendees</h3>
+                <h3 className="text-sm font-medium">Named attendees</h3>
                 <p className="text-xs text-muted-foreground">
                   {validAttendees.length} attendee{validAttendees.length === 1 ? "" : "s"} will be saved on the request.
                 </p>
@@ -902,7 +886,6 @@ export default function MeetingsList() {
         meeting.dealerName,
         meeting.creatorName,
         meeting.customerReference,
-        meeting.objective,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
@@ -1103,7 +1086,7 @@ export default function MeetingsList() {
                   <TableHead>Dealer</TableHead>
                   <TableHead>Owner</TableHead>
                   <TableHead>Budget</TableHead>
-                  <TableHead>Attendees</TableHead>
+                  <TableHead>People</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
@@ -1114,7 +1097,7 @@ export default function MeetingsList() {
                     <TableCell>
                       <div className="font-medium">{meeting.meetingType}</div>
                       <div className="max-w-[260px] truncate text-xs text-muted-foreground">
-                        {meeting.objective || meeting.customerReference || `Meeting #${meeting.id}`}
+                        {meeting.customerReference || meeting.storeName || meeting.dealerName || `Meeting #${meeting.id}`}
                       </div>
                     </TableCell>
                     <TableCell>

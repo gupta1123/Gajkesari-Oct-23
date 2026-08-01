@@ -123,12 +123,9 @@ type RequestForm = {
   location: string;
   customerReference: string;
   expectedAttendees: string;
-  objective: string;
-  expectedBusinessImpact: string;
   expectedBudget: string;
-  expectedGiftsMaterials: string;
+  companyContribution: string;
   allowWalkInAttendees: boolean;
-  remarks: string;
 };
 
 type ExecutionForm = {
@@ -141,11 +138,10 @@ type ExecutionForm = {
 const WORKFLOW_TABS: Array<{ key: WorkflowTab; label: string }> = [
   { key: "request", label: "Request" },
   { key: "attendees", label: "Attendees" },
-  { key: "approval", label: "Approval" },
-  { key: "execution", label: "Execution" },
+  { key: "execution", label: "Attendance" },
   { key: "gifts", label: "Gifts" },
   { key: "expenses", label: "Expenses" },
-  { key: "finalReport", label: "Final Report" },
+  { key: "finalReport", label: "Report" },
 ];
 
 const REPORT_ALL_VALUE = "all";
@@ -277,18 +273,18 @@ const POST_MEETING_CORRECTION_STAGES = new Set(["ATTENDANCE", "GIFTS", "EXPENSES
 const FINAL_REPORT_STATUSES = new Set(["REPORT_SUBMITTED", "CLOSED"]);
 
 const ADMIN_TAB_LABELS: Record<AdminReviewTab, string> = {
-  details: "Request Plan",
+  details: "Request",
   attendees: "Attendees",
   gifts: "Gifts",
   expenses: "Expenses",
-  finalReport: "Final Report",
+  finalReport: "Report",
   history: "History",
 };
 
 const correctionStageLabel = (stage?: string | null) => {
   const labels: Record<string, string> = {
     REQUEST: "Request Plan",
-    ATTENDEES: "Expected Attendees",
+    ATTENDEES: "Named Attendees",
     ATTENDANCE: "Attendance",
     GIFTS: "Gifts",
     EXPENSES: "Expenses",
@@ -350,7 +346,7 @@ const getAdminMeetingPresentation = (meeting: Meeting): AdminMeetingPresentation
       notice = { title: "Draft request", detail: "The field team is still preparing this plan. No admin decision is required yet.", tone: "neutral" };
       break;
     case "PENDING_APPROVAL":
-      notice = { title: "Ready for approval", detail: "Review the complete request plan, expected attendees, planned gifts, expenses, and contribution before deciding.", tone: "warning" };
+      notice = { title: "Ready for approval", detail: "Review the complete request plan, expected people, named attendees, planned gifts, expenses, and contribution before deciding.", tone: "warning" };
       break;
     case "APPROVED":
       notice = { title: "Scheduled for execution", detail: "The request is approved. Attendance, gifts, and actual expenses will appear after the field team conducts the meeting.", tone: "success" };
@@ -448,7 +444,6 @@ const hasFinalReportContent = (meeting: Meeting) =>
       meeting.interestedCustomers ||
       meeting.competitorInformation ||
       meeting.actualBusinessOutcome ||
-      meeting.finalRemarks ||
       meeting.finalReportApprovalRemarks
   );
 
@@ -561,6 +556,24 @@ const getGiftComparisonRows = (meeting: Meeting) => {
   return Array.from(rowMap.values())
     .map((row) => ({ ...row, difference: row.issued - row.planned }))
     .sort((a, b) => a.item.localeCompare(b.item));
+};
+
+const isGiftExpenseHead = (value?: string | null) => normalizeGroupKey(value).toLowerCase() === "gifts";
+
+const getCalculatedGiftExpenseTotal = (meeting: Meeting) => {
+  const issuedByItem = new Map<string, number>();
+  (meeting.gifts || []).forEach((gift) => {
+    const item = normalizeGroupKey(gift.giftItem).toLowerCase();
+    issuedByItem.set(item, (issuedByItem.get(item) || 0) + Number(gift.quantity || 0));
+  });
+
+  return getPlannedGifts(meeting).reduce((total, gift) => {
+    const plannedQuantity = Number(gift.quantity || 0);
+    const estimatedTotal = Number(gift.estimatedAmount || 0);
+    if (plannedQuantity <= 0 || estimatedTotal <= 0) return total;
+    const issuedQuantity = issuedByItem.get(normalizeGroupKey(gift.giftItem).toLowerCase()) || 0;
+    return total + (estimatedTotal / plannedQuantity) * issuedQuantity;
+  }, 0);
 };
 
 const getMeetingActualExpenseTotal = (meeting: Meeting) =>
@@ -721,10 +734,8 @@ const getDraftMissingItems = (meeting: Meeting) => {
   if (!meeting.city) missing.push("city");
   if (!meeting.state) missing.push("state");
   if (!meeting.location) missing.push("location");
-  if (!meeting.objective) missing.push("purpose");
   if (meeting.expectedBudget == null) missing.push("expected budget");
-  if (!meeting.expectedBusinessImpact) missing.push("expected impact");
-  if (!meeting.attendees?.length) missing.push("expected attendees");
+  if (!meeting.attendees?.length) missing.push("named attendees");
   return missing;
 };
 
@@ -737,12 +748,9 @@ const requestFormFromMeeting = (meeting: Meeting): RequestForm => ({
   location: meeting.location || "",
   customerReference: meeting.customerReference || "",
   expectedAttendees: meeting.expectedAttendees == null ? "" : String(meeting.expectedAttendees),
-  objective: meeting.objective || "",
-  expectedBusinessImpact: meeting.expectedBusinessImpact || "",
   expectedBudget: meeting.expectedBudget == null ? "" : String(meeting.expectedBudget),
-  expectedGiftsMaterials: meeting.expectedGiftsMaterials || "",
+  companyContribution: meeting.plan?.companyContribution == null ? "" : String(meeting.plan.companyContribution),
   allowWalkInAttendees: meeting.allowWalkInAttendees !== false,
-  remarks: meeting.remarks || "",
 });
 
 const attendeeDraft = (): MeetingAttendee => ({
@@ -761,14 +769,12 @@ const expenseDraft = (date?: string): MeetingExpense => ({
   expenseHead: "food/snacks",
   amount: 0,
   expenseDate: date || "",
-  remarks: "",
 });
 
 const giftDraft = (meetingAttendeeId?: number): MeetingGift => ({
   meetingAttendeeId,
   giftItem: "",
   quantity: 1,
-  remarks: "",
 });
 
 const getDuplicateMobileError = (attendees: MeetingAttendee[]) => {
@@ -851,40 +857,6 @@ function MeetingNoteBlock({ label, value }: { label: string; value?: ReactNode }
     <div className="flex flex-col gap-2">
       <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-foreground">{value ?? "-"}</dd>
-    </div>
-  );
-}
-
-function ExpectedGiftsDisplay({ gifts, fallback }: { gifts: MeetingGift[]; fallback?: unknown }) {
-  const plainItems = gifts.length ? [] : splitPlainPlanItems(fallback);
-
-  if (!gifts.length && !plainItems.length) {
-    return <span>-</span>;
-  }
-
-  if (gifts.length) {
-    return (
-      <div className="space-y-1.5">
-        {gifts.map((gift, index) => {
-          const amount = Number(gift.estimatedAmount || 0);
-          return (
-            <div key={`${gift.giftItem || "gift"}-${index}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span>{gift.giftItem || "Gift"}</span>
-              <span className="text-muted-foreground">Qty {Number(gift.quantity || 0)}</span>
-              {amount > 0 && <span className="text-muted-foreground">{formatCurrency(amount)}</span>}
-              {gift.remarks && <span className="text-muted-foreground">{gift.remarks}</span>}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1.5">
-      {plainItems.map((item, index) => (
-        <div key={`${item}-${index}`}>{item}</div>
-      ))}
     </div>
   );
 }
@@ -1284,7 +1256,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const [walkIn, setWalkIn] = useState<MeetingAttendee>(attendeeDraft());
   const [gifts, setGifts] = useState<MeetingGift[]>([]);
   const [expenses, setExpenses] = useState<MeetingExpense[]>([]);
-  const [expenseRemarks, setExpenseRemarks] = useState("");
   const [finalReport, setFinalReport] = useState<FinalReportPayload>({
     meetingSummary: "",
     keyDiscussionPoints: "",
@@ -1294,11 +1265,9 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     interestedCustomers: "",
     competitorInformation: "",
     actualBusinessOutcome: "",
-    finalRemarks: "",
   });
   const [finalReviewDecision, setFinalReviewDecision] = useState<FinalReviewDecision>("approveClose");
   const [finalApprovalRemarks, setFinalApprovalRemarks] = useState("");
-  const [closeRemarks, setCloseRemarks] = useState("");
   const [cancelRemarks, setCancelRemarks] = useState("");
   const [isApprovalDecisionOpen, setIsApprovalDecisionOpen] = useState(false);
   const [isFinalReviewDecisionOpen, setIsFinalReviewDecisionOpen] = useState(false);
@@ -1352,7 +1321,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         }, {})
       );
       setGifts(data.gifts?.length ? data.gifts.map((gift) => ({ ...gift })) : [giftDraft()]);
-      setExpenses(data.expenses?.length ? data.expenses.map((expense) => ({ ...expense })) : [expenseDraft(data.actualMeetingDate || data.meetingDate)]);
+      const editableExpenses = (data.expenses || []).filter((expense) => !isGiftExpenseHead(expense.expenseHead));
+      setExpenses(editableExpenses.length ? editableExpenses.map((expense) => ({ ...expense })) : [expenseDraft(data.actualMeetingDate || data.meetingDate)]);
       setFinalReport({
         meetingSummary: data.meetingSummary || "",
         keyDiscussionPoints: data.keyDiscussionPoints || "",
@@ -1362,10 +1332,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         interestedCustomers: data.interestedCustomers || "",
         competitorInformation: data.competitorInformation || "",
         actualBusinessOutcome: data.actualBusinessOutcome || "",
-        finalRemarks: data.finalRemarks || "",
       });
       setFinalApprovalRemarks(data.finalReportApprovalRemarks || "");
-      setCloseRemarks(data.finalRemarks || "");
       setAuditHistory(data.auditHistory || []);
       setReportFilters(currentMeetingReportFilters(data));
       try {
@@ -1444,7 +1412,22 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     [meeting?.plannedExpenseTotal, plannedExpenses]
   );
   const plannedCompanyContribution = Number(meeting?.plan?.companyContribution || 0);
-  const plannedDealerContribution = Number(meeting?.plan?.dealerContribution || 0);
+  const plannedDealerContribution = Number(
+    meeting?.plan?.dealerContribution ?? Math.max(Number(meeting?.expectedBudget || 0) - plannedCompanyContribution, 0)
+  );
+  const calculatedGiftExpenseTotal = useMemo(
+    () => (meeting ? getCalculatedGiftExpenseTotal(meeting) : 0),
+    [meeting]
+  );
+  const savedGiftExpenseTotal = useMemo(
+    () =>
+      (meeting?.expenses || [])
+        .filter((expense) => isGiftExpenseHead(expense.expenseHead))
+        .reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
+    [meeting]
+  );
+  const giftExpenseTotal = calculatedGiftExpenseTotal > 0 ? calculatedGiftExpenseTotal : savedGiftExpenseTotal;
+  const expenseSubmissionTotal = totalExpenses + giftExpenseTotal;
   const plannedGiftQuantity = useMemo(
     () => plannedGifts.reduce((sum, gift) => sum + Number(gift.quantity || 0), 0),
     [plannedGifts]
@@ -1571,11 +1554,18 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       return;
     }
     const namedAttendeeCount = normaliseAttendees(attendees).length;
-    const expectedTurnout = Number(requestForm.expectedAttendees || namedAttendeeCount);
-    if (!Number.isFinite(expectedTurnout) || expectedTurnout < namedAttendeeCount) {
-      setError("Expected turnout cannot be lower than named attendees.");
+    const expectedPeople = Number(requestForm.expectedAttendees || namedAttendeeCount);
+    if (!Number.isFinite(expectedPeople) || expectedPeople < namedAttendeeCount) {
+      setError("Expected people cannot be lower than named attendees.");
       return;
     }
+    const expectedBudget = Number(requestForm.expectedBudget || 0);
+    const companyContribution = Number(requestForm.companyContribution || 0);
+    if (!Number.isFinite(companyContribution) || companyContribution < 0 || companyContribution > expectedBudget) {
+      setError("Company contribution must be between 0 and the expected budget.");
+      return;
+    }
+    const dealerContribution = Math.max(expectedBudget - companyContribution, 0);
 
     await runAction(
       () =>
@@ -1587,13 +1577,16 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           state: requestForm.state.trim(),
           location: requestForm.location.trim(),
           customerReference: requestForm.customerReference.trim() || undefined,
-          expectedAttendees: expectedTurnout,
-          objective: requestForm.objective.trim(),
-          expectedBusinessImpact: requestForm.expectedBusinessImpact.trim() || undefined,
-          expectedBudget: Number(requestForm.expectedBudget || 0),
-          expectedGiftsMaterials: requestForm.expectedGiftsMaterials.trim() || undefined,
+          expectedAttendees: expectedPeople,
+          expectedBudget,
           allowWalkInAttendees: requestForm.allowWalkInAttendees,
-          remarks: requestForm.remarks.trim() || undefined,
+          plan: {
+            expectedBudget,
+            companyContribution,
+            dealerContribution,
+            plannedExpenseDetails: meeting.plan?.plannedExpenseDetails,
+            plannedGiftDetails: meeting.plan?.plannedGiftDetails,
+          },
         }),
       "Meeting request updated."
     );
@@ -1619,7 +1612,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     if (!meeting) return;
     const attendeeCount = normaliseAttendees(attendees).length || meeting.attendees?.length || 0;
     if (attendeeCount === 0) {
-      setError("Add expected attendees before submitting for approval.");
+      setError("Add named attendees before submitting for approval.");
       setActiveTab("attendees");
       return;
     }
@@ -1737,7 +1730,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         meetingAttendeeId: Number(gift.meetingAttendeeId),
         giftItem: gift.giftItem.trim(),
         quantity: Number(gift.quantity || 0),
-        remarks: gift.remarks?.trim() || undefined,
       }))
       .filter((gift) => gift.meetingAttendeeId && gift.giftItem && gift.quantity > 0);
 
@@ -1783,6 +1775,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const submitExpenses = async () => {
     if (!meeting) return;
     const cleaned = expenses
+      .filter((expense) => !isGiftExpenseHead(expense.expenseHead))
       .map((expense) => ({
         ...expense,
         amount: Number(expense.amount || 0),
@@ -1800,9 +1793,19 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               ? Number(expense.amount || 0)
               : 0,
         expenseDate: expense.expenseDate || executionForm.actualMeetingDate || meeting.meetingDate,
-        remarks: expense.remarks?.trim() || undefined,
       }))
       .filter((expense) => expense.expenseHead && expense.amount > 0);
+
+    if (giftExpenseTotal > 0) {
+      cleaned.push({
+        expenseHead: "gifts",
+        amount: giftExpenseTotal,
+        paidBy: "COMPANY",
+        companyAmount: giftExpenseTotal,
+        dealerAmount: 0,
+        expenseDate: executionForm.actualMeetingDate || meeting.meetingDate,
+      });
+    }
 
     if (cleaned.length === 0) {
       setError("Add at least one expense row.");
@@ -1819,15 +1822,26 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       return;
     }
 
-    if (totalExpenses > Number(meeting.expectedBudget || 0) && !expenseRemarks.trim()) {
-      setError("Remarks are mandatory when actual expense is higher than approved budget.");
-      return;
-    }
-
     await runAction(
-      () => meetingsApi.submitExpenses(meeting.id, { remarks: expenseRemarks.trim() || undefined, expenses: cleaned }),
+      () => meetingsApi.submitExpenses(meeting.id, { expenses: cleaned }),
       "Expenses submitted."
     );
+  };
+
+  const recordPlannedExpense = (plannedExpense: MeetingExpense) => {
+    const nextExpense: MeetingExpense = {
+      expenseHead: plannedExpense.expenseHead,
+      amount: Number(plannedExpense.amount || 0),
+      paidBy: "COMPANY",
+      companyAmount: Number(plannedExpense.amount || 0),
+      dealerAmount: 0,
+      expenseDate: executionForm.actualMeetingDate || meeting?.meetingDate || "",
+    };
+    setExpenses((prev) => {
+      const blankIndex = prev.findIndex((expense) => !expense.id && Number(expense.amount || 0) === 0);
+      if (blankIndex === -1) return [...prev, nextExpense];
+      return prev.map((expense, index) => (index === blankIndex ? nextExpense : expense));
+    });
   };
 
   const removeExpense = async (index: number) => {
@@ -1842,6 +1856,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
 
   const markNoExpenses = async () => {
     if (!meeting) return;
+    if (giftExpenseTotal > 0) {
+      setError("Gift distribution has created an actual gift expense, so this meeting cannot be marked as no expenses.");
+      return;
+    }
     await runAction(() => meetingsApi.markNoExpenses(meeting.id), "Marked as no expenses incurred.");
   };
 
@@ -1860,12 +1878,12 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
 
   const approveAndCloseMeeting = async () => {
     if (!meeting) return false;
-    const remarks = finalApprovalRemarks.trim() || closeRemarks.trim() || "Approved and closed by final reviewer.";
+    const remarks = finalApprovalRemarks.trim() || "Approved and closed by final reviewer.";
     return runAction(
       () =>
         meetingsApi.approveAndCloseFinalReport(meeting.id, {
           finalReportApprovalRemarks: finalApprovalRemarks.trim() || remarks,
-          finalRemarks: closeRemarks.trim() || remarks,
+          finalRemarks: remarks,
         }),
       "Meeting approved and closed."
     );
@@ -1983,6 +2001,12 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const actualAttendanceCount = getActualAttendanceCount(meeting);
   const namedAttendeeCount = meeting.attendees?.length || 0;
   const expectedTurnout = meeting.expectedAttendees || namedAttendeeCount;
+  const requestExpectedBudget = Number(requestForm.expectedBudget || 0);
+  const requestCompanyContribution = Math.min(
+    Math.max(Number(requestForm.companyContribution || 0), 0),
+    requestExpectedBudget
+  );
+  const requestDealerContribution = Math.max(requestExpectedBudget - requestCompanyContribution, 0);
   const adminPresentation = getAdminMeetingPresentation(meeting);
   const showActualSummary = isAdmin ? adminPresentation.isPostMeeting : isPostMeetingStatus(meeting.status);
   const budgetDifference = actualExpenseTotal - Number(meeting.expectedBudget || 0);
@@ -2233,7 +2257,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           {
             label: "Actual attendance",
             value: String(actualAttendanceCount),
-            detail: `${expectedTurnout || 0} expected · ${namedAttendeeCount} named`,
+            detail: `${expectedTurnout || 0} expected people · ${namedAttendeeCount} named`,
           },
           {
             label: adminPresentation.expenseComparisonReady ? "Actual expenses" : "Expenses recorded",
@@ -2258,7 +2282,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
             detail: `Company ${formatCurrency(plannedCompanyContribution)} · Dealer ${formatCurrency(plannedDealerContribution)}`,
           },
           {
-            label: "Expected turnout",
+            label: "Expected people",
             value: String(expectedTurnout || 0),
             detail: `${namedAttendeeCount} named attendees`,
           },
@@ -2320,8 +2344,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         {message && <div className="rounded-xl border border-emerald-200/30 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-600 shrink-0">{message}</div>}
         {error && <div className="rounded-xl border border-red-200/30 bg-red-500/10 p-3 text-xs font-semibold text-red-600 shrink-0">{error}</div>}
 
-        {/* Full-Width Segmented Navigation Tabs */}
-        <div role="tablist" aria-label="Meeting review sections" className="flex gap-1.5 overflow-x-auto rounded-xl border border-border/30 bg-muted/40 p-1.5 shrink-0 scrollbar-none">
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[176px_minmax(0,1fr)]">
+        <div role="tablist" aria-label="Meeting review sections" className="flex gap-1.5 overflow-x-auto rounded-xl border border-border/30 bg-muted/40 p-1.5 scrollbar-none lg:self-start lg:flex-col lg:overflow-visible">
           {adminTabs.map((tab) => (
             <Button
               key={tab.key}
@@ -2329,7 +2353,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               variant="ghost"
               size="sm"
               onClick={() => setAdminTab(tab.key)}
-              className={`shrink-0 rounded-lg text-xs font-bold transition-all px-4 py-2 ${
+              className={`shrink-0 justify-start rounded-lg text-xs font-bold transition-all px-4 py-2 ${
                 adminTab === tab.key
                   ? "bg-background text-foreground shadow-md font-extrabold"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -2343,8 +2367,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           ))}
         </div>
 
-        {/* Full-Width Scrollable Tab Content Panel */}
-        <div className="flex-1 lg:overflow-y-auto pb-4 pr-1 scrollbar-thin space-y-5">
+        <div className="min-w-0 lg:overflow-y-auto pb-4 pr-1 scrollbar-thin space-y-5">
           {adminTab === "details" && (
             <div id="meeting-admin-panel-details" role="tabpanel" className="space-y-5">
               {meeting.status === "DRAFT" && draftMissingItems.length > 0 && (
@@ -2359,10 +2382,9 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     <FileText className="h-4 w-4 text-primary" />
                     Request at a glance
                   </div>
-                  <dl className={`grid gap-5 ${showActualSummary ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
-                    <MeetingNoteBlock label="Purpose / objective" value={meeting.objective} />
-                    <MeetingNoteBlock label="Expected business impact" value={meeting.expectedBusinessImpact} />
+                  <dl className={`grid gap-5 ${showActualSummary ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                     <MeetingNoteBlock label="Dealer / shop" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
+                    <MeetingNoteBlock label="Expected people" value={expectedTurnout || 0} />
                     {showActualSummary && (
                       <MeetingNoteBlock label="Actual business outcome" value={meeting.actualBusinessOutcome} />
                     )}
@@ -2371,8 +2393,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               </Card>
 
               <ProgressiveSection
-                title="Schedule, ownership and notes"
-                summary="Open the full request record only when you need to verify its supporting details."
+                title="Schedule and ownership"
+                summary="Open the full request record only when you need to verify schedule, ownership, or contribution."
                 defaultOpen={meeting.status === "PENDING_APPROVAL" || (meeting.status === "CORRECTION_REQUIRED" && meeting.correctionStage === "REQUEST")}
               >
                 <div className="grid gap-6 md:grid-cols-2">
@@ -2401,21 +2423,20 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     </dl>
                   </section>
                 </div>
+                {(meeting.approvalRemarks || (meeting.status === "CANCELLED" && (meeting.cancellationReason || meeting.cancellationRemarks)) || (meeting.status === "REJECTED" && meeting.rejectionReason)) && (
                 <dl className="mt-6 grid gap-5 border-t border-border/60 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-                  <MeetingNoteBlock label="Expected gifts / materials" value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />} />
-                  <MeetingNoteBlock label="Budget remarks" value={meeting.plan?.budgetRemarks} />
-                  <MeetingNoteBlock label="Request remarks" value={meeting.remarks} />
                   {meeting.approvalRemarks && <MeetingNoteBlock label="Approval / rejection note" value={meeting.approvalRemarks} />}
                   {meeting.status === "CANCELLED" && (meeting.cancellationReason || meeting.cancellationRemarks) && (
                     <MeetingNoteBlock label="Cancellation reason" value={meeting.cancellationReason || meeting.cancellationRemarks} />
                   )}
                   {meeting.status === "REJECTED" && meeting.rejectionReason && <MeetingNoteBlock label="Rejection reason" value={meeting.rejectionReason} />}
                 </dl>
+                )}
               </ProgressiveSection>
 
               <ProgressiveSection
                 title="Planned gifts and expenses"
-                summary={`${plannedGiftQuantity || 0} gifts and ${formatCurrency(plannedExpenseTotal)} in planned expenses.`}
+                summary={`${plannedGiftQuantity || 0} ${plannedGiftQuantity === 1 ? "gift" : "gifts"} and ${formatCurrency(plannedExpenseTotal)} in planned expenses.`}
               >
                 <div className="grid gap-5 md:grid-cols-2">
                   <section className="overflow-hidden rounded-md border border-border/60">
@@ -2479,13 +2500,13 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           {adminTab === "attendees" && (
             <Card id="meeting-admin-panel-attendees" role="tabpanel" className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm overflow-hidden">
               <CardHeader className="border-b border-border/20 px-5 py-4">
-                <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{showAttendanceResults ? "Attendance Outcomes" : "Expected Attendees"}</CardTitle>
+                <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{showAttendanceResults ? "Attendance Outcomes" : "Named Attendees"}</CardTitle>
               </CardHeader>
               <CardContent className="p-0 space-y-4">
                 {showAttendanceResults && (
                   <div className="flex flex-wrap gap-x-6 gap-y-2 bg-muted/20 px-5 py-3 text-xs border-b border-border/10">
                     <span><span className="text-muted-foreground font-semibold">Actual attended:</span> <strong>{actualAttendanceCount}</strong></span>
-                    <span><span className="text-muted-foreground font-semibold">Expected turnout:</span> <strong>{expectedTurnout || 0}</strong></span>
+                    <span><span className="text-muted-foreground font-semibold">Expected people:</span> <strong>{expectedTurnout || 0}</strong></span>
                     <span><span className="text-muted-foreground font-semibold">Named attendees:</span> <strong>{namedAttendeeCount}</strong></span>
                   </div>
                 )}
@@ -2534,7 +2555,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     </Table>
                   </div>
                 ) : (
-                  <div className="p-5 text-xs text-muted-foreground text-center">No expected attendees found.</div>
+                  <div className="p-5 text-xs text-muted-foreground text-center">No named attendees found.</div>
                 )}
               </CardContent>
             </Card>
@@ -2753,7 +2774,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
 
               <ProgressiveSection
                 title="Actual expense entries"
-                summary={`${meeting.expenses?.length || 0} saved ${meeting.expenses?.length === 1 ? "entry" : "entries"}. Open to inspect payer, date and remarks.`}
+                summary={`${meeting.expenses?.length || 0} saved ${meeting.expenses?.length === 1 ? "entry" : "entries"}. Open to inspect payer and date.`}
               >
                   {meeting.expenses?.length ? (
                     <Table>
@@ -2765,7 +2786,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                           <TableHead className="text-xs">Company</TableHead>
                           <TableHead className="text-xs">Dealer</TableHead>
                           <TableHead className="text-xs">Date</TableHead>
-                          <TableHead className="pr-5 text-xs">Remarks</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2777,7 +2797,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                             <TableCell className="text-xs font-medium">{formatCurrency(expense.companyAmount)}</TableCell>
                             <TableCell className="text-xs font-medium">{formatCurrency(expense.dealerAmount)}</TableCell>
                             <TableCell className="text-xs text-muted-foreground">{formatDate(expense.expenseDate)}</TableCell>
-                            <TableCell className="pr-5 text-xs text-muted-foreground">{expense.remarks || "-"}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -2821,7 +2840,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                           <MeetingNoteBlock label="Lead details" value={meeting.leadDetails || meeting.leadsGenerated} />
                           <MeetingNoteBlock label="Interested customers" value={meeting.interestedCustomers} />
                           <MeetingNoteBlock label="Competitor information" value={meeting.competitorInformation} />
-                          <MeetingNoteBlock label="Final remarks" value={meeting.finalRemarks} />
                           {meeting.finalReportApprovalRemarks && <MeetingNoteBlock label="Final approval remarks" value={meeting.finalReportApprovalRemarks} />}
                         </dl>
                       </CardContent>
@@ -2868,7 +2886,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                             </TableHeader>
                             <TableBody>
                               <TableRow>
-                                <TableCell className="font-bold text-xs">Turnout / Attendance</TableCell>
+                                <TableCell className="font-bold text-xs">Expected People / Attendance</TableCell>
                                 <TableCell className="text-xs">
                                   {expectedTurnout || 0}
                                   <span className="text-muted-foreground font-normal"> ({namedAttendeeCount} named)</span>
@@ -2881,7 +2899,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                                       : "Not recorded"}
                                 </TableCell>
                                 <TableCell className={`text-xs font-extrabold ${meeting.attendanceFinalized ? (attendanceDelta >= 0 ? "text-emerald-600" : "text-red-600") : "text-muted-foreground"}`}>
-                                  {meeting.attendanceFinalized ? `${attendanceDelta >= 0 ? `+${attendanceDelta}` : attendanceDelta} turnout` : "-"}
+                                  {meeting.attendanceFinalized ? `${attendanceDelta >= 0 ? `+${attendanceDelta}` : attendanceDelta} people` : "-"}
                                 </TableCell>
                               </TableRow>
                               <TableRow>
@@ -2911,12 +2929,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                                 <TableCell className={`text-xs font-extrabold ${adminPresentation.giftComparisonReady ? (giftDelta >= 0 ? "text-emerald-600" : "text-red-600") : "text-muted-foreground"}`}>
                                   {adminPresentation.giftComparisonReady ? `${giftDelta >= 0 ? `+${giftDelta}` : giftDelta} gifts` : "-"}
                                 </TableCell>
-                              </TableRow>
-                              <TableRow>
-                                <TableCell className="font-bold text-xs">Business Impact</TableCell>
-                                <TableCell className="max-w-[200px] whitespace-pre-wrap text-xs text-muted-foreground">{meeting.expectedBusinessImpact || "-"}</TableCell>
-                                <TableCell className="max-w-[200px] whitespace-pre-wrap text-xs font-medium">{meeting.actualBusinessOutcome || "-"}</TableCell>
-                                <TableCell className="max-w-[200px] whitespace-pre-wrap text-xs font-bold text-primary">{meeting.leadCount ? `${meeting.leadCount} leads` : meeting.leadsGenerated || "-"}</TableCell>
                               </TableRow>
                             </TableBody>
                           </Table>
@@ -3089,7 +3101,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                                           <TableCell className="py-2.5">
                                             <div className="font-semibold text-xs">{item.meetingType || "-"}</div>
                                             <div className="max-w-[150px] truncate text-[10px] text-muted-foreground">
-                                              {item.objective || `ID: #${item.id}`}
+                                              {item.customerReference || item.storeName || item.dealerName || `ID: #${item.id}`}
                                             </div>
                                           </TableCell>
                                           <TableCell className="text-xs">{formatDate(item.meetingDate)}</TableCell>
@@ -3317,6 +3329,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
             </Card>
           )}
         </div>
+        </div>
       </div>
       {approvalDecisionDialog}
       {finalReviewDecisionDialog}
@@ -3395,7 +3408,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               valueClassName: budgetDifference <= 0 ? "text-emerald-600 font-extrabold" : "text-amber-600 font-extrabold",
             },
           ]}
-          attendanceLabel={showActualSummary ? "Actual Attendance" : "Expected Turnout"}
+          attendanceLabel={showActualSummary ? "Actual Attendance" : "Expected People"}
           attendanceValue={showActualSummary ? `${actualAttendanceCount}/${namedAttendeeCount || expectedTurnout || 0}` : String(expectedTurnout || 0)}
           attendanceSubMetrics={[{ label: "Named Attendees", value: String(namedAttendeeCount) }]}
         />
@@ -3415,8 +3428,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         </div>
       )}
 
-      {/* Full-Width Segmented Navigation Tabs */}
-      <div role="tablist" className="flex gap-1.5 overflow-x-auto rounded-xl border border-border/30 bg-muted/40 p-1.5 shrink-0 scrollbar-none">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[176px_minmax(0,1fr)]">
+      <div role="tablist" aria-label="Meeting workflow sections" className="flex gap-1.5 overflow-x-auto rounded-xl border border-border/30 bg-muted/40 p-1.5 scrollbar-none lg:self-start lg:flex-col lg:overflow-visible">
         {WORKFLOW_TABS.map((tab) => {
           const enabled = isMeetingTabEnabled(meeting, tab.key);
           return (
@@ -3427,7 +3440,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               size="sm"
               disabled={!enabled}
               onClick={() => setActiveTab(tab.key)}
-              className={`shrink-0 rounded-lg text-xs font-bold transition-all px-4 py-2 flex items-center gap-1.5 ${
+              className={`shrink-0 justify-start rounded-lg text-xs font-bold transition-all px-4 py-2 flex items-center gap-1.5 ${
                 activeTab === tab.key
                   ? "bg-background text-foreground shadow-md font-extrabold"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -3440,8 +3453,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         })}
       </div>
 
-      {/* Full-Width Scrollable Tab Content Panel */}
-      <div className="flex-1 lg:overflow-y-auto pb-4 pr-1 scrollbar-thin space-y-5">
+      <div className="min-w-0 lg:overflow-y-auto pb-4 pr-1 scrollbar-thin space-y-5">
         {activeTab === "request" && (
           <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm">
             <CardHeader className="border-b border-border/20 px-5 py-4">
@@ -3470,7 +3482,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     <Input type="number" className="rounded-lg h-9" value={requestForm.expectedBudget} onChange={(event) => updateRequestForm("expectedBudget", event.target.value)} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-bold text-muted-foreground">Expected turnout</Label>
+                    <Label className="text-xs font-bold text-muted-foreground">Expected people</Label>
                     <Input type="number" className="rounded-lg h-9" min="0" value={requestForm.expectedAttendees} onChange={(event) => updateRequestForm("expectedAttendees", event.target.value)} />
                   </div>
                   <div className="space-y-1.5">
@@ -3497,21 +3509,14 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     <Label className="text-xs font-bold text-muted-foreground">Dealer / Shop / Customer Reference</Label>
                     <Input className="rounded-lg h-9" value={requestForm.customerReference} onChange={(event) => updateRequestForm("customerReference", event.target.value)} />
                   </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-xs font-bold text-muted-foreground">Purpose / Objective</Label>
-                    <Textarea className="rounded-lg min-h-20" value={requestForm.objective} onChange={(event) => updateRequestForm("objective", event.target.value)} />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Company contribution (INR)</Label>
+                    <Input type="number" min="0" max={requestForm.expectedBudget || undefined} className="rounded-lg h-9" value={requestForm.companyContribution} onChange={(event) => updateRequestForm("companyContribution", event.target.value)} />
                   </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-xs font-bold text-muted-foreground">Expected Business Impact</Label>
-                    <Textarea className="rounded-lg min-h-20" value={requestForm.expectedBusinessImpact} onChange={(event) => updateRequestForm("expectedBusinessImpact", event.target.value)} />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-xs font-bold text-muted-foreground">Expected Gifts / Materials</Label>
-                    <Textarea className="rounded-lg min-h-20" value={requestForm.expectedGiftsMaterials} onChange={(event) => updateRequestForm("expectedGiftsMaterials", event.target.value)} />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-xs font-bold text-muted-foreground">Remarks</Label>
-                    <Textarea className="rounded-lg min-h-20" value={requestForm.remarks} onChange={(event) => updateRequestForm("remarks", event.target.value)} />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Dealer contribution (INR)</Label>
+                    <Input className="rounded-lg h-9" value={requestDealerContribution} readOnly aria-readonly="true" />
+                    <p className="text-[11px] text-muted-foreground">Calculated automatically from the expected budget.</p>
                   </div>
                   <label className="flex items-center gap-2 rounded-xl border border-border/20 bg-muted/10 p-3 text-xs font-semibold sm:col-span-2 cursor-pointer hover:bg-muted/20 transition-all">
                     <Checkbox
@@ -3537,23 +3542,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   <ReadOnlyField label="Location" value={meeting.location} />
                   <ReadOnlyField label="Reference" value={meeting.customerReference} />
                   <ReadOnlyField label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
-                  <ReadOnlyField label="Expected turnout" value={meeting.expectedAttendees} />
+                  <ReadOnlyField label="Expected people" value={meeting.expectedAttendees} />
                   <ReadOnlyField label="Named attendees" value={meeting.attendees?.length || 0} />
-                  <div className="sm:col-span-2 md:col-span-3">
-                    <ReadOnlyField label="Objective" value={meeting.objective} />
-                  </div>
-                  <div className="sm:col-span-2 md:col-span-3">
-                    <ReadOnlyField label="Expected business impact" value={meeting.expectedBusinessImpact} />
-                  </div>
-                  <div className="sm:col-span-2 md:col-span-3">
-                    <ReadOnlyField
-                      label="Expected gifts / materials"
-                      value={<ExpectedGiftsDisplay gifts={plannedGifts} fallback={meeting.expectedGiftsMaterials || meeting.plan?.expectedGiftsMaterials} />}
-                    />
-                  </div>
-                  <div className="sm:col-span-2 md:col-span-3">
-                    <ReadOnlyField label="Remarks" value={meeting.remarks} />
-                  </div>
+                  <ReadOnlyField label="Company contribution" value={formatCurrency(meeting.plan?.companyContribution)} />
+                  <ReadOnlyField label="Dealer contribution" value={formatCurrency(meeting.plan?.dealerContribution)} />
                 </div>
               )}
             </CardContent>
@@ -3563,7 +3555,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         {activeTab === "attendees" && (
           <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md shadow-sm overflow-hidden">
             <CardHeader className="border-b border-border/20 px-5 py-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Expected Attendees</CardTitle>
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Named Attendees</CardTitle>
               {canEditRequest && (
                 <Button variant="outline" size="sm" onClick={() => setAttendees((prev) => [...prev, attendeeDraft()])} className="rounded-lg font-bold text-xs h-8">
                   <Plus className="h-3.5 w-3.5 mr-1" />
@@ -3610,7 +3602,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   </div>
                   <Button onClick={saveAttendees} disabled={isSaving} className="rounded-xl font-bold">
                     {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}
-                    Save Expected Attendees
+                    Save Named Attendees
                   </Button>
                 </>
               ) : (
@@ -3708,7 +3700,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   )}
                   {canMarkAttendance && (
                     <div className="space-y-3.5 border-t border-border/20 pt-4">
-                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">Mark Actual Attendance Turnout</h3>
+                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">Mark Actual Attendance</h3>
                       <div className="overflow-x-auto border rounded-xl bg-background/50">
                         <Table>
                           <TableHeader>
@@ -3822,11 +3814,11 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               {canIssueGifts ? (
                 <>
                   <div className="rounded-lg border border-border/20 bg-muted/10 px-4 py-2.5 text-xs text-muted-foreground leading-relaxed">
-                    💡 Note: Gifts can be issued only to attendees who have been marked <strong>Present</strong>.
+                    Gifts can be issued only to attendees marked <strong>Present</strong>.
                   </div>
                   <div className="space-y-3">
                     {gifts.map((gift, index) => (
-                      <div key={index} className="grid gap-3 rounded-xl border border-border/20 p-3 md:grid-cols-4 items-center bg-muted/5 relative">
+                      <div key={index} className="grid gap-3 rounded-xl border border-border/20 p-3 md:grid-cols-3 items-end bg-muted/5 relative">
                         <div className="space-y-1">
                           <Label className="text-[10px] font-bold text-muted-foreground">Attendee</Label>
                           <Select
@@ -3871,17 +3863,11 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                           <Label className="text-[10px] font-bold text-muted-foreground">Quantity</Label>
                           <Input type="number" min="1" className="rounded-lg h-9 text-xs" placeholder="Qty" value={gift.quantity} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, quantity: Number(event.target.value) } : item))} />
                         </div>
-                        <div className="space-y-1 flex items-end gap-2">
-                          <div className="flex-1">
-                            <Label className="text-[10px] font-bold text-muted-foreground">Remarks</Label>
-                            <Input placeholder="Remarks" className="rounded-lg h-9 text-xs" value={gift.remarks || ""} onChange={(event) => setGifts((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
-                          </div>
-                          {gifts.length > 1 && (
-                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-red-50 text-red-600 hover:text-red-700 shrink-0" onClick={() => removeGift(index)} disabled={isSaving}>
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
+                        {gifts.length > 1 && (
+                          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-red-50 text-red-600 hover:text-red-700 shrink-0 justify-self-end" onClick={() => removeGift(index)} disabled={isSaving} aria-label="Remove gift line">
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -3918,9 +3904,35 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                 <>
                   <div className="grid gap-3 grid-cols-3">
                     <ReadOnlyField label="Approved Budget" value={formatCurrency(meeting.expectedBudget)} />
-                    <ReadOnlyField label="Recorded Spent" value={formatCurrency(totalExpenses)} />
-                    <ReadOnlyField label="Variance Difference" value={formatCurrency(totalExpenses - Number(meeting.expectedBudget || 0))} />
+                    <ReadOnlyField label="Recorded Spent" value={formatCurrency(expenseSubmissionTotal)} />
+                    <ReadOnlyField label="Variance Difference" value={formatCurrency(expenseSubmissionTotal - Number(meeting.expectedBudget || 0))} />
                   </div>
+                  {plannedExpenses.filter((expense) => !isGiftExpenseHead(expense.expenseHead)).length > 0 && (
+                    <div className="overflow-hidden rounded-lg border border-border/30">
+                      <div className="border-b bg-muted/20 px-4 py-2.5 text-xs font-bold text-muted-foreground">Planned expenses</div>
+                      <Table>
+                        <TableBody>
+                          {plannedExpenses.filter((expense) => !isGiftExpenseHead(expense.expenseHead)).map((expense, index) => (
+                            <TableRow key={`${expense.expenseHead}-${index}`}>
+                              <TableCell className="font-semibold text-xs">{expense.expenseHead}</TableCell>
+                              <TableCell className="text-xs">{formatCurrency(expense.amount)}</TableCell>
+                              <TableCell className="text-right">
+                                <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => recordPlannedExpense(expense)}>
+                                  Record actual
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                  {giftExpenseTotal > 0 && (
+                    <div className="flex items-center justify-between rounded-lg border border-border/30 bg-muted/10 px-4 py-3 text-xs">
+                      <span className="font-semibold">Calculated gift expense</span>
+                      <span className="font-bold">{formatCurrency(giftExpenseTotal)} · Company paid</span>
+                    </div>
+                  )}
                   <div className="space-y-3">
                     {expenses.map((expense, index) => (
                       <div key={index} className="rounded-xl border border-border/20 p-4 bg-muted/5 space-y-3">
@@ -3932,7 +3944,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                             </Button>
                           )}
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-5 items-end">
+                        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 items-end">
                           <div className="space-y-1">
                             <Label className="text-[10px] font-bold text-muted-foreground">Expense Head</Label>
                             <Select value={expense.expenseHead} onValueChange={(value) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseHead: value } : item))}>
@@ -3969,10 +3981,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                             <Label className="text-[10px] font-bold text-muted-foreground">Spend Date</Label>
                             <Input type="date" className="rounded-lg h-9 text-xs" value={expense.expenseDate || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, expenseDate: event.target.value } : item))} />
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-bold text-muted-foreground">Remarks</Label>
-                            <Input placeholder="Remarks" className="rounded-lg h-9 text-xs" value={expense.remarks || ""} onChange={(event) => setExpenses((prev) => prev.map((item, currentIndex) => currentIndex === index ? { ...item, remarks: event.target.value } : item))} />
-                          </div>
                         </div>
 
                         {expense.paidBy === "SHARED" && (
@@ -4003,12 +4011,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                         )}
                       </div>
                     ))}
-                  </div>
-                  <div className="space-y-1.5 pt-2">
-                    <Label className="text-xs font-bold text-muted-foreground">
-                      Overall Expense Justification Remarks {totalExpenses > Number(meeting.expectedBudget || 0) ? "⚠️ (Mandatory: actual spend exceeds approved budget)" : ""}
-                    </Label>
-                    <Textarea className="rounded-lg min-h-16 text-xs" placeholder="Add justification or general expense remarks..." value={expenseRemarks} onChange={(event) => setExpenseRemarks(event.target.value)} />
                   </div>
                   <div className="flex flex-wrap gap-2 pt-2">
                     <Button onClick={submitExpenses} disabled={isSaving} className="rounded-xl font-bold">
@@ -4080,10 +4082,6 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                       <Label className="text-xs font-bold text-muted-foreground">Local Competitor Intel Collected</Label>
                       <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.competitorInformation} onChange={(event) => setFinalReport((prev) => ({ ...prev, competitorInformation: event.target.value }))} disabled={!canSubmitFinalReport} />
                     </div>
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <Label className="text-xs font-bold text-muted-foreground">Final Closing Remarks</Label>
-                      <Textarea className="rounded-lg min-h-20 text-xs" value={finalReport.finalRemarks} onChange={(event) => setFinalReport((prev) => ({ ...prev, finalRemarks: event.target.value }))} disabled={!canSubmitFinalReport} />
-                    </div>
                   </div>
                   {canSubmitFinalReport && (
                     <Button onClick={submitFinalReport} disabled={isSaving} className="rounded-xl font-bold mt-2">
@@ -4113,6 +4111,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
             </CardContent>
           </Card>
         )}
+      </div>
       </div>
     </div>
     {approvalDecisionDialog}
