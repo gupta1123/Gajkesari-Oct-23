@@ -65,6 +65,7 @@ type CustomerFilters = {
 };
 
 const TEAM_CUSTOMER_PAGE_SIZE = 1000;
+const CUSTOMER_FILTER_DEBOUNCE_MS = 300;
 
 const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase();
 
@@ -672,7 +673,10 @@ function CustomerListContent() {
         if (!isStateHydrated || !isRoleDetermined) {
             return;
         }
-        fetchFilteredCustomers();
+
+        customerRequestIdRef.current += 1;
+        const timeoutId = window.setTimeout(fetchFilteredCustomers, CUSTOMER_FILTER_DEBOUNCE_MS);
+        return () => window.clearTimeout(timeoutId);
     }, [isStateHydrated, isRoleDetermined, isManager, isFieldOfficer, desktopFilters, currentPage, pageSize, sortColumn, sortDirection, teamIds, birthdayToday]);
 
     const openDeleteModal = (customerId: string) => {
