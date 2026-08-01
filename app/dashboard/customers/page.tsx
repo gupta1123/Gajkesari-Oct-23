@@ -54,16 +54,144 @@ type Customer = StoreDto & {
     totalVisitCount: number;
 };
 
+type CustomerFilters = {
+    storeName: string;
+    primaryContact: string;
+    ownerName: string;
+    city: string;
+    state: string;
+    clientType: string;
+    employeeName: string;
+};
+
+const TEAM_CUSTOMER_PAGE_SIZE = 1000;
+
+const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase();
+
+const matchesCustomerFilters = (store: StoreDto, filters: CustomerFilters) => {
+    const ownerName = [store.clientFirstName, store.clientLastName].filter(Boolean).join(' ');
+    const phoneFilter = filters.primaryContact.replace(/\D/g, '');
+    const phone = String(store.primaryContact ?? '').replace(/\D/g, '');
+
+    return (
+        (!filters.storeName || normalizeSearchValue(store.storeName).includes(normalizeSearchValue(filters.storeName))) &&
+        (!filters.ownerName || normalizeSearchValue(ownerName).includes(normalizeSearchValue(filters.ownerName))) &&
+        (!filters.city || normalizeSearchValue(store.city).includes(normalizeSearchValue(filters.city))) &&
+        (!filters.state || normalizeSearchValue(store.state).includes(normalizeSearchValue(filters.state))) &&
+        (!filters.clientType || normalizeSearchValue(store.clientType).includes(normalizeSearchValue(filters.clientType))) &&
+        (!filters.employeeName || normalizeSearchValue(store.employeeName).includes(normalizeSearchValue(filters.employeeName))) &&
+        (!phoneFilter || phone.includes(phoneFilter))
+    );
+};
+
+const hasBirthdayOn = (store: StoreDto, date: Date) => {
+    const dob = store.dateOfBirth || store.dob;
+    if (!dob) return false;
+
+    const datePart = dob.split('T')[0];
+    const parts = datePart.split('-').map(Number);
+    if (parts.length !== 3 || parts.some(Number.isNaN)) return false;
+
+    return parts[1] === date.getMonth() + 1 && parts[2] === date.getDate();
+};
+
+const getStoreSortValue = (store: StoreDto, sortColumn: string): string | number => {
+    switch (sortColumn) {
+        case 'ownerFirstName':
+            return [store.clientFirstName, store.clientLastName].filter(Boolean).join(' ');
+        case 'visitCount':
+            return store.totalVisitCount ?? 0;
+        case 'lastVisitDate':
+            return store.lastVisitDate ?? '';
+        case 'city':
+            return store.city ?? '';
+        case 'state':
+            return store.state ?? '';
+        case 'primaryContact':
+            return store.primaryContact ?? '';
+        case 'monthlySale':
+            return store.monthlySale ?? 0;
+        case 'intent':
+            return store.intent ?? 0;
+        case 'employeeName':
+            return store.employeeName ?? '';
+        case 'clientType':
+            return store.clientType ?? '';
+        case 'storeName':
+        default:
+            return store.storeName ?? '';
+    }
+};
+
+const sortStores = (stores: StoreDto[], sortColumn: string, sortDirection: 'asc' | 'desc') => {
+    return [...stores].sort((a, b) => {
+        const aValue = getStoreSortValue(a, sortColumn);
+        const bValue = getStoreSortValue(b, sortColumn);
+        const comparison =
+            typeof aValue === 'number' && typeof bValue === 'number'
+                ? aValue - bValue
+                : String(aValue).localeCompare(String(bValue), undefined, { sensitivity: 'base', numeric: true });
+
+        return sortDirection === 'asc' ? comparison : -comparison;
+    });
+};
+
+const createStoreResponse = (
+    stores: StoreDto[],
+    currentPage: number,
+    pageSize: number,
+): StoreResponse => {
+    const totalPages = Math.max(1, Math.ceil(stores.length / pageSize));
+    const safePage = Math.min(Math.max(currentPage, 1), totalPages);
+    const startIndex = (safePage - 1) * pageSize;
+    const content = stores.slice(startIndex, startIndex + pageSize);
+
+    return {
+        content,
+        pageable: {
+            pageNumber: safePage - 1,
+            pageSize,
+            sort: { empty: false, sorted: true, unsorted: false },
+            offset: startIndex,
+            paged: true,
+            unpaged: false,
+        },
+        totalPages,
+        totalElements: stores.length,
+        last: safePage >= totalPages,
+        size: pageSize,
+        number: safePage - 1,
+        sort: { empty: false, sorted: true, unsorted: false },
+        numberOfElements: content.length,
+        first: safePage === 1,
+        empty: content.length === 0,
+    };
+};
+
+const getAllStoresForTeam = async (teamId: number): Promise<StoreDto[]> => {
+    const firstPage = await API.getStoresForTeam(teamId, 0, TEAM_CUSTOMER_PAGE_SIZE);
+    if (firstPage.totalPages <= 1) return firstPage.content ?? [];
+
+    const remainingPages = await Promise.all(
+        Array.from({ length: firstPage.totalPages - 1 }, (_, index) =>
+            API.getStoresForTeam(teamId, index + 1, TEAM_CUSTOMER_PAGE_SIZE),
+        ),
+    );
+
+    return [firstPage, ...remainingPages].flatMap((response) => response.content ?? []);
+};
+
 function CustomerListContent() {
     const router = useRouter();
     const hasHydratedRef = useRef(false);
+    const customerRequestIdRef = useRef(0);
     const [isStateHydrated, setIsStateHydrated] = useState(false);
     const { token, userData, userRole, currentUser, teamId: authTeamId, correctedRoleFlags } = useAuth();
     const [selectedColumns, setSelectedColumns] = useState<string[]>([
         'shopName', 'ownerName', 'city', 'state', 'phone', 'monthlySales', 'intentLevel', 'fieldOfficer',
         'clientType', 'totalVisits', 'lastVisitDate',
     ]);
-    const [desktopFilters, setDesktopFilters] = useState({
+    const [desktopFilters, setDesktopFilters] = useState<CustomerFilters>({
         storeName: '',
         primaryContact: '',
         ownerName: '',
@@ -72,7 +200,7 @@ function CustomerListContent() {
         clientType: '',
         employeeName: '',
     });
-    const [mobileFilters, setMobileFilters] = useState({
+    const [mobileFilters, setMobileFilters] = useState<CustomerFilters>({
         storeName: '',
         primaryContact: '',
         ownerName: '',
@@ -438,162 +566,58 @@ function CustomerListContent() {
         if (!isStateHydrated || !isRoleDetermined) {
             return;
         }
+
+        const requestId = ++customerRequestIdRef.current;
+        const isLatestRequest = () => requestId === customerRequestIdRef.current;
+
         setIsLoading(true);
         setError(null);
+
         try {
-            // If "Birthday Today" filter is selected, use DOB date range API
-            if (birthdayToday) {
+            let data: StoreResponse;
+
+            if (isManager || isFieldOfficer) {
+                if (teamIds.length === 0) {
+                    if (isLatestRequest()) {
+                        setCustomers([]);
+                        setTotalPages(1);
+                    }
+                    return;
+                }
+
+                const responses = await Promise.all(teamIds.map(getAllStoresForTeam));
+                if (!isLatestRequest()) return;
+
+                const uniqueStores = new Map<number, StoreDto>();
+                responses.flat().forEach((store) => uniqueStores.set(store.storeId, store));
+
+                const today = new Date();
+                const filteredStores = Array.from(uniqueStores.values()).filter(
+                    (store) =>
+                        matchesCustomerFilters(store, desktopFilters) &&
+                        (!birthdayToday || hasBirthdayOn(store, today)),
+                );
+
+                data = createStoreResponse(
+                    sortStores(filteredStores, sortColumn, sortDirection),
+                    currentPage,
+                    pageSize,
+                );
+            } else if (birthdayToday) {
                 const today = new Date();
                 const todayStr = format(today, 'yyyy-MM-dd');
-                console.log('Fetching customers with birthdays today:', todayStr);
-                
-                try {
-                    const birthdayCustomers = await API.getStoresByDobDateRange(todayStr, todayStr);
-                    console.log('Birthday customers response:', birthdayCustomers);
-                    
-                    // Transform to Customer format and StoreResponse format
-                    const transformedCustomers: Customer[] = (birthdayCustomers || []).map((store: StoreDto) => ({
-                        ...store,
-                        storeId: store.storeId,
-                        clientFirstName: store.clientFirstName || '',
-                        clientLastName: store.clientLastName || '',
-                        employeeName: store.employeeName || '',
-                        totalVisitCount: store.totalVisitCount || 0,
-                    }));
-                    
-                    setCustomers(transformedCustomers);
-                    // For birthday filter, we show all results without pagination
-                    setTotalPages(1);
-                    setIsLoading(false);
-                    return;
-                } catch (err) {
-                    console.error('Error fetching birthday customers:', err);
-                    setError('Failed to load birthday customers');
-                    setCustomers([]);
-                    setTotalPages(1);
-                    setIsLoading(false);
-                    return;
-                }
-            }
+                const birthdayCustomers = await API.getStoresByDobDateRange(todayStr, todayStr);
+                if (!isLatestRequest()) return;
 
-            // For managers and field officers, wait until teamId is available
-            if ((isManager || isFieldOfficer) && teamIds.length === 0) return;
-            
-            let data: StoreResponse;
-            
-            if (isManager) {
-                // For managers, use team-based API call only
-                if (teamIds.length === 0) {
-                    console.log('Manager role detected but no teamId available, skipping API call');
-                    setCustomers([]);
-                    setTotalPages(1);
-                    return;
-                }
-                console.log('Manager API call for teams:', teamIds);
-                if (teamIds.length === 1) {
-                    data = await API.getStoresForTeam(teamIds[0], currentPage - 1, pageSize);
-                } else {
-                    const responses = await Promise.all(teamIds.map((id) => API.getStoresForTeam(id, 0, 1000)));
-                    const uniqueStores = new Map<number, StoreDto>();
-                    responses.flatMap((response) => response.content ?? []).forEach((store) => {
-                        uniqueStores.set(store.storeId, store);
-                    });
-                    const getStoreSortValue = (store: StoreDto): string | number | null | undefined => {
-                        switch (sortColumn) {
-                            case 'ownerFirstName':
-                                return [store.clientFirstName, store.clientLastName].filter(Boolean).join(' ');
-                            case 'visitCount':
-                                return store.totalVisitCount;
-                            case 'lastVisitDate':
-                                return store.lastVisitDate;
-                            case 'storeName':
-                                return store.storeName;
-                            case 'city':
-                                return store.city;
-                            case 'state':
-                                return store.state;
-                            case 'primaryContact':
-                                return store.primaryContact;
-                            case 'monthlySale':
-                                return store.monthlySale;
-                            case 'intent':
-                                return store.intent;
-                            case 'employeeName':
-                                return store.employeeName;
-                            case 'clientType':
-                                return store.clientType;
-                            default:
-                                return store.storeName;
-                        }
-                    };
-                    const allStores = Array.from(uniqueStores.values()).sort((a, b) => {
-                        const aValue = String(getStoreSortValue(a) ?? '').toLowerCase();
-                        const bValue = String(getStoreSortValue(b) ?? '').toLowerCase();
-                        return sortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
-                    });
-                    const startIndex = (currentPage - 1) * pageSize;
-                    const paginatedStores = allStores.slice(startIndex, startIndex + pageSize);
-                    data = {
-                        content: paginatedStores,
-                        pageable: {
-                            pageNumber: currentPage - 1,
-                            pageSize,
-                            sort: { empty: false, sorted: true, unsorted: false },
-                            offset: startIndex,
-                            paged: true,
-                            unpaged: false,
-                        },
-                        totalPages: Math.max(1, Math.ceil(allStores.length / pageSize)),
-                        totalElements: allStores.length,
-                        last: startIndex + pageSize >= allStores.length,
-                        size: pageSize,
-                        number: currentPage - 1,
-                        sort: { empty: false, sorted: true, unsorted: false },
-                        numberOfElements: paginatedStores.length,
-                        first: currentPage <= 1,
-                        empty: paginatedStores.length === 0,
-                    };
-                }
-                console.log('Manager API response:', data);
-            } else if (isFieldOfficer) {
-                // For field officers, use team-based API call only
-                if (teamIds.length === 0) {
-                    console.log('Field Officer role detected but no teamId available, skipping API call');
-                    setCustomers([]);
-                    setTotalPages(1);
-                    return;
-                }
-                console.log('Field Officer API call for team:', teamIds[0]);
-                data = await API.getStoresForTeam(teamIds[0], currentPage - 1, pageSize);
-                console.log('Field Officer API response:', data);
-            } else if (isAdmin) {
-                // For admins, use the original API logic
-                console.log('Admin API call');
-                if (desktopFilters.employeeName && employeeId) {
-                    // Use employee-specific endpoint
-                    data = await API.getStoresByEmployee(Number(employeeId), {
-                        sortBy: sortColumn,
-                        sortOrder: sortDirection,
-                    });
-                } else {
-                    // Use general filtered endpoint
-                    data = await API.getStoresFilteredPaginated({
-                        storeName: desktopFilters.storeName || undefined,
-                        ownerName: desktopFilters.ownerName || undefined,
-                        city: desktopFilters.city || undefined,
-                        state: desktopFilters.state || undefined,
-                        clientType: desktopFilters.clientType || undefined,
-                        employeeName: desktopFilters.employeeName || undefined,
-                        primaryContact: desktopFilters.primaryContact || undefined,
-                        page: currentPage - 1,
-                        size: pageSize,
-                        sortBy: sortColumn,
-                        sortOrder: sortDirection,
-                    });
-                }
+                const filteredStores = (birthdayCustomers ?? []).filter((store) =>
+                    matchesCustomerFilters(store, desktopFilters),
+                );
+                data = createStoreResponse(
+                    sortStores(filteredStores, sortColumn, sortDirection),
+                    currentPage,
+                    pageSize,
+                );
             } else {
-                // Default to admin API call for unknown roles
-                console.log('Default (Admin) API call for unknown role');
                 data = await API.getStoresFilteredPaginated({
                     storeName: desktopFilters.storeName || undefined,
                     ownerName: desktopFilters.ownerName || undefined,
@@ -607,9 +631,10 @@ function CustomerListContent() {
                     sortBy: sortColumn,
                     sortOrder: sortDirection,
                 });
+
+                if (!isLatestRequest()) return;
             }
-            
-            // Transform StoreDto to Customer format
+
             const transformedCustomers: Customer[] = (data.content || []).map((store: StoreDto) => ({
                 ...store,
                 storeId: store.storeId,
@@ -618,6 +643,9 @@ function CustomerListContent() {
                 employeeName: store.employeeName || '',
                 totalVisitCount: store.totalVisitCount || 0,
             }));
+
+            if (!isLatestRequest()) return;
+
             setCustomers(transformedCustomers);
             const resolvedTotalPages = data.totalPages && data.totalPages > 0 ? data.totalPages : 1;
             setTotalPages(resolvedTotalPages);
@@ -628,10 +656,15 @@ function CustomerListContent() {
                 }
             }
         } catch (err) {
-            setError((err as Error)?.message || 'Failed to load customers');
-            setCustomers([]);
+            if (isLatestRequest()) {
+                setError((err as Error)?.message || 'Failed to load customers');
+                setCustomers([]);
+                setTotalPages(1);
+            }
         } finally {
-            setIsLoading(false);
+            if (isLatestRequest()) {
+                setIsLoading(false);
+            }
         }
     };
 
@@ -640,7 +673,7 @@ function CustomerListContent() {
             return;
         }
         fetchFilteredCustomers();
-    }, [isStateHydrated, isRoleDetermined, desktopFilters, currentPage, pageSize, sortColumn, sortDirection, teamIds, birthdayToday]);
+    }, [isStateHydrated, isRoleDetermined, isManager, isFieldOfficer, desktopFilters, currentPage, pageSize, sortColumn, sortDirection, teamIds, birthdayToday]);
 
     const openDeleteModal = (customerId: string) => {
         setSelectedCustomerId(customerId);
