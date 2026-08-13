@@ -45,7 +45,6 @@ import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import NewCustomersReport from "@/components/NewCustomersReport";
 import SalesPerformanceReport from "@/components/SalesPerformanceReport";
-import MonthlyTargetPage from "@/app/dashboard/reports/monthly-target/page";
 import dayjs from 'dayjs';
 import { API } from '@/lib/api';
 import { hasManagerPrivileges } from '@/lib/auth';
@@ -475,7 +474,6 @@ const ReportsPage: React.FC = () => {
             <TabsTrigger value="fieldOfficerReport">Field Officer Visit Report</TabsTrigger>
             <TabsTrigger value="newCustomers">New Customers Report</TabsTrigger>
             <TabsTrigger value="salesPerformance">Sales Performance Report</TabsTrigger>
-            <TabsTrigger value="monthlyTarget">Monthly Target Report</TabsTrigger>
           </TabsList>
         </div>
         
@@ -766,10 +764,6 @@ const ReportsPage: React.FC = () => {
 
         <TabsContent value="salesPerformance" className="space-y-6">
           <SalesPerformanceReport />
-        </TabsContent>
-
-        <TabsContent value="monthlyTarget" className="space-y-6">
-          <MonthlyTargetPage />
         </TabsContent>
       </Tabs>
     </div>
