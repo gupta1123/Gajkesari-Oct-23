@@ -12,8 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SearchIcon, Loader2, Grid3X3, Table as TableIcon, CheckCircle, XCircle, Download } from "lucide-react";
+import { SearchIcon, Loader2, Grid3X3, Table as TableIcon, CheckCircle, XCircle, Download, Eye } from "lucide-react";
 import EmployeeExpenseCard from "@/components/employee-expense-card";
+import ExpenseDetailsDialog, { type ExpenseViewModel } from "@/components/expense-details-dialog";
 import { Text } from "@/components/ui/typography";
 import { apiService, ExpenseDto } from "@/lib/api";
 import {
@@ -30,15 +31,6 @@ import { useAuth } from "@/components/auth-provider";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 
-interface Expense {
-  id: number;
-  date: string;
-  category: string;
-  amount: number;
-  description: string;
-  status: "approved" | "pending" | "rejected";
-}
-
 interface Employee {
   id: number;
   name: string;
@@ -48,7 +40,7 @@ interface Employee {
   approved: number;
   pending: number;
   rejected: number;
-  expenses: Expense[];
+  expenses: ExpenseViewModel[];
 }
 
 // Mock data for employees and their expenses (fallback)
@@ -166,6 +158,7 @@ export default function ExpensesPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
+  const [selectedExpense, setSelectedExpense] = useState<ExpenseViewModel | null>(null);
   const { token } = useAuth();
 
   // Transform API data to match component interface
@@ -195,13 +188,16 @@ export default function ExpensesPage() {
         ? status as "approved" | "pending" | "rejected"
         : "pending" as "approved" | "pending" | "rejected";
 
-      const transformedExpense: Expense = {
+      const transformedExpense: ExpenseViewModel = {
         id: expense.id,
         date: expense.expenseDate,
         category: expense.subType ? `${expense.type} - ${expense.subType}` : expense.type,
         amount: expense.amount,
         description: expense.description,
-        status: validStatus
+        status: validStatus,
+        employeeName,
+        employeePosition: employee.position,
+        attachments: expense.attachmentResponse ?? [],
       };
 
       employee.expenses.push(transformedExpense);
@@ -422,7 +418,16 @@ export default function ExpensesPage() {
       console.error('Error loading expenses:', err);
       setError('Failed to load expenses. Please try again.');
       // Fallback to mock data
-      setEmployees(mockEmployees as Employee[]);
+      setEmployees(mockEmployees.map((employee) => ({
+        ...employee,
+        expenses: employee.expenses.map((expense) => ({
+          ...expense,
+          status: expense.status as ExpenseViewModel["status"],
+          employeeName: employee.name,
+          employeePosition: employee.position,
+          attachments: [],
+        })),
+      })));
     } finally {
       setIsLoading(false);
     }
@@ -690,6 +695,7 @@ export default function ExpensesPage() {
                 onReject={handleReject}
                 onApproveMultiple={handleApproveMultiple}
                 onRejectMultiple={handleRejectMultiple}
+                onViewDetails={setSelectedExpense}
               />
             ))
           )}
@@ -756,6 +762,16 @@ export default function ExpensesPage() {
                                 <Button
                                   size="sm"
                                   variant="outline"
+                                  onClick={() => setSelectedExpense(expense)}
+                                  className="h-8 w-8 p-0"
+                                  title="View expense details"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  <span className="sr-only">View expense details</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
                                   onClick={() => handleApprove(expense.employeeName, expense.id)}
                                   className={`h-8 w-8 p-0 ${
                                     expense.status === "approved" 
@@ -789,6 +805,14 @@ export default function ExpensesPage() {
           </CardContent>
         </Card>
       )}
+
+      <ExpenseDetailsDialog
+        expense={selectedExpense}
+        open={selectedExpense !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedExpense(null);
+        }}
+      />
     </div>
   );
 }

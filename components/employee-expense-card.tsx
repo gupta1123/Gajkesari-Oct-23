@@ -9,20 +9,13 @@ import {
   XCircle,
   Check,
   X,
-  Calendar
+  Calendar,
+  Eye
 } from "lucide-react";
 import { format } from "date-fns";
 import { Heading, Text } from "@/components/ui/typography";
 import { Separator } from "@/components/ui/separator";
-
-interface Expense {
-  id: number;
-  date: string;
-  category: string;
-  amount: number;
-  description: string;
-  status: "approved" | "pending" | "rejected";
-}
+import type { ExpenseViewModel } from "@/components/expense-details-dialog";
 
 interface Employee {
   id: number;
@@ -33,7 +26,7 @@ interface Employee {
   approved: number;
   pending: number;
   rejected: number;
-  expenses: Expense[];
+  expenses: ExpenseViewModel[];
 }
 
 interface EmployeeExpenseCardProps {
@@ -44,9 +37,10 @@ interface EmployeeExpenseCardProps {
   onReject?: (employeeName: string, expenseId: number) => void;
   onApproveMultiple?: (employeeName: string, expenseIds: number[]) => void;
   onRejectMultiple?: (employeeName: string, expenseIds: number[]) => void;
+  onViewDetails?: (expense: ExpenseViewModel) => void;
 }
 
-export default function EmployeeExpenseCard({ employee, showExpenses, onToggleExpenses, onApprove, onReject, onApproveMultiple, onRejectMultiple }: EmployeeExpenseCardProps) {
+export default function EmployeeExpenseCard({ employee, showExpenses, onToggleExpenses, onApprove, onReject, onApproveMultiple, onRejectMultiple, onViewDetails }: EmployeeExpenseCardProps) {
   const [expenses, setExpenses] = useState(employee.expenses);
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<number[]>([]);
 
@@ -210,6 +204,16 @@ export default function EmployeeExpenseCard({ employee, showExpenses, onToggleEx
                     <Heading as="p" size="sm" weight="medium" className="mr-2">
                       ₹{(expense.amount || 0).toFixed(2)}
                     </Heading>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => onViewDetails?.(expense)}
+                      title="View expense details"
+                    >
+                      <Eye className="h-4 w-4" />
+                      <span className="sr-only">View expense details</span>
+                    </Button>
                     {expense.status === "pending" ? (
                       <>
                         <Button

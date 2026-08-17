@@ -30,6 +30,7 @@ import {
   Trash2,
   MessageSquare,
   FileText,
+  FileCheck2,
   AlertCircle,
   Image as ImageIcon,
   Navigation,
@@ -78,6 +79,12 @@ import { hasManagerPrivileges } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import Image from 'next/image';
 import BrandTab from './BrandTab';
+import VisitReportsPanel from './visit-reports-panel';
+import {
+  contractorEngineerVisitReportsApi,
+  downloadVisitReportExport,
+  type ContractorEngineerVisitReport,
+} from '@/lib/contractor-engineer-visit-reports-api';
 
 type Priority = 'low' | 'medium' | 'high';
 
@@ -414,6 +421,10 @@ export default function VisitDetailPage() {
   const [complaints, setComplaints] = useState<Task[]>([]);
   const [notes, setNotes] = useState<ApiNote[]>([]);
   const [storeVisits, setStoreVisits] = useState<VisitDto[]>([]);
+  const [visitReports, setVisitReports] = useState<ContractorEngineerVisitReport[]>([]);
+  const [isVisitReportsLoading, setIsVisitReportsLoading] = useState(false);
+  const [visitReportsError, setVisitReportsError] = useState<string | null>(null);
+  const [isVisitReportsExporting, setIsVisitReportsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [checkinImages, setCheckinImages] = useState<string[]>([]);
@@ -848,6 +859,58 @@ export default function VisitDetailPage() {
       fetchVisitDetail(visitId);
     }
   }, [visitId, fetchVisitDetail]);
+
+  const visitReportDate = visitDetail?.visit_date?.slice(0, 10) || "";
+
+  const fetchVisitReports = useCallback(async () => {
+    if (!visitReportDate) return;
+
+    setIsVisitReportsLoading(true);
+    setVisitReportsError(null);
+    try {
+      const reports = await contractorEngineerVisitReportsApi.getByDateRange(
+        visitReportDate,
+        visitReportDate,
+      );
+      setVisitReports(reports || []);
+    } catch (requestError) {
+      setVisitReports([]);
+      setVisitReportsError(
+        requestError instanceof Error ? requestError.message : "Failed to load visit reports.",
+      );
+    } finally {
+      setIsVisitReportsLoading(false);
+    }
+  }, [visitReportDate]);
+
+  useEffect(() => {
+    if (activeTab === "reports" && visitReportDate) {
+      fetchVisitReports();
+    }
+  }, [activeTab, fetchVisitReports, visitReportDate]);
+
+  const handleVisitReportExport = async () => {
+    if (!visitReportDate || isVisitReportsExporting) return;
+
+    setIsVisitReportsExporting(true);
+    setVisitReportsError(null);
+    try {
+      const response = await contractorEngineerVisitReportsApi.exportByDateRange(
+        visitReportDate,
+        visitReportDate,
+      );
+      downloadVisitReportExport(
+        response,
+        `contractor-engineer-visit-reports-${visitReportDate}-to-${visitReportDate}.xlsx`,
+      );
+    } catch (requestError) {
+      setVisitReportsError(
+        requestError instanceof Error ? requestError.message : "Failed to download visit reports.",
+      );
+    } finally {
+      setIsVisitReportsExporting(false);
+    }
+  };
 
   // Handler functions
   const handleBack = () => {
@@ -1767,6 +1830,7 @@ export default function VisitDetailPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="metrics">Visit Metrics</SelectItem>
+                  <SelectItem value="reports">Reports</SelectItem>
                   <SelectItem value="visits">Recent Visits</SelectItem>
                   <SelectItem value="brands">Brands</SelectItem>
                   <SelectItem value="requirements">Requirements</SelectItem>
@@ -1785,6 +1849,17 @@ export default function VisitDetailPage() {
               >
                 <TrendingUp className="w-4 h-4 mr-2 inline" />
                 <span>Metrics</span>
+              </button>
+              <button
+                className={`tab py-2 px-3 border-b-2 font-medium text-sm rounded transition-colors whitespace-nowrap ${
+                  activeTab === 'reports'
+                    ? 'border-border text-card-foreground bg-card shadow-sm'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                }`}
+                onClick={() => setActiveTab('reports')}
+              >
+                <FileCheck2 className="w-4 h-4 mr-2 inline" />
+                <span>Reports</span>
               </button>
               <button
                 className={`tab py-2 px-3 border-b-2 font-medium text-sm rounded transition-colors whitespace-nowrap ${
@@ -1855,6 +1930,17 @@ export default function VisitDetailPage() {
                   </div>
                 </CardContent>
               </Card>
+            )}
+
+            {activeTab === 'reports' && (
+              <VisitReportsPanel
+                reports={visitReports}
+                isLoading={isVisitReportsLoading}
+                error={visitReportsError}
+                isExporting={isVisitReportsExporting}
+                onExport={handleVisitReportExport}
+                onRetry={fetchVisitReports}
+              />
             )}
 
             {activeTab === 'visits' && (

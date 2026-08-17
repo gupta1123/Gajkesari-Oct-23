@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Calendar, User, CalendarIcon, Check, MoreHorizontal, ChevronDown } from "lucide-react";
+import { Loader2, User, CalendarIcon, Check, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { requestDailyTaDaEdit } from "@/lib/daily-ta-da-edit";
 
 // --- Interfaces ---
 interface DailyBreakdownData {
@@ -39,6 +40,8 @@ interface DailyBreakdownData {
     isSunday: boolean;
     bikeDistanceKm: number;
     carDistanceKm: number;
+    distanceAdjustmentKm?: number;
+    effectiveDistanceKm?: number;
     dailyBaseSalary: number;
     baseEarned: number;
 }
@@ -89,6 +92,14 @@ const DistanceIssueNote = ({ href }: { href: string }) => (
     </p>
 );
 
+const getPayableDistanceKm = (day: DailyBreakdownData) => {
+    if (typeof day.effectiveDistanceKm === "number" && Number.isFinite(day.effectiveDistanceKm)) {
+        return day.effectiveDistanceKm;
+    }
+
+    return Number(day.carDistanceKm || 0) + Number(day.bikeDistanceKm || 0);
+};
+
 // --- Main Component ---
 const DailyBreakdown: React.FC = () => {
     // Data States
@@ -115,6 +126,12 @@ const DailyBreakdown: React.FC = () => {
     const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+    const [editingDay, setEditingDay] = useState<DailyBreakdownData | null>(null);
+    const [isEditOpen, setIsEditOpen] = useState(false);
+    const [kilometresInput, setKilometresInput] = useState("");
+    const [dearnessAllowanceInput, setDearnessAllowanceInput] = useState("");
+    const [dailyEditError, setDailyEditError] = useState<string | null>(null);
+    const [isSavingDailyEdit, setIsSavingDailyEdit] = useState(false);
 
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
@@ -279,6 +296,79 @@ const DailyBreakdown: React.FC = () => {
         if (!open) setPendingStatus(null);
     };
 
+    const openDailyEdit = (day: DailyBreakdownData) => {
+        setEditingDay(day);
+        setKilometresInput(String(getPayableDistanceKm(day)));
+        setDearnessAllowanceInput(String(day.dailyDearnessAllowance ?? 0));
+        setDailyEditError(null);
+        setIsEditOpen(true);
+    };
+
+    const resetDailyEdit = () => {
+        setIsEditOpen(false);
+        setEditingDay(null);
+        setKilometresInput("");
+        setDearnessAllowanceInput("");
+        setDailyEditError(null);
+    };
+
+    const closeDailyEdit = () => {
+        if (isSavingDailyEdit) return;
+        resetDailyEdit();
+    };
+
+    const handleDailyEditOpenChange = (open: boolean) => {
+        if (open) {
+            setIsEditOpen(true);
+            return;
+        }
+
+        closeDailyEdit();
+    };
+
+    const handleSaveDailyEdit = async () => {
+        if (!editingDay) return;
+        if (!token) {
+            setDailyEditError("Authentication token not found. Please log in again.");
+            return;
+        }
+
+        const kilometres = Number(kilometresInput);
+        const dearnessAllowance = Number(dearnessAllowanceInput);
+
+        if (kilometresInput.trim() === "" || !Number.isFinite(kilometres) || kilometres < 0) {
+            setDailyEditError("Enter valid kilometres greater than or equal to 0.");
+            return;
+        }
+
+        if (dearnessAllowanceInput.trim() === "" || !Number.isFinite(dearnessAllowance) || dearnessAllowance < 0) {
+            setDailyEditError("Enter a valid DA amount greater than or equal to 0.");
+            return;
+        }
+
+        setDailyEditError(null);
+        setIsSavingDailyEdit(true);
+        try {
+            await requestDailyTaDaEdit({
+                employeeId: editingDay.employeeId,
+                date: editingDay.date,
+                kilometres,
+                currentKilometres: getPayableDistanceKm(editingDay),
+                dearnessAllowance,
+                currentDearnessAllowance: editingDay.dailyDearnessAllowance ?? 0,
+                token,
+            });
+            await fetchDailyBreakdown();
+            resetDailyEdit();
+        } catch (error) {
+            setDailyEditError(
+                error instanceof Error ? error.message : "Failed to save the daily TA/DA changes.",
+            );
+        } finally {
+            setIsSavingDailyEdit(false);
+        }
+    };
+
     // --- Derived State for UI ---
     const employeeOptions = useMemo(() => employees.map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}` })), [employees]);
     const filteredEmployees = useMemo(() => 
@@ -305,7 +395,7 @@ const DailyBreakdown: React.FC = () => {
                 acc.base += day.baseEarned;
                 acc.travel += day.travelAllowance;
                 acc.da += day.dailyDearnessAllowance;
-                acc.distance += day.carDistanceKm + day.bikeDistanceKm;
+                acc.distance += getPayableDistanceKm(day);
                 acc.total += day.totalDailySalary;
                 return acc;
             },
@@ -425,7 +515,7 @@ const DailyBreakdown: React.FC = () => {
                                 {dailyBreakdownData.map((day) => {
                                     const key = getRecordKey(day.date, day.employeeId);
                                     const isSelected = selectedRecords.has(key);
-                                    const totalDistance = day.carDistanceKm + day.bikeDistanceKm;
+                                    const totalDistance = getPayableDistanceKm(day);
                                     return (
                                         <div key={key} 
                                             className={cn(
@@ -448,7 +538,7 @@ const DailyBreakdown: React.FC = () => {
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-y-1 text-sm text-muted-foreground">
                                                     <div>Visits: <span className="text-foreground font-medium">{day.completedVisits}</span></div>
-                                                    <div>Travel: <span className="text-foreground font-medium">{formatCurrency(day.travelAllowance)}</span></div>
+                                                    <div>TA: <span className="text-foreground font-medium">{formatCurrency(day.travelAllowance)}</span></div>
                                                     <div className="col-span-2">
                                                         Distance:{" "}
                                                         <span className={cn("font-medium", totalDistance < 0 ? "text-amber-600" : "text-foreground")}>
@@ -457,6 +547,16 @@ const DailyBreakdown: React.FC = () => {
                                                     </div>
                                                     <div>DA: <span className="text-foreground font-medium">{formatCurrency(day.dailyDearnessAllowance)}</span></div>
                                                 </div>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="mt-4 w-full"
+                                                    onClick={() => openDailyEdit(day)}
+                                                >
+                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                    Edit daily TA/DA
+                                                </Button>
                                             </div>
                                         </div>
                                     );
@@ -464,8 +564,8 @@ const DailyBreakdown: React.FC = () => {
                             </div>
 
                             {/* Desktop Table View */}
-                            <div className="hidden md:block rounded-md border">
-                                <Table>
+                            <div className="hidden overflow-x-auto rounded-md border md:block">
+                                <Table className="min-w-[1100px]">
                                     <TableHeader>
                                         <TableRow className="bg-muted/50">
                                             <TableHead className="w-[50px]">
@@ -479,17 +579,18 @@ const DailyBreakdown: React.FC = () => {
                                             <TableHead>Status</TableHead>
                                             <TableHead className="text-center">Visits</TableHead>
                                             <TableHead className="text-right">Base</TableHead>
-                                            <TableHead className="text-right">Travel</TableHead>
+                                            <TableHead className="text-right">TA</TableHead>
                                             <TableHead className="text-right">DA</TableHead>
                                             <TableHead className="text-right">Dist (km)</TableHead>
                                             <TableHead className="text-right">Total</TableHead>
+                                            <TableHead className="w-[60px] text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {dailyBreakdownData.map((day) => {
                                             const key = getRecordKey(day.date, day.employeeId);
                                             const isSelected = selectedRecords.has(key);
-                                            const totalDistance = day.carDistanceKm + day.bikeDistanceKm;
+                                            const totalDistance = getPayableDistanceKm(day);
                                             return (
                                                 <TableRow key={key} className={cn(isSelected && "bg-primary/5")}>
                                                     <TableCell>
@@ -508,6 +609,19 @@ const DailyBreakdown: React.FC = () => {
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-right font-bold">{formatCurrency(day.totalDailySalary)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8"
+                                                            onClick={() => openDailyEdit(day)}
+                                                            title="Edit daily TA and DA"
+                                                        >
+                                                            <Pencil className="h-4 w-4" />
+                                                            <span className="sr-only">Edit daily TA and DA</span>
+                                                        </Button>
+                                                    </TableCell>
                                                 </TableRow>
                                             );
                                         })}
@@ -521,6 +635,7 @@ const DailyBreakdown: React.FC = () => {
                                                 <TableCell className="text-right">{formatCurrency(totals.da)}</TableCell>
                                                 <TableCell className="text-right">{totals.distance.toFixed(1)}</TableCell>
                                                 <TableCell className="text-right">{formatCurrency(totals.total)}</TableCell>
+                                                <TableCell />
                                             </TableRow>
                                         )}
                                     </TableBody>
@@ -598,6 +713,96 @@ const DailyBreakdown: React.FC = () => {
                         >
                             {isBulkUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Confirm
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isEditOpen} onOpenChange={handleDailyEditOpenChange}>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Edit daily TA and DA</DialogTitle>
+                        <DialogDescription>
+                            {editingDay
+                                ? `${editingDay.employeeName} · ${format(new Date(editingDay.date), "dd MMM yyyy")}`
+                                : "Update the selected day."}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {editingDay && (
+                        <div className="space-y-5">
+                            <div className="grid grid-cols-3 divide-x rounded-md border bg-muted/20">
+                                <div className="px-3 py-3">
+                                    <p className="text-xs text-muted-foreground">Current km</p>
+                                    <p className="mt-1 text-sm font-semibold">{getPayableDistanceKm(editingDay).toFixed(1)}</p>
+                                </div>
+                                <div className="px-3 py-3">
+                                    <p className="text-xs text-muted-foreground">Current TA</p>
+                                    <p className="mt-1 text-sm font-semibold">{formatCurrency(editingDay.travelAllowance)}</p>
+                                </div>
+                                <div className="px-3 py-3">
+                                    <p className="text-xs text-muted-foreground">Current DA</p>
+                                    <p className="mt-1 text-sm font-semibold">{formatCurrency(editingDay.dailyDearnessAllowance)}</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="daily-ta-kilometres">TA kilometres</Label>
+                                <div className="relative">
+                                    <Input
+                                        id="daily-ta-kilometres"
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        inputMode="decimal"
+                                        value={kilometresInput}
+                                        onChange={(event) => setKilometresInput(event.target.value)}
+                                        className="pr-12"
+                                        autoFocus
+                                    />
+                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                                        km
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="daily-da-amount">DA amount</Label>
+                                <div className="relative">
+                                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                                        ₹
+                                    </span>
+                                    <Input
+                                        id="daily-da-amount"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        inputMode="decimal"
+                                        value={dearnessAllowanceInput}
+                                        onChange={(event) => setDearnessAllowanceInput(event.target.value)}
+                                        className="pl-8"
+                                    />
+                                </div>
+                            </div>
+
+                            {dailyEditError && (
+                                <div
+                                    role="alert"
+                                    className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                                >
+                                    {dailyEditError}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeDailyEdit} disabled={isSavingDailyEdit}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleSaveDailyEdit} disabled={isSavingDailyEdit || !editingDay}>
+                            {isSavingDailyEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {isSavingDailyEdit ? "Saving..." : "Save changes"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -5,7 +5,7 @@ import { CheckedState } from "@radix-ui/react-checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CalendarIcon, Search, Users, ChevronDown, Download, MoreHorizontal } from "lucide-react";
+import { Loader2, CalendarIcon, Search, Users, ChevronDown, Download, MoreHorizontal, FileSpreadsheet, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from 'framer-motion';
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,10 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+    downloadEmployeeTaDaExcelFile,
+    requestEmployeeTaDaExcelSummary,
+} from "@/lib/employee-ta-da-excel-export";
 
 interface SummaryData {
     employeeName: string;
@@ -105,6 +109,8 @@ const EmployeeSummary: React.FC = () => {
     const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
     const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
     const [isApplyingAdjustment, setIsApplyingAdjustment] = useState(false);
+    const [isExcelExporting, setIsExcelExporting] = useState(false);
+    const [excelExportError, setExcelExportError] = useState<string | null>(null);
 
     const handleClearEmployeeSelection = () => {
         setSelectedEmployeeIds([]);
@@ -489,6 +495,46 @@ const EmployeeSummary: React.FC = () => {
         });
     };
 
+    const handleExportExcel = async () => {
+        setExcelExportError(null);
+
+        if (filteredSummaryData.length === 0) {
+            setExcelExportError("No summary data is available to download.");
+            return;
+        }
+
+        if (!startDate || !endDate) {
+            setExcelExportError("Select a valid date range before downloading the Excel summary.");
+            return;
+        }
+
+        if (!token) {
+            setExcelExportError("Authentication token not found. Please log in again.");
+            return;
+        }
+
+        setIsExcelExporting(true);
+        try {
+            const response = await requestEmployeeTaDaExcelSummary({
+                startDate,
+                endDate,
+                includeSundays: false,
+                token,
+            });
+
+            downloadEmployeeTaDaExcelFile(
+                response,
+                `employee-ta-da-summary-${startDate}-${endDate}.xlsx`,
+            );
+        } catch (error) {
+            setExcelExportError(
+                error instanceof Error ? error.message : "Failed to download the Excel summary.",
+            );
+        } finally {
+            setIsExcelExporting(false);
+        }
+    };
+
     // Get date range display name
     const getDateRangeDisplay = () => {
         if (!startDate || !endDate) {
@@ -513,18 +559,52 @@ const EmployeeSummary: React.FC = () => {
                             <CardTitle className="text-3xl md:text-xl font-semibold text-foreground">Employee Summary</CardTitle>
                             <p className="text-lg md:text-sm text-muted-foreground">View employee salary summaries and attendance data</p>
                         </div>
-                        <Button
-                            variant="outline"
-                            className="w-full md:w-auto"
-                            onClick={handleExportCsv}
-                            disabled={summaryLoading || filteredSummaryData.length === 0}
-                        >
-                            <Download className="mr-2 h-4 w-4" />
-                            Export CSV
-                        </Button>
+                        <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
+                            <Button
+                                variant="outline"
+                                className="w-full md:w-auto"
+                                onClick={handleExportCsv}
+                                disabled={summaryLoading || isExcelExporting || filteredSummaryData.length === 0}
+                            >
+                                <Download className="mr-2 h-4 w-4" />
+                                Export CSV
+                            </Button>
+                            <Button
+                                className="w-full md:w-auto"
+                                onClick={handleExportExcel}
+                                disabled={summaryLoading || isExcelExporting || filteredSummaryData.length === 0}
+                                title="Download the filtered employee TA/DA summary as Excel"
+                            >
+                                {isExcelExporting ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                                )}
+                                {isExcelExporting ? "Preparing..." : "Download Excel"}
+                            </Button>
+                        </div>
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                    {excelExportError && (
+                        <div
+                            role="alert"
+                            className="flex items-start justify-between gap-3 rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+                        >
+                            <p>{excelExportError}</p>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0 text-destructive hover:text-destructive"
+                                onClick={() => setExcelExportError(null)}
+                                aria-label="Dismiss Excel export error"
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    )}
+
                     {/* Filters Section */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-6 bg-muted/30 rounded-lg">
                         <div className="space-y-3">
