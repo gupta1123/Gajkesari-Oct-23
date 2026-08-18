@@ -173,6 +173,13 @@ const EmployeeSummary: React.FC = () => {
                 throw new Error('To Date cannot be earlier than From Date.');
             }
 
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays > 31) {
+                throw new Error('Date range cannot exceed 1 month (31 days). Please select a date range within 31 days.');
+            }
+
             if (!token) {
                 throw new Error('Authentication token not found. Please log in.');
             }
@@ -187,7 +194,16 @@ const EmployeeSummary: React.FC = () => {
             );
 
             if (!response.ok) {
-                throw new Error(`Failed to fetch summary data: ${response.statusText}`);
+                const errorText = await response.text().catch(() => '');
+                let serverMessage = '';
+                try {
+                    const jsonError = JSON.parse(errorText);
+                    serverMessage = jsonError.message || jsonError.error || errorText;
+                } catch {
+                    serverMessage = errorText;
+                }
+                const cleanMessage = serverMessage?.trim() || response.statusText || 'Unable to fetch summary data.';
+                throw new Error(cleanMessage);
             }
 
             const data = await response.json();
@@ -514,6 +530,14 @@ const EmployeeSummary: React.FC = () => {
 
         if (startDate > endDate) {
             setExcelExportError("To Date cannot be earlier than From Date.");
+            return;
+        }
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays > 31) {
+            setExcelExportError("Date range cannot exceed 1 month (31 days). Please select a date range within 31 days.");
             return;
         }
 
