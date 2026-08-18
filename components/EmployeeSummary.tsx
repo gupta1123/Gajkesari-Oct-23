@@ -169,6 +169,10 @@ const EmployeeSummary: React.FC = () => {
                 throw new Error('Please select a valid date range');
             }
 
+            if (startDate > endDate) {
+                throw new Error('To Date cannot be earlier than From Date.');
+            }
+
             if (!token) {
                 throw new Error('Authentication token not found. Please log in.');
             }
@@ -508,6 +512,11 @@ const EmployeeSummary: React.FC = () => {
             return;
         }
 
+        if (startDate > endDate) {
+            setExcelExportError("To Date cannot be earlier than From Date.");
+            return;
+        }
+
         if (!token) {
             setExcelExportError("Authentication token not found. Please log in again.");
             return;
@@ -737,8 +746,16 @@ const EmployeeSummary: React.FC = () => {
                                     <SpacedCalendar
                                         mode="single"
                                         selected={startDate ? new Date(startDate) : undefined}
+                                        disabled={endDate ? { after: new Date(endDate) } : undefined}
                                         onSelect={(date) => {
-                                            setStartDate(formatDateForFilter(date));
+                                            const formattedDate = formatDateForFilter(date);
+                                            setStartDate(formattedDate);
+                                            if (endDate && formattedDate > endDate) {
+                                                setError("From Date cannot be later than To Date.");
+                                            } else {
+                                                setError(null);
+                                            }
+                                            setExcelExportError(null);
                                             setIsStartDatePopoverOpen(false);
                                         }}
                                         initialFocus
@@ -762,8 +779,16 @@ const EmployeeSummary: React.FC = () => {
                                     <SpacedCalendar
                                         mode="single"
                                         selected={endDate ? new Date(endDate) : undefined}
+                                        disabled={startDate ? { before: new Date(startDate) } : undefined}
                                         onSelect={(date) => {
-                                            setEndDate(formatDateForFilter(date));
+                                            const formattedDate = formatDateForFilter(date);
+                                            setEndDate(formattedDate);
+                                            if (startDate && formattedDate < startDate) {
+                                                setError("To Date cannot be earlier than From Date.");
+                                            } else {
+                                                setError(null);
+                                            }
+                                            setExcelExportError(null);
                                             setIsEndDatePopoverOpen(false);
                                         }}
                                         initialFocus

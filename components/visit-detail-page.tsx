@@ -1498,8 +1498,8 @@ export default function VisitDetailPage() {
     <div>
       <div className="visit-details grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 items-start">
         {/* Left Panel */}
-        <aside className="lg:col-span-3 space-y-3 md:space-y-4">
-          <div className="back-button-container flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <aside className="lg:col-span-3 space-y-3">
+          <div className="back-button-container flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="back-button flex items-center cursor-pointer text-foreground hover:text-muted-foreground" onClick={handleBack}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
@@ -1517,9 +1517,9 @@ export default function VisitDetailPage() {
             </div>
           </div>
 
-          <Card className="bg-transparent border-0 shadow-none">
-            <CardContent className="p-4 md:p-6">
-              <div className="profile text-center mb-4 md:mb-6">
+          <Card className="gap-0 border-0 bg-transparent py-0 shadow-none">
+            <CardContent className="px-2 py-2 md:px-3 md:py-3">
+              <div className="profile mb-4 text-center">
                 <div className="avatar w-12 h-12 md:w-16 md:h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
                   <span className="text-lg md:text-xl font-semibold text-foreground">
                     {getInitials(visitDetail?.storeName || '')}
@@ -1539,7 +1539,7 @@ export default function VisitDetailPage() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-3 md:gap-4 mb-3 md:mb-4">
+              <div className="flex flex-wrap items-center justify-center gap-3 md:gap-4">
                 <div className="relative group">
                   <Button
                     variant="outline"
@@ -1620,8 +1620,8 @@ export default function VisitDetailPage() {
           </Card>
 
           {/* Visit Information Card */}
-          <Card className="w-full border border-border bg-card shadow-sm lg:-mt-10 xl:-mt-12 transition-all">
-            <CardHeader className="pt-3 pb-4">
+          <Card className="w-full gap-0 overflow-hidden border border-border bg-card py-0 shadow-sm transition-all">
+            <CardHeader className="px-4 py-4">
               <CardTitle className="text-base font-semibold text-foreground text-center">
                 Visit Information
               </CardTitle>

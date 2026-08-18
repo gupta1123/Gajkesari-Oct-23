@@ -77,6 +77,14 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Handle dynamic routes for visit details
   const getDynamicPageHeading = (pathname: string) => {
+    const visitReportMatch = pathname.match(/^\/dashboard\/visits\/reports\/(\d+)$/);
+    if (visitReportMatch) {
+      return {
+        heading: "Visit Report Details",
+        backHref: "/dashboard/visits"
+      };
+    }
+
     // Visit detail page pattern: /dashboard/visits/[id]
     const visitDetailMatch = pathname.match(/^\/dashboard\/visits\/(\d+)$/);
     if (visitDetailMatch) {

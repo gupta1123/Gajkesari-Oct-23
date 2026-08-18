@@ -1,18 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Download, Eye, FileCheck2, FileText, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -22,10 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  contractorEngineerVisitReportsApi,
-  type ContractorEngineerVisitReport,
-} from "@/lib/contractor-engineer-visit-reports-api";
+import { type ContractorEngineerVisitReport } from "@/lib/contractor-engineer-visit-reports-api";
 
 type VisitReportsPanelProps = {
   reports: ContractorEngineerVisitReport[];
@@ -45,17 +35,6 @@ const formatDate = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? value : format(date, "dd MMM yyyy");
 };
 
-const getMaterials = (report: ContractorEngineerVisitReport) => {
-  const materials = [
-    report.materialBrochure && "Brochure",
-    report.materialVisitingCard && "Visiting card",
-    report.materialRateList && "Rate list",
-    report.materialSample && "Sample",
-    report.materialTestCertificate && "Test certificate",
-  ].filter(Boolean);
-  return materials.length ? materials.join(", ") : "-";
-};
-
 export default function VisitReportsPanel({
   reports,
   isLoading = false,
@@ -64,63 +43,39 @@ export default function VisitReportsPanel({
   onExport,
   onRetry,
 }: VisitReportsPanelProps) {
-  const [selectedReport, setSelectedReport] = useState<ContractorEngineerVisitReport | null>(null);
-  const [isDetailLoading, setIsDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-
-  const openReport = async (report: ContractorEngineerVisitReport) => {
-    setSelectedReport(report);
-    setDetailError(null);
-    setIsDetailLoading(true);
-
-    try {
-      const detail = await contractorEngineerVisitReportsApi.getById(report.id);
-      setSelectedReport(detail);
-    } catch (requestError) {
-      setDetailError(
-        requestError instanceof Error ? requestError.message : "Failed to load the report details.",
-      );
-    } finally {
-      setIsDetailLoading(false);
-    }
-  };
-
-  const closeReport = () => {
-    if (isDetailLoading) return;
-    setSelectedReport(null);
-    setDetailError(null);
-  };
+  const router = useRouter();
 
   return (
-    <>
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onExport}
+          disabled={isLoading || isExporting || reports.length === 0}
+        >
+          {isExporting ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-2 h-4 w-4" />
+          )}
+          {isExporting ? "Preparing..." : "Download Excel"}
+        </Button>
+      </div>
+
       <Card className="border shadow-sm">
         <CardHeader className="border-b pb-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted/40">
-                <FileCheck2 className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className="text-base">Submitted Visit Reports</CardTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Contractor and Engineer reports submitted on this visit date.
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted/40">
+              <FileCheck2 className="h-4 w-4" />
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onExport}
-              disabled={isLoading || isExporting || reports.length === 0}
-            >
-              {isExporting ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              {isExporting ? "Preparing..." : "Download Excel"}
-            </Button>
+            <div className="min-w-0">
+              <CardTitle className="text-base">Submitted Visit Reports</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Contractor and Engineer reports submitted on this visit date.
+              </p>
+            </div>
           </div>
         </CardHeader>
 
@@ -177,9 +132,14 @@ export default function VisitReportsPanel({
                       <TableCell>{displayValue(report.projectName)}</TableCell>
                       <TableCell className="whitespace-nowrap">{formatDate(report.visitDate)}</TableCell>
                       <TableCell className="text-right">
-                        <Button type="button" variant="outline" size="sm" onClick={() => openReport(report)}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => router.push(`/dashboard/visits/reports/${report.id}`)}
+                        >
                           <Eye className="mr-2 h-4 w-4" />
-                          View
+                          View Details
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -190,67 +150,6 @@ export default function VisitReportsPanel({
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={selectedReport !== null} onOpenChange={(open) => !open && closeReport()}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Visit Report</DialogTitle>
-            <DialogDescription>
-              {selectedReport
-                ? `${displayValue(selectedReport.category)} · ${formatDate(selectedReport.visitDate)}`
-                : "Submitted Contractor or Engineer visit report."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {isDetailLoading ? (
-            <div className="space-y-3 py-3">
-              {[0, 1, 2].map((item) => <Skeleton key={item} className="h-16 w-full" />)}
-            </div>
-          ) : selectedReport ? (
-            <div className="space-y-6 py-2">
-              {detailError && (
-                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                  {detailError}
-                </div>
-              )}
-
-              <section>
-                <h3 className="border-b pb-2 text-sm font-semibold">Customer and project</h3>
-                <dl className="grid gap-x-8 gap-y-4 pt-4 sm:grid-cols-2">
-                  <div><dt className="text-xs text-muted-foreground">Customer</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.customerName)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Firm</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.firmName)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Mobile</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.mobileNo)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">District / Area</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.districtArea)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Project</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.projectName)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Type / Stage</dt><dd className="mt-1 text-sm font-medium">{[selectedReport.projectType, selectedReport.projectStage].filter(Boolean).join(" · ") || "-"}</dd></div>
-                </dl>
-              </section>
-
-              <section>
-                <h3 className="border-b pb-2 text-sm font-semibold">Requirement and follow-up</h3>
-                <dl className="grid gap-x-8 gap-y-4 pt-4 sm:grid-cols-2">
-                  <div><dt className="text-xs text-muted-foreground">Approx. requirement</dt><dd className="mt-1 text-sm font-medium">{selectedReport.approxRequirementMt == null ? "-" : `${selectedReport.approxRequirementMt} MT`}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Expected quantity</dt><dd className="mt-1 text-sm font-medium">{selectedReport.expectedQtyMt == null ? "-" : `${selectedReport.expectedQtyMt} MT`}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Potential</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.potential)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Next follow-up</dt><dd className="mt-1 text-sm font-medium">{formatDate(selectedReport.nextFollowUpDate)}{selectedReport.followUpMode ? ` · ${selectedReport.followUpMode}` : ""}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Current brand</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.currentBrandUsed)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Current dealer</dt><dd className="mt-1 text-sm font-medium">{displayValue(selectedReport.currentDealer)}</dd></div>
-                  <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">Materials shared</dt><dd className="mt-1 text-sm font-medium">{getMaterials(selectedReport)}</dd></div>
-                </dl>
-              </section>
-
-              <section>
-                <h3 className="border-b pb-2 text-sm font-semibold">Discussion</h3>
-                <dl className="grid gap-4 pt-4">
-                  <div><dt className="text-xs text-muted-foreground">Purpose</dt><dd className="mt-1 whitespace-pre-wrap text-sm">{displayValue(selectedReport.purposeOfVisit)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Customer feedback</dt><dd className="mt-1 whitespace-pre-wrap text-sm">{displayValue(selectedReport.customerFeedbackDiscussion)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Remarks</dt><dd className="mt-1 whitespace-pre-wrap text-sm">{displayValue(selectedReport.remarks)}</dd></div>
-                </dl>
-              </section>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-    </>
+    </div>
   );
 }
