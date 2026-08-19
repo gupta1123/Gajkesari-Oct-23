@@ -84,7 +84,7 @@ const getFullMonthError = (startDate: string, endDate: string) => {
     }
 
     if (monthRange.start !== startDate || monthRange.end !== endDate) {
-        return `Select a full calendar month (${monthRange.start} to ${monthRange.end}) to view and edit adjustments.`;
+        return `Select a full calendar month (${monthRange.start} to ${monthRange.end}) to edit the monthly TA adjustment.`;
     }
 
     return null;
@@ -95,8 +95,9 @@ const EmployeeSummary: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
-    const [startDate, setStartDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'));
-    const [endDate, setEndDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), 'yyyy-MM-dd'));
+    const [startDate, setStartDate] = useState("");
+    const [endDate, setEndDate] = useState("");
+    const [dateValidationError, setDateValidationError] = useState<string | null>(null);
     const [isStartDatePopoverOpen, setIsStartDatePopoverOpen] = useState(false);
     const [isEndDatePopoverOpen, setIsEndDatePopoverOpen] = useState(false);
     const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
@@ -162,23 +163,25 @@ const EmployeeSummary: React.FC = () => {
 
     const fetchSummaryData = async () => {
         setError(null);
+        setDateValidationError(null);
+
+        if (!startDate) {
+            setDateValidationError('Choose a From Date before selecting a To Date.');
+            return;
+        }
+
+        if (!endDate) {
+            setDateValidationError('Choose a To Date to complete the date range.');
+            return;
+        }
+
+        if (startDate > endDate) {
+            setDateValidationError('To Date cannot be earlier than From Date. Choose a date on or after the From Date.');
+            return;
+        }
+
         try {
             setSummaryLoading(true);
-            
-            if (!startDate || !endDate) {
-                throw new Error('Please select a valid date range');
-            }
-
-            if (startDate > endDate) {
-                throw new Error('To Date cannot be earlier than From Date.');
-            }
-
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-            const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-            if (diffDays > 31) {
-                throw new Error('Date range cannot exceed 1 month (31 days). Please select a date range within 31 days.');
-            }
 
             if (!token) {
                 throw new Error('Authentication token not found. Please log in.');
@@ -524,20 +527,16 @@ const EmployeeSummary: React.FC = () => {
         }
 
         if (!startDate || !endDate) {
-            setExcelExportError("Select a valid date range before downloading the Excel summary.");
+            setExcelExportError(
+                startDate
+                    ? "Choose a To Date before downloading the Excel summary."
+                    : "Choose a From Date before selecting a To Date.",
+            );
             return;
         }
 
         if (startDate > endDate) {
-            setExcelExportError("To Date cannot be earlier than From Date.");
-            return;
-        }
-
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays > 31) {
-            setExcelExportError("Date range cannot exceed 1 month (31 days). Please select a date range within 31 days.");
+            setExcelExportError("To Date cannot be earlier than From Date. Choose a date on or after the From Date.");
             return;
         }
 
@@ -770,15 +769,13 @@ const EmployeeSummary: React.FC = () => {
                                     <SpacedCalendar
                                         mode="single"
                                         selected={startDate ? new Date(startDate) : undefined}
-                                        disabled={endDate ? { after: new Date(endDate) } : undefined}
                                         onSelect={(date) => {
                                             const formattedDate = formatDateForFilter(date);
+                                            if (!formattedDate) return;
                                             setStartDate(formattedDate);
-                                            if (endDate && formattedDate > endDate) {
-                                                setError("From Date cannot be later than To Date.");
-                                            } else {
-                                                setError(null);
-                                            }
+                                            setEndDate("");
+                                            setDateValidationError(null);
+                                            setError(null);
                                             setExcelExportError(null);
                                             setIsStartDatePopoverOpen(false);
                                         }}
@@ -789,7 +786,17 @@ const EmployeeSummary: React.FC = () => {
                         </div>
                         <div className="space-y-3">
                             <Label className="text-lg md:text-sm font-medium text-foreground">To Date</Label>
-                            <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
+                            <Popover
+                                open={isEndDatePopoverOpen}
+                                onOpenChange={(open) => {
+                                    if (open && !startDate) {
+                                        setDateValidationError("Choose a From Date before selecting a To Date.");
+                                        setIsEndDatePopoverOpen(false);
+                                        return;
+                                    }
+                                    setIsEndDatePopoverOpen(open);
+                                }}
+                            >
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
@@ -803,15 +810,16 @@ const EmployeeSummary: React.FC = () => {
                                     <SpacedCalendar
                                         mode="single"
                                         selected={endDate ? new Date(endDate) : undefined}
-                                        disabled={startDate ? { before: new Date(startDate) } : undefined}
                                         onSelect={(date) => {
                                             const formattedDate = formatDateForFilter(date);
-                                            setEndDate(formattedDate);
+                                            if (!formattedDate) return;
                                             if (startDate && formattedDate < startDate) {
-                                                setError("To Date cannot be earlier than From Date.");
-                                            } else {
-                                                setError(null);
+                                                setDateValidationError("To Date cannot be earlier than From Date. Choose a date on or after the From Date.");
+                                                return;
                                             }
+                                            setEndDate(formattedDate);
+                                            setDateValidationError(null);
+                                            setError(null);
                                             setExcelExportError(null);
                                             setIsEndDatePopoverOpen(false);
                                         }}
@@ -832,6 +840,11 @@ const EmployeeSummary: React.FC = () => {
                                 )}
                             </Button>
                         </div>
+                        {dateValidationError && (
+                            <p role="alert" className="text-sm font-medium text-destructive md:col-span-2 lg:col-span-4">
+                                {dateValidationError}
+                            </p>
+                        )}
                     </div>
 
                     {summaryLoading && (
