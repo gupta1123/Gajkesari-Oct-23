@@ -423,6 +423,9 @@ const EmployeeSummary: React.FC = () => {
         }
 
         const escapeCsvValue = (value: string | number) => {
+            if (typeof value === "number" && Number.isFinite(value)) {
+                return String(value);
+            }
             const stringValue = String(value ?? "").replace(/"/g, '""');
             return `"${stringValue}"`;
         };
@@ -467,13 +470,13 @@ const EmployeeSummary: React.FC = () => {
                     employee.fullDays,
                     employee.halfDays,
                     employee.absentDays,
-                    formatCurrency(employee.baseSalary),
-                    formatCurrency(employee.travelAllowance),
-                    formatCurrency(employee.dearnessAllowance),
-                    formatCurrency(employee.approvedExpenses),
-                    formatCurrency(employee.totalSalary),
-                    formatCurrency(getSalaryAdjustmentAmount(employee)),
-                    formatCurrency(getAdjustedTotalSalary(employee)),
+                    toFiniteNumber(employee.baseSalary),
+                    toFiniteNumber(employee.travelAllowance),
+                    toFiniteNumber(employee.dearnessAllowance),
+                    toFiniteNumber(employee.approvedExpenses),
+                    toFiniteNumber(employee.totalSalary),
+                    getSalaryAdjustmentAmount(employee),
+                    getAdjustedTotalSalary(employee),
                     employee.startDate,
                     employee.endDate,
                 ],
@@ -492,7 +495,7 @@ const EmployeeSummary: React.FC = () => {
                     employee.fullDays,
                     employee.halfDays,
                     employee.absentDays,
-                    formatCurrency(employee.baseSalary),
+                    toFiniteNumber(employee.baseSalary),
                 ],
             },
             {
@@ -505,9 +508,9 @@ const EmployeeSummary: React.FC = () => {
                 ],
                 rowBuilder: (employee: SummaryData) => [
                     employee.employeeName,
-                    formatCurrency(employee.travelAllowance),
-                    formatCurrency(employee.dearnessAllowance),
-                    formatCurrency(employee.approvedExpenses),
+                    toFiniteNumber(employee.travelAllowance),
+                    toFiniteNumber(employee.dearnessAllowance),
+                    toFiniteNumber(employee.approvedExpenses),
                 ],
             },
         ];
