@@ -230,11 +230,11 @@ const ReportsPage: React.FC = () => {
                         return 0;
                     });
                 setFieldOfficers(activeFieldOfficers);
-                if (activeFieldOfficers.length > 0 && (!selectedEmployeeId || !activeFieldOfficers.some(emp => emp.id.toString() === selectedEmployeeId))) {
-                    setSelectedEmployeeId(activeFieldOfficers[0].id.toString());
-                } else if (activeFieldOfficers.length === 0) {
-                    setSelectedEmployeeId('');
-                }
+                setSelectedEmployeeId((currentEmployeeId) =>
+                    activeFieldOfficers.some((employee) => employee.id.toString() === currentEmployeeId)
+                        ? currentEmployeeId
+                        : ''
+                );
             } catch (err) {
                 setEmployeesError((err as Error).message || 'Could not fetch employee data.');
                 setFieldOfficers([]);
@@ -243,7 +243,7 @@ const ReportsPage: React.FC = () => {
             }
         };
         if (token) fetchAllEmployeeData();
-    }, [token, userRole, currentUser, userData?.employeeId, selectedEmployeeId]);
+    }, [token, userRole, currentUser, userData?.employeeId]);
 
     useEffect(() => {
         const now = new Date();
@@ -444,6 +444,7 @@ const ReportsPage: React.FC = () => {
             overflow: 'hidden',
             zIndex: 60,
         }),
+        menuPortal: (base) => ({ ...base, zIndex: 100 }),
         menuList: (base) => ({ ...base, paddingTop: 4, paddingBottom: 4, maxHeight: 240 }),
         option: (base, state) => ({
             ...base,
@@ -510,6 +511,9 @@ const ReportsPage: React.FC = () => {
                                     isDisabled={fieldOfficerOptions.length === 0}
                                     noOptionsMessage={() => "No matching officers"}
                                     menuPlacement="auto"
+                                    menuPosition="fixed"
+                                    menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                                    menuShouldScrollIntoView={false}
                                 />
                             )}
             </div>
