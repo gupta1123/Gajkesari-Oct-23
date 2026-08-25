@@ -73,7 +73,7 @@ export default function VisitReportsPanel({
             <div className="min-w-0">
               <CardTitle className="text-base">Submitted Visit Reports</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                Contractor and Engineer reports submitted on this visit date.
+                Contractor and Engineer reports submitted for the selected filters.
               </p>
             </div>
           </div>
@@ -112,8 +112,9 @@ export default function VisitReportsPanel({
                   <TableRow>
                     <TableHead>Category</TableHead>
                     <TableHead>Customer / Firm</TableHead>
-                    <TableHead>Officer</TableHead>
+                    <TableHead>Officer / Area</TableHead>
                     <TableHead>Project</TableHead>
+                    <TableHead>Potential / Follow-up</TableHead>
                     <TableHead>Visit Date</TableHead>
                     <TableHead className="w-24 text-right">Action</TableHead>
                   </TableRow>
@@ -128,8 +129,24 @@ export default function VisitReportsPanel({
                           <p className="mt-0.5 text-xs text-muted-foreground">{report.firmName}</p>
                         )}
                       </TableCell>
-                      <TableCell>{displayValue(report.officerName)}</TableCell>
-                      <TableCell>{displayValue(report.projectName)}</TableCell>
+                      <TableCell>
+                        <p>{displayValue(report.officerName)}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {[report.region, report.districtArea].filter(Boolean).join(" / ") || "-"}
+                        </p>
+                      </TableCell>
+                      <TableCell>
+                        <p>{displayValue(report.projectName)}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {[report.projectType, report.projectStage].filter(Boolean).join(" / ") || "-"}
+                        </p>
+                      </TableCell>
+                      <TableCell>
+                        <p>{displayValue(report.potential)}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {[report.followUpMode, formatDate(report.nextFollowUpDate)].filter((item) => item && item !== "-").join(" / ") || "-"}
+                        </p>
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">{formatDate(report.visitDate)}</TableCell>
                       <TableCell className="text-right">
                         <Button

@@ -45,6 +45,43 @@ export interface VisitReportExportResponse {
   fileName?: string;
 }
 
+export type ContractorEngineerVisitReportPayload = {
+  visitDate?: string | null;
+  officerName?: string | null;
+  region?: string | null;
+  districtArea?: string | null;
+  category?: string | null;
+  customerName?: string | null;
+  firmName?: string | null;
+  mobileNo?: string | null;
+  address?: string | null;
+  projectName?: string | null;
+  projectType?: string | null;
+  projectStage?: string | null;
+  approxRequirementMt?: number | null;
+  monthlyConsumptionMt?: number | null;
+  currentBrandUsed?: string | null;
+  currentDealer?: string | null;
+  nextPurchaseExpected?: string | null;
+  purposeOfVisit?: string | null;
+  materialBrochure?: boolean;
+  materialVisitingCard?: boolean;
+  materialRateList?: boolean;
+  materialSample?: boolean;
+  materialTestCertificate?: boolean;
+  customerFeedbackDiscussion?: string | null;
+  competitorBrand1?: string | null;
+  competitorApproxRate1?: number | null;
+  competitorRemarks1?: string | null;
+  potential?: string | null;
+  expectedQtyMt?: number | null;
+  nextFollowUpDate?: string | null;
+  followUpMode?: string | null;
+  remarks?: string | null;
+  customerSignature?: string | null;
+  officerSignature?: string | null;
+};
+
 function getToken() {
   return typeof window === "undefined" ? null : localStorage.getItem("authToken");
 }
@@ -73,6 +110,30 @@ async function requestJson<T>(path: string): Promise<T> {
     throw new Error(await getErrorMessage(response, `Failed to load visit reports (${response.status}).`));
   }
   return response.json() as Promise<T>;
+}
+
+async function sendJson<T>(path: string, method: "POST" | "PUT", payload: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: {
+      ...getHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response, `Failed to save visit report (${response.status}).`));
+  }
+
+  const raw = await response.text();
+  if (!raw) return payload as T;
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return payload as T;
+  }
 }
 
 async function requestReportList(path: string) {
@@ -105,6 +166,13 @@ async function requestExport(path: string): Promise<VisitReportExportResponse> {
 }
 
 export const contractorEngineerVisitReportsApi = {
+  create: (payload: ContractorEngineerVisitReportPayload) =>
+    sendJson<ContractorEngineerVisitReport>(
+      "/contractor-engineer-visit-report/create",
+      "POST",
+      payload,
+    ),
+
   getAll: () =>
     requestReportList("/contractor-engineer-visit-report/getAll"),
 

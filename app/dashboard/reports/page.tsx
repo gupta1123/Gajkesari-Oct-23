@@ -49,6 +49,7 @@ import dayjs from 'dayjs';
 import { API } from '@/lib/api';
 import { hasManagerPrivileges } from '@/lib/auth';
 import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
+import ContractorEngineerVisitReportSection from '@/components/contractor-engineer-visit-report-section';
 
 interface AttendanceStats {
     absences: number;
@@ -473,6 +474,7 @@ const ReportsPage: React.FC = () => {
         <div className="mb-6 overflow-x-auto">
           <TabsList className="flex h-auto w-max min-w-full justify-start gap-2 p-1">
             <TabsTrigger value="fieldOfficerReport">Field Officer Visit Report</TabsTrigger>
+            <TabsTrigger value="contractorEngineerVisitReport">Contractor / Engineer Report</TabsTrigger>
             <TabsTrigger value="newCustomers">New Customers Report</TabsTrigger>
             <TabsTrigger value="salesPerformance">Sales Performance Report</TabsTrigger>
           </TabsList>
@@ -760,6 +762,10 @@ const ReportsPage: React.FC = () => {
                     )}
               </CardContent>
             </Card>
+        </TabsContent>
+
+        <TabsContent value="contractorEngineerVisitReport" className="space-y-6">
+          <ContractorEngineerVisitReportSection />
         </TabsContent>
         
         <TabsContent value="newCustomers" className="space-y-6">
