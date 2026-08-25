@@ -381,9 +381,17 @@ function FormSection({
   );
 }
 
-export default function ContractorEngineerVisitReportSection() {
+type ContractorEngineerVisitReportSectionProps = {
+  initialTab?: string;
+};
+
+export default function ContractorEngineerVisitReportSection({
+  initialTab,
+}: ContractorEngineerVisitReportSectionProps) {
   const [form, setForm] = useState<ContractorEngineerVisitReportFormData>(() => createInitialForm());
-  const [activeReportTab, setActiveReportTab] = useState("fillReport");
+  const [activeReportTab, setActiveReportTab] = useState(
+    initialTab === "submittedReports" ? "submittedReports" : "fillReport",
+  );
   const [activeFormStep, setActiveFormStep] = useState(0);
   const [reports, setReports] = useState<ContractorEngineerVisitReport[]>([]);
   const [reportStartDate, setReportStartDate] = useState(() => todayIso());
@@ -452,6 +460,12 @@ export default function ContractorEngineerVisitReportSection() {
   useEffect(() => {
     loadSubmittedReports();
   }, [loadSubmittedReports]);
+
+  useEffect(() => {
+    if (initialTab === "submittedReports" || initialTab === "fillReport") {
+      setActiveReportTab(initialTab);
+    }
+  }, [initialTab]);
 
   const filteredReports = useMemo(() => {
     const query = submittedSearch.trim().toLowerCase();

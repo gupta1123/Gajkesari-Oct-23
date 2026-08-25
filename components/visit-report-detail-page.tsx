@@ -5,6 +5,7 @@ import type { ComponentType, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
+  ArrowLeft,
   Building2,
   CalendarDays,
   FileText,
@@ -25,6 +26,9 @@ import {
 type VisitReportDetailPageProps = {
   reportId: number;
 };
+
+const SUBMITTED_REPORTS_ROUTE =
+  "/dashboard/reports?tab=contractorEngineerVisitReport&contractorReportTab=submittedReports";
 
 type DetailFieldProps = {
   label: string;
@@ -139,6 +143,10 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
     loadReport();
   }, [loadReport]);
 
+  const handleBackToSubmittedReports = () => {
+    router.push(SUBMITTED_REPORTS_ROUTE);
+  };
+
   const materials = useMemo(() => {
     if (!report) return [];
     return [
@@ -184,8 +192,8 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
               <RefreshCw className="mr-2 h-4 w-4" />
               Try Again
             </Button>
-            <Button type="button" variant="outline" onClick={() => router.push("/dashboard/visits")}>
-              Back to Visits
+            <Button type="button" variant="outline" onClick={handleBackToSubmittedReports}>
+              Back to Submitted Reports
             </Button>
           </div>
         </div>
@@ -197,7 +205,11 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
 
   return (
     <div className="w-full space-y-6">
-      <header>
+      <header className="space-y-4">
+        <Button type="button" variant="outline" onClick={handleBackToSubmittedReports}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Submitted Reports
+        </Button>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold text-foreground">

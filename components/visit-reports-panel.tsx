@@ -153,7 +153,7 @@ export default function VisitReportsPanel({
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => router.push(`/dashboard/visits/reports/${report.id}`)}
+                          onClick={() => router.push(`/dashboard/reports/contractor-engineer/${report.id}`)}
                         >
                           <Eye className="mr-2 h-4 w-4" />
                           View Details

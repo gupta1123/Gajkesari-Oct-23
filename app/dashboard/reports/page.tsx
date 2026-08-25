@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import ReactSelect, { type SingleValue, type StylesConfig } from 'react-select';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from "@/components/ui/button";
@@ -159,8 +160,19 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 6, de
     throw new Error('Failed after retries');
 }
 
-const ReportsPage: React.FC = () => {
+const ReportsPageContent: React.FC = () => {
     const { token, userRole, currentUser, userData } = useAuth();
+    const searchParams = useSearchParams();
+    const requestedTab = searchParams.get('tab');
+    const requestedContractorReportTab = searchParams.get('contractorReportTab');
+    const [activeReportsTab, setActiveReportsTab] = useState<string>(
+        requestedTab === 'contractorEngineerVisitReport'
+            || requestedTab === 'newCustomers'
+            || requestedTab === 'salesPerformance'
+            || requestedTab === 'fieldOfficerReport'
+            ? requestedTab
+            : 'fieldOfficerReport'
+    );
 
     const [fieldOfficers, setFieldOfficers] = useState<Employee[]>([]);
     const [employeesLoading, setEmployeesLoading] = useState<boolean>(true);
@@ -187,6 +199,17 @@ const ReportsPage: React.FC = () => {
     const [detailsError, setDetailsError] = useState<string | null>(null);
     const [selectedCustomerTypeForDetails, setSelectedCustomerTypeForDetails] = useState<string | null>(null);
     const [dateRangeError, setDateRangeError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (
+            requestedTab === 'contractorEngineerVisitReport'
+            || requestedTab === 'newCustomers'
+            || requestedTab === 'salesPerformance'
+            || requestedTab === 'fieldOfficerReport'
+        ) {
+            setActiveReportsTab(requestedTab);
+        }
+    }, [requestedTab]);
 
     useEffect(() => {
         const fetchAllEmployeeData = async () => {
@@ -470,7 +493,7 @@ const ReportsPage: React.FC = () => {
 
   return (
     <div className="min-w-0 space-y-6 overflow-hidden">
-      <Tabs defaultValue="fieldOfficerReport" className="w-full min-w-0">
+      <Tabs value={activeReportsTab} onValueChange={setActiveReportsTab} className="w-full min-w-0">
         <div className="mb-6 overflow-x-auto">
           <TabsList className="flex h-auto w-max min-w-full justify-start gap-2 p-1">
             <TabsTrigger value="fieldOfficerReport">Field Officer Visit Report</TabsTrigger>
@@ -765,7 +788,7 @@ const ReportsPage: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="contractorEngineerVisitReport" className="space-y-6">
-          <ContractorEngineerVisitReportSection />
+          <ContractorEngineerVisitReportSection initialTab={requestedContractorReportTab || undefined} />
         </TabsContent>
         
         <TabsContent value="newCustomers" className="space-y-6">
@@ -780,4 +803,10 @@ const ReportsPage: React.FC = () => {
   );
 };
 
-export default ReportsPage;
+export default function ReportsPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading reports...</div>}>
+      <ReportsPageContent />
+    </Suspense>
+  );
+}

@@ -1,4 +1,4 @@
-import VisitReportDetailPage from "@/components/visit-report-detail-page";
+import { redirect } from "next/navigation";
 
 export default async function VisitReportPage({
   params,
@@ -6,5 +6,5 @@ export default async function VisitReportPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <VisitReportDetailPage reportId={Number(id)} />;
+  redirect(`/dashboard/reports/contractor-engineer/${id}`);
 }
