@@ -346,7 +346,7 @@ export default function AttendancePage() {
             </div>
             <div className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-[2px] border border-purple-400 bg-purple-200 dark:border-purple-500 dark:bg-purple-900/40 shrink-0" />
-              <span className="whitespace-nowrap text-xs text-muted-foreground">Paid leave / Sunday off</span>
+              <span className="whitespace-nowrap text-xs text-muted-foreground">Paid Leave</span>
             </div>
             <div className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-[2px] bg-red-500 shrink-0" />
