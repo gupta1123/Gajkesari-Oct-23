@@ -1,12 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '@/components/auth-provider';
 import { isManagerRoleValue, normalizeRoleValue } from '@/lib/auth';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -24,11 +23,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Loader, CalendarIcon } from "lucide-react";
+import { BarChart3, CalendarIcon, Loader2, MapPin } from "lucide-react";
 import { API, type TeamDataDto } from "@/lib/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { getTeamIds } from "@/lib/team-access";
+import { formatCityLabel } from "@/lib/city-options";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
+
+const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
 interface Brand {
     id: number;
@@ -47,14 +50,29 @@ interface Brand {
     updatedAt: string;
 }
 
+const isGajkesariBrand = (brandName: string) =>
+    brandName.toLowerCase().replace(/\s+/g, '') === 'gajkesari';
+
+const getBrandCity = (brand: Brand) =>
+    isGajkesariBrand(brand.brandName) ? brand.city : brand.employeeDto?.city || brand.city;
+
+const formatPrice = (price: number) =>
+    new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 2,
+    }).format(price);
+
 const PricingPage = () => {
     const [brandData, setBrandData] = useState<Brand[]>([]);
-    const [previousDayData, setPreviousDayData] = useState<Brand[]>([]);
-    const [selectedCity, setSelectedCity] = useState('');
+    const [selectedCity, setSelectedCity] = useState('all');
     const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
     const [cities, setCities] = useState<string[]>([]);
     const [gajkesariRate, setGajkesariRate] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
+    const [pricingError, setPricingError] = useState<string | null>(null);
+    const pricingRequest = useRef(0);
     const [showGajkesariRate, setShowGajkesariRate] = useState(false);
     const [fieldOfficers, setFieldOfficers] = useState<string[]>([]);
     const [selectedFieldOfficer, setSelectedFieldOfficer] = useState("all");
@@ -62,13 +80,11 @@ const PricingPage = () => {
     const [teamLoading, setTeamLoading] = useState(false);
     const [teamError, setTeamError] = useState<string | null>(null);
 
-    const { token, userRole, currentUser, userData } = useAuth();
+    const { token, userData } = useAuth();
     
     // State for role checking
     const [isManager, setIsManager] = useState(false);
-    const [isAdmin, setIsAdmin] = useState(false);
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
-    const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
     const [isRoleDetermined, setIsRoleDetermined] = useState(false);
 
     // Fetch current user data to determine role
@@ -78,7 +94,7 @@ const PricingPage = () => {
             setIsRoleDetermined(false);
             
             try {
-                const response = await fetch('https://api.gajkesaristeels.in/user/manage/current-user', {
+                const response = await fetch(`${API_BASE_URL}/user/manage/current-user`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -86,35 +102,27 @@ const PricingPage = () => {
                 });
                 
                 if (response.ok) {
-                    const userData = await response.json();
-                    console.log('Current user data:', userData);
+                    const currentUserData = await response.json();
                     
-                    // Extract role from authorities
-                    const authorities = userData.authorities || [];
+                    const authorities = currentUserData.authorities || [];
                     const role = authorities.length > 0 ? authorities[0].authority : null;
-                    setUserRoleFromAPI(role);
-
                     const normalizedRole = normalizeRoleValue(role);
                     const managerFlag = isManagerRoleValue(role);
                     const adminFlag = normalizedRole === 'ROLE_ADMIN' || normalizedRole === 'ADMIN';
                     const fieldOfficerFlag = normalizedRole === 'ROLE_FIELD OFFICER' || normalizedRole === 'FIELD OFFICER';
 
-                    // Set role flags
                     setIsManager(managerFlag);
-                    setIsAdmin(adminFlag);
                     setIsFieldOfficer(fieldOfficerFlag);
 
-                    console.log('Role from API:', role);
-                    console.log('isManager:', managerFlag);
-                    console.log('isAdmin:', adminFlag);
-                    console.log('isFieldOfficer:', fieldOfficerFlag);
+                    if (!adminFlag && !managerFlag && !fieldOfficerFlag) {
+                        throw new Error('Pricing access is not available for this role.');
+                    }
+                    setIsRoleDetermined(true);
                 } else {
-                    console.error('Failed to fetch current user data');
+                    throw new Error('Could not verify pricing access. Please sign in again.');
                 }
             } catch (error) {
-                console.error('Error fetching current user:', error);
-            } finally {
-                setIsRoleDetermined(true);
+                setPricingError(error instanceof Error ? error.message : 'Could not verify pricing access.');
             }
         };
 
@@ -151,70 +159,65 @@ const PricingPage = () => {
         loadTeamData();
     }, [isManager, isFieldOfficer, userData?.employeeId]);
 
-    useEffect(() => {
-        if (!isRoleDetermined) return;
-        fetchData();
-    }, [selectedCity, selectedDate, teamIds, isRoleDetermined, isAdmin, isManager, isFieldOfficer]);
-
-    const fetchData = async () => {
-        if (!isRoleDetermined) return;
-        setIsLoading(true);
-        await Promise.all([fetchBrandData(), fetchPreviousDayData()]);
-        setIsLoading(false);
-    };
-
     const fetchBrandData = useCallback(async () => {
-        if (!token) return;
-        if ((isManager || isFieldOfficer) && teamIds.length === 0) return;
+        const request = ++pricingRequest.current;
+        if (!token || !isRoleDetermined || ((isManager || isFieldOfficer) && teamIds.length === 0)) {
+            setBrandData([]);
+            setCities([]);
+            setFieldOfficers([]);
+            setShowGajkesariRate(false);
+            setIsLoading(false);
+            return;
+        }
+        setIsLoading(true);
+        setPricingError(null);
         
         try {
             const formattedStartDate = format(new Date(selectedDate), 'yyyy-MM-dd');
             const formattedEndDate = format(new Date(selectedDate), 'yyyy-MM-dd');
 
-            console.log('fetchBrandData - isManager:', isManager, 'teamIds:', teamIds);
-
             let data: Brand[];
 
             if (isManager || isFieldOfficer) {
                 const responses = await Promise.all(teamIds.map(async (id) => {
-                    const url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${id}&start=${formattedStartDate}&end=${formattedEndDate}`;
-                    console.log('Team pricing API call:', url);
+                    const url = `${API_BASE_URL}/brand/getByTeamAndDate?id=${id}&start=${formattedStartDate}&end=${formattedEndDate}`;
                     const response = await fetch(url, {
                         headers: {
                             Authorization: `Bearer ${token}`,
                         },
                     });
-                    return response.json() as Promise<Brand[]>;
+                    if (!response.ok) throw new Error('Could not load pricing. Please try again.');
+                    const records = await response.json();
+                    if (!Array.isArray(records)) throw new Error('Unexpected pricing response. Please try again.');
+                    return records as Brand[];
                 }));
                 data = Array.from(new Map(responses.flat().map((brand) => [brand.id, brand])).values());
             } else {
-                const url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
-                console.log(isAdmin ? 'Admin API call:' : 'Default (Admin) API call:', url);
+                const url = `${API_BASE_URL}/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
                 const response = await fetch(url, {
                     headers: {
                         Authorization: `Bearer ${token}`,
                     },
                 });
+                if (!response.ok) throw new Error('Could not load pricing. Please try again.');
                 data = await response.json();
+                if (!Array.isArray(data)) throw new Error('Unexpected pricing response. Please try again.');
             }
 
+            if (request !== pricingRequest.current) return;
             setBrandData(data);
 
             const uniqueCities = Array.from(new Set(data.map(brand =>
-                brand.brandName.toLowerCase() === 'gajkesari' ? brand.city : brand.employeeDto?.city
+                isGajkesariBrand(brand.brandName) ? brand.city : brand.employeeDto?.city
             ).filter(city => city && city.trim() !== "")));
-            setCities(uniqueCities);
-
-            if (!selectedCity && uniqueCities.length > 0) {
-                setSelectedCity(uniqueCities[0]);
-            }
+            setCities(uniqueCities.sort((left, right) => formatCityLabel(left).localeCompare(formatCityLabel(right))));
 
             const uniqueFieldOfficers = Array.from(new Set(data.map(brand =>
                 brand.employeeDto ? `${brand.employeeDto.firstName} ${brand.employeeDto.lastName}` : ''
             ).filter(officer => officer && officer.trim() !== "")));
-            setFieldOfficers(uniqueFieldOfficers);
+            setFieldOfficers(uniqueFieldOfficers.sort((left, right) => left.localeCompare(right)));
 
-            const gajkesariBrand = data.find(brand => brand.brandName.toLowerCase() === 'gajkesari');
+            const gajkesariBrand = data.find(brand => isGajkesariBrand(brand.brandName));
             if (gajkesariBrand) {
                 setGajkesariRate(gajkesariBrand.price);
                 setShowGajkesariRate(gajkesariBrand.employeeDto?.firstName === 'Test' && gajkesariBrand.employeeDto?.lastName === '1');
@@ -223,63 +226,37 @@ const PricingPage = () => {
                 setShowGajkesariRate(false);
             }
         } catch (error) {
-            console.error('Error fetching brand data:', error);
+            if (request !== pricingRequest.current) return;
+            setPricingError(error instanceof Error ? error.message : 'Could not load pricing. Please try again.');
             setBrandData([]);
             setGajkesariRate(0);
             setShowGajkesariRate(false);
+            setCities([]);
+            setFieldOfficers([]);
+        } finally {
+            if (request === pricingRequest.current) setIsLoading(false);
         }
-    }, [selectedDate, token, selectedCity, isAdmin, isManager, isFieldOfficer, teamIds]);
+    }, [selectedDate, token, isRoleDetermined, isManager, isFieldOfficer, teamIds]);
 
-    const fetchPreviousDayData = useCallback(async () => {
-        if (!token) return;
-        if ((isManager || isFieldOfficer) && teamIds.length === 0) return;
-        
-        const previousDay = format(new Date(new Date(selectedDate).getTime() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
-        try {
-            let data: Brand[];
+    useEffect(() => {
+        void fetchBrandData();
+        return () => { pricingRequest.current += 1; };
+    }, [fetchBrandData]);
 
-            if (isManager || isFieldOfficer) {
-                const responses = await Promise.all(teamIds.map(async (id) => {
-                    const url = `https://api.gajkesaristeels.in/brand/getByTeamAndDate?id=${id}&start=${previousDay}&end=${previousDay}`;
-                    console.log('Team Previous Day API call:', url);
-                    const response = await fetch(url, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    });
-                    return response.json() as Promise<Brand[]>;
-                }));
-                data = Array.from(new Map(responses.flat().map((brand) => [brand.id, brand])).values());
-            } else {
-                const url = `https://api.gajkesaristeels.in/brand/getByDateRange?start=${previousDay}&end=${previousDay}`;
-                console.log(isAdmin ? 'Admin Previous Day API call:' : 'Default (Admin) Previous Day API call:', url);
-                const response = await fetch(url, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                });
-                data = await response.json();
-            }
-
-            setPreviousDayData(data);
-        } catch (error) {
-            console.error('Error fetching previous day data:', error);
-            setPreviousDayData([]);
-        }
-    }, [selectedDate, token, isAdmin, isManager, isFieldOfficer, teamIds]);
+    const fieldOfficerOptions = React.useMemo<SearchableOption[]>(() =>
+        fieldOfficers.map((officer) => ({ value: officer, label: officer })),
+    [fieldOfficers]);
 
     const filteredBrands = brandData.filter(brand => {
-        const cityMatch = selectedCity === "all" || (brand.brandName.toLowerCase() === 'gajkesari' ? brand.city === selectedCity : brand.employeeDto?.city === selectedCity);
+        const cityMatch = selectedCity === "all" || getBrandCity(brand) === selectedCity;
         const officerMatch = selectedFieldOfficer === "all" || (brand.employeeDto ? `${brand.employeeDto.firstName} ${brand.employeeDto.lastName}` === selectedFieldOfficer : false);
         return cityMatch && officerMatch;
     });
 
-    // Group brands and consolidate Gajkesari entries
     const brandGroups = filteredBrands.reduce((acc, brand) => {
         const brandName = brand.brandName.toLowerCase();
         
-        if (brandName === 'gajkesari') {
-            // Consolidate all Gajkesari entries
+        if (isGajkesariBrand(brandName)) {
             if (!acc['Gajkesari']) {
                 acc['Gajkesari'] = {
                     brand: 'Gajkesari',
@@ -289,13 +266,11 @@ const PricingPage = () => {
                 };
             } else {
                 acc['Gajkesari'].count += 1;
-                // Use the latest price if gajkesariRate is not set
                 if (gajkesariRate === 0) {
                     acc['Gajkesari'].ourPrice = brand.price;
                 }
             }
         } else {
-            // Keep other brands separate
             if (!acc[brand.brandName]) {
                 acc[brand.brandName] = {
                     brand: brand.brandName,
@@ -305,7 +280,6 @@ const PricingPage = () => {
                 };
             } else {
                 acc[brand.brandName].count += 1;
-                // Use average price for multiple entries of same brand
                 acc[brand.brandName].competitorPrice = 
                     (acc[brand.brandName].competitorPrice * (acc[brand.brandName].count - 1) + brand.price) / acc[brand.brandName].count;
             }
@@ -321,150 +295,138 @@ const PricingPage = () => {
             competitorPrice: item.competitorPrice as number
         }))
         .sort((a, b) => {
-            // Gajkesari always comes first
-            if (a.brand.toLowerCase() === 'gajkesari') return -1;
-            if (b.brand.toLowerCase() === 'gajkesari') return 1;
-            
-            // Sort other brands alphabetically
+            if (isGajkesariBrand(a.brand)) return -1;
+            if (isGajkesariBrand(b.brand)) return 1;
             return a.brand.localeCompare(b.brand);
         });
 
-
     return (
-        <div className="space-y-6">
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <CardTitle>Pricing Report</CardTitle>
-                            <div className="text-sm text-muted-foreground mt-1">
-                                {(isManager || isFieldOfficer) && (
-                                    <p>
-                                        {teamLoading ? 'Loading team data...' : 
-                                         teamError ? `Error: ${teamError}` :
-                                         teamIds.length > 0 ? `Team-based view (Team IDs: ${teamIds.join(', ')})` : 
-                                         'No team data available'}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                        {showGajkesariRate && gajkesariRate > 0 && (
-                            <div className="text-right">
-                                <h2 className="text-2xl">
-                                    Gajkesari Rate: <span className="font-bold">₹{gajkesariRate}/ton</span>
-                                </h2>
-                            </div>
-                        )}
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                            <Label>City</Label>
-                            <Select value={selectedCity} onValueChange={setSelectedCity}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select city" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Cities</SelectItem>
-                                    {cities.map((city) => (
-                                        <SelectItem key={city} value={city}>
-                                            {city}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        
-                        <div className="space-y-2">
-                            <Label>Date</Label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className={`w-full justify-start text-left font-normal ${!selectedDate && 'text-muted-foreground'}`}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {selectedDate ? format(new Date(selectedDate), 'PPP') : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <SpacedCalendar
-                                        initialFocus
-                                        mode="single"
-                                        defaultMonth={new Date(selectedDate)}
-                                        selected={new Date(selectedDate)}
-                                        onSelect={(date: Date | undefined) => {
-                                            if (date) {
-                                                setSelectedDate(format(date, 'yyyy-MM-dd'));
-                                            }
-                                        }}
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-                        
-                        <div className="space-y-2">
-                            <Label>Field Officer</Label>
-                            <Select value={selectedFieldOfficer} onValueChange={setSelectedFieldOfficer}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select field officer" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Field Officers</SelectItem>
-                                    {fieldOfficers.map((officer) => (
-                                        <SelectItem key={officer} value={officer}>
-                                            {officer}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+        <div className="space-y-4 py-4">
+            <div className="flex flex-col gap-3 border-b border-border/70 pb-4 lg:flex-row lg:items-end">
+                <div className="min-w-0 space-y-1.5 lg:w-[180px]">
+                    <Label className="text-xs font-medium">City</Label>
+                    <Select value={selectedCity} onValueChange={setSelectedCity}>
+                        <SelectTrigger className="h-9 w-full text-xs shadow-none">
+                            <SelectValue placeholder="All cities" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-56">
+                            <SelectItem value="all">All cities</SelectItem>
+                            {cities.map((city) => (
+                                <SelectItem key={city} value={city}>
+                                    {formatCityLabel(city)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                
+                <div className="min-w-0 space-y-1.5 lg:w-[190px]">
+                    <Label className="text-xs font-medium">Date</Label>
+                    <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                className={`h-9 w-full justify-start text-left text-xs font-normal shadow-none ${!selectedDate && 'text-muted-foreground'}`}
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {selectedDate ? format(new Date(selectedDate), 'MMM dd, yyyy') : <span>Pick a date</span>}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                            <SpacedCalendar
+                                initialFocus
+                                mode="single"
+                                defaultMonth={new Date(selectedDate)}
+                                selected={new Date(selectedDate)}
+                                onSelect={(date: Date | undefined) => {
+                                    if (date) {
+                                        setSelectedDate(format(date, 'yyyy-MM-dd'));
+                                        setIsDatePickerOpen(false);
+                                    }
+                                }}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                </div>
+                
+                <div className="min-w-0 space-y-1.5 lg:w-[240px]">
+                    <Label className="text-xs font-medium">Field officer</Label>
+                    <SearchableSelect
+                        options={fieldOfficerOptions}
+                        value={selectedFieldOfficer === 'all' ? undefined : selectedFieldOfficer}
+                        onSelect={(option) => setSelectedFieldOfficer(option?.value ?? 'all')}
+                        placeholder="All field officers"
+                        searchPlaceholder="Search field officers..."
+                        emptyMessage="No field officers found"
+                        allowClear
+                        triggerClassName="h-9 w-full text-xs shadow-none"
+                        contentClassName="w-[var(--radix-popover-trigger-width)]"
+                    />
+                </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle>Competitor Pricing</CardTitle>
+                {showGajkesariRate && gajkesariRate > 0 && (
+                    <div className="ml-auto rounded-md border bg-muted/30 px-3 py-2 text-right">
+                        <p className="text-[11px] text-muted-foreground">Gajkesari rate</p>
+                        <p className="text-sm font-semibold tabular-nums">{formatPrice(gajkesariRate)}<span className="font-normal text-muted-foreground">/ton</span></p>
+                    </div>
+                )}
+            </div>
+
+            {pricingError && <p role="alert" className="text-sm text-destructive">{pricingError}</p>}
+
+            {(isManager || isFieldOfficer) && (teamLoading || teamError) && (
+                <p className={`text-xs ${teamError ? 'text-destructive' : 'text-muted-foreground'}`}>
+                    {teamLoading ? 'Loading team pricing access…' : teamError}
+                </p>
+            )}
+
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,36rem),1fr))] items-start gap-4">
+                <Card className="min-w-0 gap-0 overflow-hidden py-0 shadow-none">
+                    <CardHeader className="border-b px-4 py-3">
+                        <CardTitle className="text-sm font-semibold">Recorded prices</CardTitle>
+                        <p className="text-xs text-muted-foreground">Recorded prices for the selected day and market.</p>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="p-0">
                         {isLoading ? (
-                            <div className="flex justify-center items-center h-64">
-                                <Loader className="w-8 h-8 animate-spin text-primary" />
+                            <div className="flex h-64 items-center justify-center text-muted-foreground">
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                <span className="text-sm">Loading pricing…</span>
                             </div>
                         ) : (
-                            <div className="rounded-md border overflow-hidden">
-                                <Table>
-                                    <TableHeader>
+                            <div className="max-h-[420px] overflow-auto">
+                                <Table className="table-fixed text-xs">
+                                    <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
                                         <TableRow>
-                                            <TableHead>Competitor</TableHead>
-                                            <TableHead>Price (₹/ton)</TableHead>
-                                            <TableHead>City</TableHead>
-                                            <TableHead>Field Officer</TableHead>
+                                            <TableHead className="h-10 w-[30%] whitespace-normal text-xs">Brand</TableHead>
+                                            <TableHead className="h-10 w-[21%] whitespace-normal text-right text-xs">Price/ton</TableHead>
+                                            <TableHead className="h-10 w-[21%] whitespace-normal text-xs">City</TableHead>
+                                            <TableHead className="h-10 w-[28%] whitespace-normal text-xs">Field officer</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {filteredBrands.length > 0 ? (
                                             filteredBrands.map((brand) => (
                                                 <TableRow key={brand.id}>
-                                                    <TableCell className="font-medium">{brand.brandName}</TableCell>
-                                                    <TableCell>₹{brand.price.toFixed(2)}</TableCell>
-                                                    <TableCell>{brand.city}</TableCell>
-                                                    <TableCell>
-                                                        {brand.brandName.toLowerCase() === 'gajkesari'
-                                                            ? brand.city
+                                                    <TableCell className="whitespace-normal py-3 align-top font-medium leading-5 [overflow-wrap:anywhere]">{brand.brandName}</TableCell>
+                                                    <TableCell className="whitespace-normal py-3 text-right align-top font-medium leading-5 tabular-nums [overflow-wrap:anywhere]">{formatPrice(brand.price)}</TableCell>
+                                                    <TableCell className="whitespace-normal py-3 align-top leading-5 [overflow-wrap:anywhere]"><span className="inline-flex items-start gap-1"><MapPin className="mt-1 hidden h-3 w-3 shrink-0 text-muted-foreground sm:block" />{formatCityLabel(getBrandCity(brand))}</span></TableCell>
+                                                    <TableCell className="whitespace-normal py-3 align-top leading-5 [overflow-wrap:anywhere]">
+                                                        {isGajkesariBrand(brand.brandName)
+                                                            ? '—'
                                                             : brand.employeeDto
                                                                 ? `${brand.employeeDto.firstName} ${brand.employeeDto.lastName}`
-                                                                : 'N/A'}
+                                                                : '—'}
                                                     </TableCell>
                                                 </TableRow>
                                             ))
                                         ) : (
                                             <TableRow>
-                                                <TableCell colSpan={4} className="h-24 text-center">
-                                                    No pricing data found matching the selected filters
+                                                <TableCell colSpan={4} className="h-48 text-center">
+                                                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                                                        <BarChart3 className="h-7 w-7 stroke-[1.5]" />
+                                                        <span className="text-sm font-medium text-foreground">No pricing data found</span>
+                                                        <span className="text-xs">Try a different date, city, or field officer.</span>
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         )}
@@ -475,45 +437,52 @@ const PricingPage = () => {
                     </CardContent>
                 </Card>
 
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle>Price Comparison by Brand</CardTitle>
+                <Card className="min-w-0 gap-0 overflow-hidden py-0 shadow-none">
+                    <CardHeader className="border-b px-4 py-3">
+                        <CardTitle className="text-sm font-semibold">Price comparison by brand</CardTitle>
+                        <p className="text-xs text-muted-foreground">Gajkesari and competitor rates per ton.</p>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="p-4">
                         {isLoading ? (
-                            <div className="flex justify-center items-center h-80">
-                                <Loader className="w-8 h-8 animate-spin text-primary" />
+                            <div className="flex h-72 items-center justify-center text-muted-foreground">
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                <span className="text-sm">Building comparison…</span>
+                            </div>
+                        ) : chartData.length === 0 ? (
+                            <div className="flex h-72 flex-col items-center justify-center gap-2 text-muted-foreground">
+                                <BarChart3 className="h-7 w-7 stroke-[1.5]" />
+                                <span className="text-sm font-medium text-foreground">Nothing to compare yet</span>
+                                <span className="text-xs">Pricing entries will appear here.</span>
                             </div>
                         ) : (
-                            <>
-                                <div className="h-80">
+                            <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
+                                <div style={{ height: Math.max(220, chartData.length * 56 + 64) }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart
+                                            layout="vertical"
                                             data={chartData}
                                             margin={{
-                                                top: 20,
-                                                right: 30,
-                                                left: 20,
-                                                bottom: 60,
+                                                top: 8,
+                                                right: 20,
+                                                left: 8,
+                                                bottom: 8,
                                             }}
                                         >
-                                            <CartesianGrid strokeDasharray="3 3" />
-                                            <XAxis dataKey="brand" angle={-45} textAnchor="end" height={60} />
-                                            <YAxis />
+                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
+                                            <XAxis type="number" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(value) => `₹${value}`} />
+                                            <YAxis type="category" dataKey="brand" width={105} interval={0} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
                                             <Tooltip 
-                                                formatter={(value) => [`₹${value}`, "Price"]}
+                                                formatter={(value) => [formatPrice(Number(value)), "Price"]}
                                                 labelFormatter={(value) => `Brand: ${value}`}
+                                                contentStyle={{ borderRadius: 8, borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--card))', color: 'hsl(var(--card-foreground))', fontSize: 12 }}
                                             />
-                                            <Legend />
-                                            <Bar dataKey="ourPrice" name="Our Price" fill="#3b82f6" />
-                                            <Bar dataKey="competitorPrice" name="Competitor Price" fill="#10b981" />
+                                            <Legend wrapperStyle={{ fontSize: 11 }} />
+                                            <Bar dataKey="ourPrice" name="Our price" stackId="price" maxBarSize={24} fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                                            <Bar dataKey="competitorPrice" name="Competitor price" stackId="price" maxBarSize={24} fill="#16a085" radius={[0, 4, 4, 0]} />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
-                                <div className="mt-4 text-sm text-muted-foreground">
-                                    <p>Comparison of prices by brand between our products and competitors</p>
-                                </div>
-                            </>
+                            </div>
                         )}
                     </CardContent>
                 </Card>

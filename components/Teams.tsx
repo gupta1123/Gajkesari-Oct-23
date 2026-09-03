@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
     DialogFooter,
@@ -16,12 +17,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { 
     UserPlus, 
     MapPin, 
@@ -31,12 +26,22 @@ import {
     User, 
     Building2,
     Loader2,
-    Plus,
     Search,
-    ChevronDown
+    ChevronDown,
+    MoreHorizontal,
 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { buildCityOptions, mergeCityOptions, normalizeCityKey } from '@/lib/city-options';
 import { getPrimaryTeamManager, getTeamAssignedCities, getTeamManagers } from '@/lib/team-access';
+import { SearchableSelect } from '@/components/ui/searchable-select2';
+import {
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+} from '@/components/ui/sheet';
+import AddTeam from '@/components/AddTeam';
 
 interface Team {
     id: number;
@@ -66,6 +71,8 @@ interface FieldOfficer {
     status: string;
     teamId?: number | null;
 }
+
+type TeamPanelSection = 'overview' | 'managers' | 'cities' | 'officers';
 
 const Teams: React.FC = () => {
     const [teams, setTeams] = useState<Team[]>([]);
@@ -101,8 +108,16 @@ const Teams: React.FC = () => {
     const [selectedManagerIds, setSelectedManagerIds] = useState<number[]>([]);
     const [managerSearchTerm, setManagerSearchTerm] = useState("");
     const [isLoadingManagers, setIsLoadingManagers] = useState(false);
+    const [managerFilterId, setManagerFilterId] = useState("");
+    const [cityFilter, setCityFilter] = useState("");
+    const [fieldOfficerFilterId, setFieldOfficerFilterId] = useState("");
+    const [teamSearchQuery, setTeamSearchQuery] = useState("");
+    const [isTeamPanelOpen, setIsTeamPanelOpen] = useState(false);
+    const [teamPanelSection, setTeamPanelSection] = useState<TeamPanelSection>('overview');
+    const [panelTeamId, setPanelTeamId] = useState<number | null>(null);
+    const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
 
-    // Get auth data from localStorage instead of props
+    // Get auth data from localStorage
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
     const sortByNameAsc = (a: { firstName?: string | null; lastName?: string | null }, b: { firstName?: string | null; lastName?: string | null }) => {
@@ -112,7 +127,7 @@ const Teams: React.FC = () => {
     };
 
     const getManagerName = (manager: { id: number; firstName?: string | null; lastName?: string | null }) => {
-        return [manager.firstName, manager.lastName].filter(Boolean).join(' ').trim() || `Manager ${manager.id}`;
+        return [manager.firstName, manager.lastName].filter(Boolean).join(' ').trim() || `Regional Manager ${manager.id}`;
     };
 
     const fetchTeams = useCallback(async () => {
@@ -195,14 +210,11 @@ const Teams: React.FC = () => {
                 }),
             ]);
 
-            if (!employeesResponse.ok) {
-                throw new Error('Failed to fetch managers');
-            }
-            if (!teamsResponse.ok) {
+            if (!employeesResponse.ok || !teamsResponse.ok) {
                 throw new Error('Failed to fetch team assignments');
             }
 
-            const employeesData = await employeesResponse.json();
+            const employeesData = (await employeesResponse.json()) as TeamManager[];
             const teamsData = (await teamsResponse.json()) as Team[];
             const currentTeam = teamsData.find((team) => team.id === editingTeamId);
             const currentManagerIds = new Set(getTeamManagers(currentTeam ?? { id: 0 }).map((manager) => manager.id));
@@ -212,7 +224,7 @@ const Teams: React.FC = () => {
                     .flatMap((team) => getTeamManagers(team).map((manager) => manager.id))
             );
 
-            const managers = (employeesData as TeamManager[])
+            const managers = employeesData
                 .filter((employee) => {
                     if (employee.isOfficeManager !== true || employee.deleted) return false;
                     return currentManagerIds.has(employee.id) || !assignedElsewhereIds.has(employee.id);
@@ -222,133 +234,138 @@ const Teams: React.FC = () => {
             setAllOfficeManagers(managers);
         } catch (error) {
             console.error('Error fetching managers:', error);
-            setModalError(error instanceof Error ? error.message : 'Error fetching managers');
         } finally {
             setIsLoadingManagers(false);
         }
     }, [token]);
 
-    const fetchFieldOfficersByCities = async (cities: string[], teamId: number) => {
+    const fetchFieldOfficers = useCallback(async (cities: string[], editingTeamId: number) => {
         if (!token) return;
 
         try {
-            const promises = cities.map(city =>
-                fetch(`https://api.gajkesaristeels.in/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                    },
-                })
+            if (cities.length === 0) {
+                setFieldOfficers([]);
+                return;
+            }
+
+            const responses = await Promise.all(
+                cities.map((city) =>
+                    fetch(
+                        `https://api.gajkesaristeels.in/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
+                        { headers: { Authorization: `Bearer ${token}` } },
+                    ),
+                ),
             );
-            const responses = await Promise.all(promises);
-            const allData = await Promise.all(responses.map(r => r.json()));
-            const allFieldOfficers: FieldOfficer[] = allData.flat().sort((a: FieldOfficer, b: FieldOfficer) => {
-                const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
-                const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
-                return nameA.localeCompare(nameB);
-            });
-            const currentTeam = teams.find(team => team.id === teamId);
-            const currentTeamMemberIds = currentTeam ? currentTeam.fieldOfficers.map(officer => officer.id) : [];
-            // Show already-assigned officers, but keep them disabled in the picker.
-            const availableFieldOfficers = allFieldOfficers.filter((officer: FieldOfficer) => 
-                officer.status !== 'inactive' && !currentTeamMemberIds.includes(officer.id)
+            const failedResponse = responses.find((response) => !response.ok);
+            if (failedResponse) {
+                throw new Error(`Failed to fetch field officers (${failedResponse.status})`);
+            }
+
+            const officersByCity = (await Promise.all(
+                responses.map((response) => response.json()),
+            )) as FieldOfficer[][];
+            const officersById = new Map<number, FieldOfficer>();
+            officersByCity.flat().forEach((officer) => officersById.set(officer.id, officer));
+
+            const currentTeamMemberIds = new Set(
+                (teams.find((team) => team.id === editingTeamId)?.fieldOfficers ?? []).map((officer) => officer.id),
             );
-            setFieldOfficers(availableFieldOfficers);
+            const assignedToOtherTeams = new Set(
+                teams
+                    .filter((team) => team.id !== editingTeamId)
+                    .flatMap((team) => (team.fieldOfficers ?? []).map((officer) => officer.id)),
+            );
+
+            const unassignedOfficers = Array.from(officersById.values())
+                .filter((officer) => officer.status?.toLowerCase() !== 'inactive')
+                .filter((officer) => !currentTeamMemberIds.has(officer.id) && !assignedToOtherTeams.has(officer.id))
+                .map((officer) => ({ ...officer, teamId: null }))
+                .sort(sortByNameAsc);
+
+            setFieldOfficers(unassignedOfficers);
+            setModalError(null);
         } catch (error) {
             console.error('Error fetching field officers:', error);
+            setFieldOfficers([]);
+            setModalError(error instanceof Error ? error.message : 'Error fetching field officers');
         }
-    };
+    }, [teams, token]);
 
     useEffect(() => {
         if (token) {
             fetchTeams();
+            fetchCities();
         }
-    }, [fetchTeams]);
+    }, [fetchTeams, fetchCities, token]);
 
-    const showDeleteModal = (teamId: number) => {
-        setError(null); // Clear any background errors when opening modal
-        setDeleteTeamId(teamId);
-        setIsDeleteModalVisible(true);
+    const openTeamPanel = async (team: Team, section: TeamPanelSection = 'overview') => {
+        const primaryManager = getPrimaryTeamManager(team);
+        setPanelTeamId(team.id);
+        setSelectedTeamId(team.id);
+        setSelectedOfficeManagerId(primaryManager?.id ?? null);
+        setTeamPanelSection(section);
+        setAssignedCities(getTeamAssignedCities(team));
+        setSelectedCities([]);
+        setSelectedFieldOfficers([]);
+        setModalError(null);
+
+        const currentManagerIds = getTeamManagers(team).map((m) => m.id);
+        setSelectedManagerIds(currentManagerIds);
+
+        setIsTeamPanelOpen(true);
+        void fetchOfficeManagers(team.id);
+        void fetchFieldOfficers(getTeamAssignedCities(team), team.id);
+    };
+
+    const closeTeamPanel = () => {
+        setIsTeamPanelOpen(false);
+        setPanelTeamId(null);
+        setSelectedTeamId(null);
+        setSelectedOfficeManagerId(null);
+        setModalError(null);
     };
 
     const handleDeleteTeam = async () => {
         if (!deleteTeamId || !token) return;
 
         setIsSaving(true);
+        setError(null);
         try {
             const response = await fetch(`https://api.gajkesaristeels.in/employee/team/delete?id=${deleteTeamId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
                 },
             });
 
             if (!response.ok) {
-                throw new Error('Failed to delete team');
+                const errorText = await response.text().catch(() => 'Failed to delete team');
+                throw new Error(errorText || 'Failed to delete team');
             }
 
             await fetchTeams();
             setIsDeleteModalVisible(false);
+            setDeleteTeamId(null);
+            closeTeamPanel();
         } catch (error) {
             console.error('Error deleting team:', error);
-            setError(error instanceof Error ? error.message : 'Error deleting team');
+            const message = error instanceof Error ? error.message : 'Error deleting team';
+            setError(message);
         } finally {
             setIsSaving(false);
         }
     };
 
-    const showEditModal = (team: Team) => {
-        setError(null); // Clear any background errors when opening modal
-        setModalError(null); // Clear any previous modal errors
-        const primaryManager = getPrimaryTeamManager(team);
-        const teamCities = getTeamAssignedCities(team);
-        setSelectedTeamId(team.id);
-        setSelectedOfficeManagerId(primaryManager?.id ?? null);
-        setAssignedCities(teamCities);
-        fetchCities();
-        fetchFieldOfficersByCities(teamCities, team.id);
-        setIsEditModalVisible(true);
-    };
-
-    const showManageCitiesModal = (team: Team) => {
-        setError(null); // Clear any background errors when opening modal
-        setModalError(null); // Clear any previous modal errors
-        const primaryManager = getPrimaryTeamManager(team);
-        setSelectedOfficeManagerId(primaryManager?.id ?? null);
-        setAssignedCities(primaryManager?.assignedCity ?? []);
-        setCurrentTeamId(team.id); // Track current team ID to exclude its cities from "other teams"
-        setSelectedCities([]);
-        setCitySearchTerm('');
-        setIsCityPopoverOpen(false);
-        fetchCities();
-        setIsManageCitiesModalVisible(true);
-    };
-
-    const showManagersModal = async (team: Team) => {
-        setError(null);
-        setModalError(null);
-        setSelectedTeamId(team.id);
-        setCurrentTeamId(team.id);
-        setSelectedManagerIds(getTeamManagers(team).map((manager) => manager.id));
-        setManagerSearchTerm('');
-        setIsManagersModalVisible(true);
-        await fetchOfficeManagers(team.id);
-    };
-
-    const handleRemoveCity = (city: string) => {
-        setError(null); // Clear any background errors when opening modal
-        setModalError(null); // Clear any previous modal errors
-        setCityToRemove(city);
-        setIsCityRemoveModalVisible(true);
-    };
-
-    const confirmRemoveCity = async () => {
-        if (!cityToRemove || !selectedOfficeManagerId || !token) return;
+    const confirmRemoveCity = async (cityOverride?: string) => {
+        const targetCity = cityOverride ?? cityToRemove;
+        if (!targetCity || !selectedOfficeManagerId || !token) return;
 
         setIsSaving(true);
-        setModalError(null); // Clear previous errors
+        setModalError(null);
         try {
             const response = await fetch(
-                `https://api.gajkesaristeels.in/employee/removeAssignedCity?employeeId=${selectedOfficeManagerId}&city=${encodeURIComponent(cityToRemove.toLowerCase())}`,
+                `https://api.gajkesaristeels.in/employee/removeAssignedCity?employeeId=${selectedOfficeManagerId}&city=${encodeURIComponent(targetCity.toLowerCase())}`,
                 {
                     method: 'DELETE',
                     headers: {
@@ -363,18 +380,15 @@ const Teams: React.FC = () => {
                 throw new Error(errorText || 'Failed to remove city');
             }
 
-            // Update local state optimistically
-            setAssignedCities(prev => prev.filter(c => c !== cityToRemove));
-            
-            // Reload teams data to reflect the change
+            setAssignedCities(prev => prev.filter(c => normalizeCityKey(c) !== normalizeCityKey(targetCity)));
             await fetchTeams();
-            
             setIsCityRemoveModalVisible(false);
             setCityToRemove(null);
             setModalError(null);
         } catch (error) {
             console.error('Error removing city:', error);
-            setModalError(error instanceof Error ? error.message : 'Error removing city');
+            const message = error instanceof Error ? error.message : 'Error removing city';
+            setModalError(message);
         } finally {
             setIsSaving(false);
         }
@@ -388,7 +402,7 @@ const Teams: React.FC = () => {
         if (unassignedSelectedFieldOfficers.length === 0) return;
 
         setIsSaving(true);
-        setModalError(null); // Clear previous errors
+        setModalError(null);
         try {
             const response = await fetch(
                 `https://api.gajkesaristeels.in/employee/team/addFieldOfficer?id=${selectedTeamId}`,
@@ -411,23 +425,30 @@ const Teams: React.FC = () => {
 
             await fetchTeams();
             setIsEditModalVisible(false);
+            setFieldOfficers((current) => current.filter((officer) => !unassignedSelectedFieldOfficers.includes(officer.id)));
             setSelectedFieldOfficers([]);
             setModalError(null);
         } catch (error) {
             console.error('Error adding field officer:', error);
-            setModalError(error instanceof Error ? error.message : 'Error adding field officers');
+            const message = error instanceof Error ? error.message : 'Error adding field officers';
+            setModalError(message);
         } finally {
             setIsSaving(false);
         }
     };
 
     const handleRemoveFieldOfficer = async (teamId: number, fieldOfficerId: number) => {
-        if (!token) return;
+        if (!token) return false;
+
+        const removedOfficer = teams
+            .find((team) => team.id === teamId)
+            ?.fieldOfficers.find((officer) => officer.id === fieldOfficerId);
 
         setIsSaving(true);
+        setModalError(null);
         try {
             const response = await fetch(`https://api.gajkesaristeels.in/employee/team/deleteFieldOfficer?id=${teamId}`, {
-                method: 'PUT',
+                method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
@@ -438,13 +459,30 @@ const Teams: React.FC = () => {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to remove field officer');
+                const errorText = await response.text().catch(() => 'Failed to remove field officer');
+                throw new Error(errorText || 'Failed to remove field officer');
             }
 
-            await fetchTeams();
+            setTeams((current) => current.map((team) => (
+                team.id === teamId
+                    ? { ...team, fieldOfficers: team.fieldOfficers.filter((officer) => officer.id !== fieldOfficerId) }
+                    : team
+            )));
+            if (removedOfficer) {
+                setFieldOfficers((current) => {
+                    const eligibleOfficer = { ...removedOfficer, teamId: null };
+                    const byId = new Map(current.map((officer) => [officer.id, officer]));
+                    byId.set(eligibleOfficer.id, eligibleOfficer);
+                    return Array.from(byId.values()).sort(sortByNameAsc);
+                });
+            }
+            void fetchTeams();
+            return true;
         } catch (error) {
             console.error('Error removing field officer:', error);
-            setError(error instanceof Error ? error.message : 'Error removing field officer');
+            const message = error instanceof Error ? error.message : 'Error removing field officer';
+            setModalError(message);
+            return false;
         } finally {
             setIsSaving(false);
         }
@@ -458,9 +496,11 @@ const Teams: React.FC = () => {
 
     const confirmRemoveFieldOfficer = async () => {
         if (!officerToRemove) return;
-        await handleRemoveFieldOfficer(officerToRemove.teamId, officerToRemove.officerId);
-        setIsRemoveOfficerModalVisible(false);
-        setOfficerToRemove(null);
+        const removed = await handleRemoveFieldOfficer(officerToRemove.teamId, officerToRemove.officerId);
+        if (removed) {
+            setIsRemoveOfficerModalVisible(false);
+            setOfficerToRemove(null);
+        }
     };
 
     const toSentenceCase = (value: string | null | undefined) => {
@@ -473,66 +513,17 @@ const Teams: React.FC = () => {
             .join(' ');
     };
 
-    const filteredCities = useMemo(() => {
-        const query = citySearchTerm.trim().toLowerCase();
-        let filtered = availableCities;
-        
-        // Filter by search query
-        if (query) {
-            filtered = filtered.filter((city) => city.label.toLowerCase().includes(query));
-        }
-        
-        const assignedCityKeys = new Set(assignedCities.map(normalizeCityKey));
-        filtered = filtered.filter((city) => !assignedCityKeys.has(normalizeCityKey(city.value)));
-        
-        return filtered;
-    }, [availableCities, citySearchTerm, assignedCities]);
-
-    const cityAssignments = useMemo(() => {
-        const assignments = new Map<string, string[]>();
-
-        teams.forEach((team) => {
-            getTeamManagers(team).forEach((manager) => {
-                const managerName = getManagerName(manager);
-                (manager.assignedCity ?? []).forEach((city) => {
-                    const key = city.trim().toLowerCase();
-                    if (!key) return;
-                    assignments.set(key, Array.from(new Set([...(assignments.get(key) ?? []), managerName])));
-                });
-            });
-        });
-
-        return assignments;
-    }, [teams]);
-
-    const cityTriggerLabel = useMemo(() => {
-        if (selectedCities.length === 0) return "Select cities";
-        if (selectedCities.length === 1) return toSentenceCase(selectedCities[0]);
-        return `${selectedCities.length} cities selected`;
-    }, [selectedCities]);
-
-    const handleToggleCity = (cityValue: string) => {
-        setSelectedCities((prev) =>
-            prev.includes(cityValue)
-                ? prev.filter((value) => value !== cityValue)
-                : [...prev, cityValue]
-        );
-        // Close the popover after selection/deselection for better UX
-        setIsCityPopoverOpen(false);
-    };
-
     const handleAssignCity = async () => {
         if (selectedCities.length === 0 || !selectedOfficeManagerId || !token) return;
 
         setIsSaving(true);
-        setModalError(null); // Clear previous errors
+        setModalError(null);
         try {
-            // Assign all selected cities
             const promises = selectedCities.map(city =>
                 fetch(
-                    `https://api.gajkesaristeels.in/employee/assignCity?id=${selectedOfficeManagerId}&city=${city}`,
+                    `https://api.gajkesaristeels.in/employee/assignCityToOfficeManager?employeeId=${selectedOfficeManagerId}&city=${encodeURIComponent(city)}`,
                     {
-                        method: 'PUT',
+                        method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${token}`,
                             'Content-Type': 'application/json',
@@ -542,30 +533,22 @@ const Teams: React.FC = () => {
             );
 
             const responses = await Promise.all(promises);
-            const failedResponses = responses.filter(r => !r.ok);
-            
-            if (failedResponses.length > 0) {
-                const errorText = await failedResponses[0].text().catch(() => 'Failed to assign city');
-                throw new Error(errorText || 'Failed to assign city');
+            const failed = responses.filter(r => !r.ok);
+
+            if (failed.length > 0) {
+                throw new Error(`Failed to assign ${failed.length} of ${selectedCities.length} cities`);
             }
 
-            // Update local state optimistically
-            const updatedCities = [...assignedCities, ...selectedCities];
-            setAssignedCities(updatedCities);
-            
-            // Reload teams data to reflect the change
+            setAssignedCities(prev => Array.from(new Set([...prev, ...selectedCities])));
             await fetchTeams();
-            
             setSelectedCities([]);
-            setCitySearchTerm('');
+            setIsCityPopoverOpen(false);
+            setCitySearchTerm("");
             setModalError(null);
-            
-            // Close the modal after successful assignment
-            setIsManageCitiesModalVisible(false);
-            setCurrentTeamId(null);
         } catch (error) {
             console.error('Error assigning city:', error);
-            setModalError(error instanceof Error ? error.message : 'Error assigning city');
+            const message = error instanceof Error ? error.message : 'Error assigning city';
+            setModalError(message);
         } finally {
             setIsSaving(false);
         }
@@ -574,18 +557,11 @@ const Teams: React.FC = () => {
     const handleSaveManagers = async () => {
         if (!selectedTeamId || !token) return;
 
-        const selectedTeam = teams.find((team) => team.id === selectedTeamId);
-        const existingManagerIds = selectedTeam ? getTeamManagers(selectedTeam).map((manager) => manager.id) : [];
-        // This endpoint replaces the manager list, so adding one manager must keep the existing managers too.
-        const managerIdsForPayload = Array.from(new Set([...existingManagerIds, ...selectedManagerIds]));
-
-        if (managerIdsForPayload.length === 0) return;
-
         setIsSaving(true);
         setModalError(null);
         try {
             const response = await fetch(
-                `https://api.gajkesaristeels.in/employee/team/editOfficeManager?id=${selectedTeamId}`,
+                `https://api.gajkesaristeels.in/employee/team/updateOfficeManagers?teamId=${selectedTeamId}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -593,33 +569,32 @@ const Teams: React.FC = () => {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        officeManagers: managerIdsForPayload,
+                        officeManagerIds: selectedManagerIds,
                     }),
                 }
             );
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Failed to update managers');
-                throw new Error(errorText || 'Failed to update managers');
+                const errorText = await response.text().catch(() => 'Failed to update regional managers');
+                throw new Error(errorText || 'Failed to update regional managers');
             }
 
             await fetchTeams();
-            setIsManagersModalVisible(false);
-            setSelectedManagerIds([]);
-            setManagerSearchTerm('');
+            setSelectedOfficeManagerId(selectedManagerIds[0] ?? null);
             setModalError(null);
         } catch (error) {
-            console.error('Error updating managers:', error);
-            setModalError(error instanceof Error ? error.message : 'Error updating managers');
+            console.error('Error updating regional managers:', error);
+            const message = error instanceof Error ? error.message : 'Failed to update regional managers';
+            setModalError(message);
         } finally {
             setIsSaving(false);
         }
     };
 
-    const currentTeamManagers = useMemo(() => {
-        const team = teams.find((item) => item.id === currentTeamId);
-        return team ? getTeamManagers(team).sort(sortByNameAsc) : [];
-    }, [teams, currentTeamId]);
+    const panelTeam = useMemo(
+        () => teams.find((team) => team.id === panelTeamId) ?? null,
+        [teams, panelTeamId]
+    );
 
     const filteredOfficeManagers = useMemo(() => {
         const query = managerSearchTerm.trim().toLowerCase();
@@ -629,8 +604,79 @@ const Teams: React.FC = () => {
         );
     }, [allOfficeManagers, managerSearchTerm]);
 
-    const handlePageChange = (teamId: number, newPage: number) => {
-        setCurrentPage(prev => ({ ...prev, [teamId]: newPage }));
+    const managerFilterOptions = useMemo(() => {
+        const managersById = new Map<number, TeamManager>();
+        teams.forEach((team) => {
+            getTeamManagers(team).forEach((manager) => managersById.set(manager.id, manager));
+        });
+        const managers = Array.from(managersById.values());
+        const nameCounts = managers.reduce((counts, manager) => {
+            const name = getManagerName(manager);
+            counts.set(name, (counts.get(name) ?? 0) + 1);
+            return counts;
+        }, new Map<string, number>());
+
+        return managers
+            .map((manager) => {
+                const name = getManagerName(manager);
+                return {
+                    value: String(manager.id),
+                    label: (nameCounts.get(name) ?? 0) > 1 ? `${name} · #${manager.id}` : name,
+                };
+            })
+            .sort((left, right) => left.label.localeCompare(right.label));
+    }, [teams]);
+
+    const cityFilterOptions = useMemo(
+        () => buildCityOptions(teams.flatMap((team) => getTeamAssignedCities(team)))
+            .map((option) => ({ ...option, label: toSentenceCase(option.label) }))
+            .sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })),
+        [teams]
+    );
+
+    const fieldOfficerFilterOptions = useMemo(() => {
+        const officersById = new Map<number, FieldOfficer>();
+        teams.forEach((team) => {
+            team.fieldOfficers.forEach((officer) => officersById.set(officer.id, officer));
+        });
+        return Array.from(officersById.values())
+            .map((officer) => ({
+                value: String(officer.id),
+                label: `${officer.firstName} ${officer.lastName}`.trim() || `Field Officer ${officer.id}`,
+            }))
+            .sort((left, right) => left.label.localeCompare(right.label));
+    }, [teams]);
+
+    const filteredTeams = useMemo(() => {
+        const normalizedCityFilter = normalizeCityKey(cityFilter);
+        const normalizedSearchQuery = teamSearchQuery.trim().toLowerCase();
+        return teams.filter((team) => {
+            const matchesManager = !managerFilterId || getTeamManagers(team).some(
+                (manager) => String(manager.id) === managerFilterId
+            );
+            const matchesCity = !normalizedCityFilter || getTeamAssignedCities(team).some(
+                (city) => normalizeCityKey(city) === normalizedCityFilter
+            );
+            const matchesFieldOfficer = !fieldOfficerFilterId || team.fieldOfficers.some(
+                (officer) => String(officer.id) === fieldOfficerFilterId
+            );
+            const searchableTeamText = [
+                String(team.id),
+                ...getTeamManagers(team).map((manager) => getManagerName(manager)),
+                ...getTeamAssignedCities(team),
+                ...team.fieldOfficers.map((officer) => `${officer.firstName} ${officer.lastName}`),
+            ].join(" ").toLowerCase();
+            const matchesSearch = !normalizedSearchQuery || searchableTeamText.includes(normalizedSearchQuery);
+            return matchesManager && matchesCity && matchesFieldOfficer && matchesSearch;
+        });
+    }, [cityFilter, fieldOfficerFilterId, managerFilterId, teamSearchQuery, teams]);
+
+    const activeTeamFilterCount = [managerFilterId, cityFilter, fieldOfficerFilterId].filter(Boolean).length;
+
+    const clearTeamFilters = () => {
+        setManagerFilterId("");
+        setCityFilter("");
+        setFieldOfficerFilterId("");
     };
 
     const getInitials = (firstName: string | null, lastName: string | null) => {
@@ -638,26 +684,108 @@ const Teams: React.FC = () => {
     };
 
     return (
-        <div className="space-y-6">
-            <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-4">
-                    <CardTitle className="text-3xl md:text-xl font-semibold text-foreground">Team Management</CardTitle>
-                    <p className="text-lg md:text-sm text-muted-foreground">Manage teams, assign cities, and add field officers to teams</p>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {isLoading && (
-                        <div className="flex justify-center items-center py-12">
-                            <div className="flex flex-col items-center gap-3">
-                                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                                <p className="text-sm text-muted-foreground">Loading teams...</p>
+        <div>
+            <Card className="gap-0 border-border/70 py-0 shadow-sm">
+                <CardContent className="space-y-4 p-4">
+                    <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(190px,1.25fr)_repeat(3,minmax(150px,1fr))_auto] lg:items-end">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="team-search" className="text-xs">Search</Label>
+                                <div className="relative min-w-0">
+                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        id="team-search"
+                                        type="text"
+                                        value={teamSearchQuery}
+                                        onChange={(event) => setTeamSearchQuery(event.target.value)}
+                                        placeholder="Search teams..."
+                                        className="h-9 pl-9 pr-9 text-sm shadow-none"
+                                        disabled={isLoading || !isDataAvailable}
+                                    />
+                                    {teamSearchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setTeamSearchQuery("")}
+                                            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                                            aria-label="Clear team search"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="team-manager-filter" className="text-xs">Regional manager</Label>
+                                <SearchableSelect
+                                    options={managerFilterOptions}
+                                    value={managerFilterId || undefined}
+                                    onSelect={(option) => setManagerFilterId(option?.value || "")}
+                                    placeholder="All regional managers"
+                                    searchPlaceholder="Search regional managers..."
+                                    emptyMessage="No regional managers available"
+                                    allowClear
+                                    triggerClassName="w-full"
+                                    contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="team-city-filter" className="text-xs">City</Label>
+                                <SearchableSelect
+                                    options={cityFilterOptions}
+                                    value={cityFilter || undefined}
+                                    onSelect={(option) => setCityFilter(option?.value || "")}
+                                    placeholder="All cities"
+                                    searchPlaceholder="Search cities..."
+                                    emptyMessage="No cities available"
+                                    allowClear
+                                    triggerClassName="w-full"
+                                    contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="team-field-officer-filter" className="text-xs">Field officer</Label>
+                                <SearchableSelect
+                                    options={fieldOfficerFilterOptions}
+                                    value={fieldOfficerFilterId || undefined}
+                                    onSelect={(option) => setFieldOfficerFilterId(option?.value || "")}
+                                    placeholder="All field officers"
+                                    searchPlaceholder="Search field officers..."
+                                    emptyMessage="No field officers available"
+                                    allowClear
+                                    triggerClassName="w-full"
+                                    contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                />
+                            </div>
+                            {!isLoading && (
+                                <div className="flex h-9 items-center justify-between gap-2 sm:col-span-2 lg:col-span-1 lg:justify-end">
+                                    <AddTeam onCreated={fetchTeams} />
+                                    {isDataAvailable && activeTeamFilterCount > 0 && (
+                                        <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={clearTeamFilters}>
+                                            Clear ({activeTeamFilterCount})
+                                        </Button>
+                                    )}
+                                    {isDataAvailable && (
+                                        <span className="whitespace-nowrap text-xs text-muted-foreground">
+                                            {filteredTeams.length} of {teams.length}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {isLoading && (
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {Array.from({ length: 6 }, (_, index) => (
+                                <Skeleton key={index} className="h-60 rounded-xl" />
+                            ))}
                         </div>
                     )}
 
                     {error && (
-                        <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                            <div className="flex items-center justify-between">
-                                <p><strong>Error:</strong> {error}</p>
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <p>{error}</p>
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -675,155 +803,140 @@ const Teams: React.FC = () => {
                     {!isLoading && !error && (
                         <>
                             {isDataAvailable ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {teams.map((team) => {
-                                        const visibleOfficers = team.fieldOfficers.slice(0, 3);
+                                <>
+                                    {filteredTeams.length > 0 ? (
+                                    <div className="space-y-3">
+                                    {filteredTeams.map((team) => {
                                         const managers = getTeamManagers(team).sort(sortByNameAsc);
-                                        const primaryManager = managers[0] ?? null;
                                         const assignedTeamCities = getTeamAssignedCities(team);
+                                        const visibleCities = assignedTeamCities.slice(0, 2);
+                                        const remainingCityCount = assignedTeamCities.length - visibleCities.length;
+                                        const visibleOfficerRoster = team.fieldOfficers.slice(0, 6);
+                                        const remainingOfficerCount = team.fieldOfficers.length - visibleOfficerRoster.length;
 
                                         return (
-                                            <Card key={team.id} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
-                                                <CardContent className="p-5 md:p-4">
-                                                    <div className="flex justify-between items-start mb-4">
-                                                        <div className="flex min-w-0 items-center">
-                                                            <div
-                                                                className="mr-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
-                                                                title={primaryManager ? getManagerName(primaryManager) : 'No manager assigned'}
-                                                            >
-                                                                {primaryManager
-                                                                    ? getInitials(primaryManager.firstName ?? null, primaryManager.lastName ?? null) || '?'
-                                                                    : '?'}
+                                            <Card key={team.id} className="gap-0 overflow-hidden border-border/70 py-0 shadow-sm transition-all hover:border-border hover:shadow-md">
+                                                <CardContent className="p-3">
+                                                    <div className="grid min-h-[132px] gap-3 lg:grid-cols-[minmax(260px,1.1fr)_minmax(145px,0.7fr)_minmax(330px,1.5fr)_140px]">
+                                                        <div className="min-w-0 px-2 py-2">
+                                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Team #{team.id}</p>
+                                                                <span className="text-[10px] text-muted-foreground">
+                                                                    {managers.length} regional manager{managers.length === 1 ? '' : 's'}
+                                                                </span>
                                                             </div>
-                                                            <div className="min-w-0">
-                                                                <div className="flex min-w-0 items-center gap-1.5">
-                                                                    <h3 className="truncate text-base font-semibold text-foreground">
-                                                                        {primaryManager ? getManagerName(primaryManager) : 'No manager assigned'}
-                                                                    </h3>
-                                                                    {managers.length > 1 && (
-                                                                        <DropdownMenu>
-                                                                            <DropdownMenuTrigger asChild>
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="h-6 shrink-0 gap-1 rounded-full px-2 text-xs"
-                                                                                >
-                                                                                    +{managers.length - 1}
-                                                                                    <ChevronDown className="h-3 w-3" />
-                                                                                    <span className="sr-only">Show managers</span>
-                                                                                </Button>
-                                                                            </DropdownMenuTrigger>
-                                                                            <DropdownMenuContent align="start" className="w-56">
-                                                                                {managers.map((manager) => (
-                                                                                    <DropdownMenuItem key={manager.id} className="cursor-default">
-                                                                                        {getManagerName(manager)}
-                                                                                    </DropdownMenuItem>
-                                                                                ))}
-                                                                            </DropdownMenuContent>
-                                                                        </DropdownMenu>
+                                                            {managers.length > 0 ? (
+                                                                <div className="space-y-1.5">
+                                                                    {managers.slice(0, 2).map((manager) => (
+                                                                        <button
+                                                                            key={manager.id}
+                                                                            type="button"
+                                                                            className="flex w-full min-w-0 items-center rounded-lg border border-transparent px-1.5 py-1 text-left transition-colors hover:border-border/70 hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                                            onClick={() => void openTeamPanel(team, 'managers')}
+                                                                            title={`${getManagerName(manager)} · Regional Manager`}
+                                                                        >
+                                                                            <span className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                                                                                {getInitials(manager.firstName ?? null, manager.lastName ?? null) || '?'}
+                                                                            </span>
+                                                                            <span className="min-w-0">
+                                                                                <span className="block truncate text-xs font-semibold text-foreground">{getManagerName(manager)}</span>
+                                                                                <span className="block text-[10px] text-muted-foreground">Regional Manager</span>
+                                                                            </span>
+                                                                        </button>
+                                                                    ))}
+                                                                    {managers.length > 2 && (
+                                                                        <button type="button" className="pl-1.5 text-[10px] font-medium text-primary hover:underline" onClick={() => void openTeamPanel(team, 'managers')}>
+                                                                            +{managers.length - 2} more regional managers
+                                                                        </button>
                                                                     )}
                                                                 </div>
-                                                                <p className="text-sm text-muted-foreground">
-                                                                    {managers.length <= 1 ? 'Manager' : `${managers.length} Managers`}
-                                                                </p>
+                                                            ) : (
+                                                                <button type="button" className="flex w-full items-center rounded-lg border border-dashed px-3 py-3 text-xs text-muted-foreground hover:bg-muted/35" onClick={() => void openTeamPanel(team, 'managers')}>
+                                                                    No regional manager assigned
+                                                                </button>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="rounded-lg bg-muted/25 p-3">
+                                                            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Coverage</p>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {visibleCities.map((city) => (
+                                                                    <Badge key={city} variant="secondary" className="flex items-center text-[11px] font-normal">
+                                                                        <Building2 size={12} className="mr-1 text-foreground" />
+                                                                        {toSentenceCase(city)}
+                                                                    </Badge>
+                                                                ))}
+                                                                {remainingCityCount > 0 && (
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-6 rounded-full px-2 text-[11px] font-normal"
+                                                                        onClick={() => void openTeamPanel(team, 'cities')}
+                                                                        aria-label={`View all ${assignedTeamCities.length} cities for Team ${team.id}`}
+                                                                    >
+                                                                        +{remainingCityCount} more
+                                                                    </Button>
+                                                                )}
+                                                                {assignedTeamCities.length === 0 && (
+                                                                    <span className="text-xs text-muted-foreground">No cities assigned</span>
+                                                                )}
                                                             </div>
                                                         </div>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            onClick={() => showDeleteModal(team.id)}
-                                                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                        >
-                                                            <Trash2 size={20} />
-                                                        </Button>
-                                                    </div>
-                                                    
-                                                    <div className="flex flex-wrap gap-2 mb-4">
-                                                        {assignedTeamCities.map((city, index) => (
-                                                            <Badge key={index} variant="secondary" className="flex items-center text-xs md:text-[11px]">
-                                                                <Building2 size={12} className="mr-1 text-foreground" />
-                                                                {city}
-                                                            </Badge>
-                                                        ))}
-                                                        {assignedTeamCities.length === 0 && (
-                                                            <Badge variant="outline" className="text-xs">No cities assigned</Badge>
-                                                        )}
-                                                    </div>
-                                                    
-                                                    <div className="space-y-3">
-                                                        {visibleOfficers.map((officer) => (
-                                                            <div key={officer.id} className="bg-muted/30 p-3 rounded-lg flex items-center justify-between group hover:bg-muted/50 transition-all duration-300">
-                                                                <div className="flex items-center min-w-0">
-                                                                    <User size={20} className="text-foreground mr-2 flex-shrink-0" />
-                                                                    <div className="min-w-0 flex-grow">
-                                                                        <p className="font-medium text-sm text-foreground truncate">
-                                                                            {`${officer.firstName} ${officer.lastName}`}
-                                                                        </p>
-                                                                        <p className="text-xs text-muted-foreground truncate">
-                                                                            {officer.role}
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center">
-                                                                    {officer.status === 'inactive' && (
-                                                                        <Badge variant="destructive" className="mr-2 text-xs">
-                                                                            Inactive
-                                                                        </Badge>
-                                                                    )}
+
+                                                        <div className="rounded-lg bg-muted/25 p-3">
+                                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Roster</p>
+                                                                <span className="text-[10px] text-muted-foreground">
+                                                                    {team.fieldOfficers.length} officer{team.fieldOfficers.length === 1 ? '' : 's'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {visibleOfficerRoster.map((officer) => (
+                                                                    <Badge key={officer.id} variant="outline" className="text-[11px] font-normal bg-background">
+                                                                        {officer.firstName} {officer.lastName}
+                                                                    </Badge>
+                                                                ))}
+                                                                {remainingOfficerCount > 0 && (
                                                                     <Button
-                                                                        variant="ghost"
+                                                                        type="button"
+                                                                        variant="outline"
                                                                         size="sm"
-                                                                        onClick={() => showRemoveOfficerModal(team.id, officer)}
-                                                                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                                        disabled={isSaving}
+                                                                        className="h-6 rounded-full px-2 text-[11px] font-normal"
+                                                                        onClick={() => void openTeamPanel(team, 'officers')}
+                                                                        aria-label={`View all ${team.fieldOfficers.length} field officers for Team ${team.id}`}
                                                                     >
-                                                                        <X size={16} />
+                                                                        +{remainingOfficerCount} more
                                                                     </Button>
-                                                                </div>
+                                                                )}
+                                                                {team.fieldOfficers.length === 0 && (
+                                                                    <span className="text-xs text-muted-foreground">No field officers</span>
+                                                                )}
                                                             </div>
-                                                        ))}
-                                                        {team.fieldOfficers.length === 0 && (
-                                                            <div className="text-xs text-muted-foreground bg-muted/20 border border-border/50 rounded-md p-3 text-center">
-                                                                No field officers yet
-                                                            </div>
-                                                        )}
-                                                        {team.fieldOfficers.length > 3 && (
+                                                        </div>
+
+                                                        <div className="flex flex-row items-center justify-end gap-2 border-t pt-2 lg:flex-col lg:items-end lg:justify-between lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
                                                             <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="h-8 text-xs font-normal"
+                                                                onClick={() => void openTeamPanel(team, 'overview')}
+                                                            >
+                                                                Manage Team
+                                                            </Button>
+                                                            <Button
+                                                                type="button"
                                                                 variant="ghost"
                                                                 size="sm"
-                                                                className="w-full justify-center text-xs"
-                                                                onClick={() => { setViewAllTeamId(team.id); setIsViewAllModalVisible(true); setOfficersSearch(''); }}
+                                                                className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                                                onClick={() => {
+                                                                    setDeleteTeamId(team.id);
+                                                                    setIsDeleteModalVisible(true);
+                                                                }}
                                                             >
-                                                                View all ({team.fieldOfficers.length})
-                                                            </Button>
-                                                        )}
-                                                    </div>
-
-                                                    <div className={`${team.fieldOfficers.length > 0 ? 'mt-4 pt-4 border-t' : 'mt-2'}`}> 
-                                                        <div className="grid grid-cols-3 gap-2">
-                                                            <Button
-                                                                variant="outline"
-                                                                className="h-10 text-sm font-medium"
-                                                                onClick={() => showManagersModal(team)}
-                                                            >
-                                                                <Users size={16} className="mr-2" />
-                                                                Managers
-                                                            </Button>
-                                                            <Button
-                                                                variant="outline"
-                                                                className="h-10 text-sm font-medium"
-                                                                onClick={() => showManageCitiesModal(team)}
-                                                            >
-                                                                <MapPin size={16} className="mr-2" />
-                                                                Cities
-                                                            </Button>
-                                                            <Button
-                                                                className="h-10 text-sm font-medium"
-                                                                onClick={() => showEditModal(team)}
-                                                            >
-                                                                <UserPlus size={18} className="mr-2" />
-                                                                Officers
+                                                                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                                                Delete
                                                             </Button>
                                                         </div>
                                                     </div>
@@ -831,12 +944,16 @@ const Teams: React.FC = () => {
                                             </Card>
                                         );
                                     })}
-                                </div>
+                                    </div>
+                                    ) : (
+                                        <div className="rounded-xl border border-dashed py-12 text-center text-sm text-muted-foreground">
+                                            No teams match your selected filters.
+                                        </div>
+                                    )}
+                                </>
                             ) : (
-                                <div className="text-center py-10">
-                                    <Users size={48} className="mx-auto text-foreground mb-4" />
-                                    <p className="text-lg font-semibold text-foreground">No teams available</p>
-                                    <p className="text-sm text-muted-foreground mt-2">Try refreshing the page or check back later.</p>
+                                <div className="py-12 text-center text-sm text-muted-foreground">
+                                    No teams found in system.
                                 </div>
                             )}
                         </>
@@ -844,588 +961,273 @@ const Teams: React.FC = () => {
                 </CardContent>
             </Card>
 
-            {/* Delete Team Modal */}
-            <Dialog open={isDeleteModalVisible} onOpenChange={(open) => {
-                setIsDeleteModalVisible(open);
-                if (!open) {
-                    setError(null); // Clear errors when modal closes
-                }
-            }}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Delete Team</DialogTitle>
-                    </DialogHeader>
-                    <p className="text-muted-foreground">Are you sure you want to delete this team? This action cannot be undone.</p>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsDeleteModalVisible(false)}>
-                            Cancel
-                        </Button>
-                        <Button 
-                            variant="destructive" 
-                            onClick={handleDeleteTeam}
-                            disabled={isSaving}
-                        >
-                            {isSaving ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Deleting...
-                                </>
-                            ) : (
-                                'Delete'
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            {/* Slide-over Team Management Sheet */}
+            <Sheet open={isTeamPanelOpen} onOpenChange={setIsTeamPanelOpen}>
+                <SheetContent className="w-full sm:max-w-md">
+                    {panelTeam && (
+                        <div className="flex h-full flex-col">
+                            <SheetHeader>
+                                <SheetTitle className="text-lg">Team #{panelTeam.id}</SheetTitle>
+                                <SheetDescription className="text-xs">
+                                    Manage regional managers, assigned cities, and field officer roster
+                                </SheetDescription>
+                            </SheetHeader>
 
-            {/* Edit Managers Modal */}
-            <Dialog open={isManagersModalVisible} onOpenChange={(open) => {
-                setIsManagersModalVisible(open);
-                if (!open) {
-                    setModalError(null);
-                    setSelectedManagerIds([]);
-                    setManagerSearchTerm('');
-                    setCurrentTeamId(null);
-                }
-            }}>
-                <DialogContent className="sm:max-w-[560px]">
-                    <DialogHeader>
-                        <DialogTitle>Manage Managers</DialogTitle>
-                        <p className="text-sm text-muted-foreground mt-1">Select the full manager list for this team</p>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                placeholder="Search managers..."
-                                value={managerSearchTerm}
-                                onChange={(event) => setManagerSearchTerm(event.target.value)}
-                                className="pl-9"
-                            />
-                        </div>
+                            <div className="mt-4 flex gap-1 border-b pb-2">
+                                <Button
+                                    variant={teamPanelSection === 'overview' ? 'default' : 'ghost'}
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() => setTeamPanelSection('overview')}
+                                >
+                                    Overview
+                                </Button>
+                                <Button
+                                    variant={teamPanelSection === 'managers' ? 'default' : 'ghost'}
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() => setTeamPanelSection('managers')}
+                                >
+                                    Managers ({getTeamManagers(panelTeam).length})
+                                </Button>
+                                <Button
+                                    variant={teamPanelSection === 'cities' ? 'default' : 'ghost'}
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() => setTeamPanelSection('cities')}
+                                >
+                                    Cities ({assignedCities.length})
+                                </Button>
+                                <Button
+                                    variant={teamPanelSection === 'officers' ? 'default' : 'ghost'}
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() => setTeamPanelSection('officers')}
+                                >
+                                    Officers ({panelTeam.fieldOfficers.length})
+                                </Button>
+                            </div>
 
-                        <div className="rounded-md border">
-                            <ScrollArea className="h-72">
-                                {isLoadingManagers ? (
-                                    <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        Loading managers...
+                            <ScrollArea className="flex-1 py-4">
+                                {modalError && (
+                                    <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
+                                        {modalError}
                                     </div>
-                                ) : filteredOfficeManagers.length === 0 ? (
-                                    <div className="p-6 text-center text-sm text-muted-foreground">
-                                        No available managers found
-                                    </div>
-                                ) : (
-                                    <div className="space-y-1 p-2">
-                                        {filteredOfficeManagers.map((manager) => {
-                                            const checked = selectedManagerIds.includes(manager.id);
-                                            return (
-                                                <label
-                                                    key={manager.id}
-                                                    htmlFor={`team-manager-${manager.id}`}
-                                                    className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-muted/50"
-                                                >
-                                                    <div className="flex min-w-0 items-center gap-2">
-                                                        <Checkbox
-                                                            id={`team-manager-${manager.id}`}
-                                                            checked={checked}
-                                                            onCheckedChange={(isChecked) => {
-                                                                setSelectedManagerIds((prev) =>
-                                                                    isChecked
-                                                                        ? Array.from(new Set([...prev, manager.id]))
-                                                                        : prev.filter((id) => id !== manager.id)
-                                                                );
-                                                            }}
-                                                        />
-                                                        <div className="min-w-0">
-                                                            <p className="truncate text-sm font-medium">{getManagerName(manager)}</p>
-                                                            <p className="truncate text-xs text-muted-foreground">{manager.role ?? 'Manager'}</p>
-                                                        </div>
+                                )}
+
+                                {teamPanelSection === 'overview' && (
+                                    <div className="space-y-4">
+                                        <div className="rounded-lg border p-3">
+                                            <p className="text-xs font-semibold text-foreground mb-2">Regional Managers</p>
+                                            <div className="space-y-2">
+                                                {getTeamManagers(panelTeam).map((manager) => (
+                                                    <div key={manager.id} className="flex items-center gap-2 text-xs">
+                                                        <User className="h-3.5 w-3.5 text-muted-foreground" />
+                                                        <span className="font-medium">{getManagerName(manager)}</span>
                                                     </div>
-                                                    {(manager.assignedCity ?? []).length > 0 && (
-                                                        <Badge variant="outline" className="shrink-0 text-xs">
-                                                            {(manager.assignedCity ?? []).length} cities
-                                                        </Badge>
-                                                    )}
-                                                </label>
-                                            );
-                                        })}
+                                                ))}
+                                                {getTeamManagers(panelTeam).length === 0 && (
+                                                    <p className="text-xs text-muted-foreground">No manager assigned</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-lg border p-3">
+                                            <p className="text-xs font-semibold text-foreground mb-2">Assigned Cities ({assignedCities.length})</p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {assignedCities.map((city) => (
+                                                    <Badge key={city} variant="secondary" className="text-xs">
+                                                        <Building2 className="mr-1 h-3 w-3" />
+                                                        {toSentenceCase(city)}
+                                                    </Badge>
+                                                ))}
+                                                {assignedCities.length === 0 && (
+                                                    <p className="text-xs text-muted-foreground">No cities assigned</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-lg border p-3">
+                                            <p className="text-xs font-semibold text-foreground mb-2">Field Officers ({panelTeam.fieldOfficers.length})</p>
+                                            <div className="space-y-1.5">
+                                                {panelTeam.fieldOfficers.map((officer) => (
+                                                    <div key={officer.id} className="flex items-center justify-between text-xs py-1 border-b last:border-0">
+                                                        <span>{officer.firstName} {officer.lastName}</span>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 w-6 p-0 text-destructive"
+                                                            onClick={() => showRemoveOfficerModal(panelTeam.id, officer)}
+                                                        >
+                                                            <X className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                ))}
+                                                {panelTeam.fieldOfficers.length === 0 && (
+                                                    <p className="text-xs text-muted-foreground">No field officers</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {teamPanelSection === 'managers' && (
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-medium">Select Regional Managers</Label>
+                                            <div className="max-h-60 overflow-y-auto rounded-lg border p-2 space-y-1">
+                                                {filteredOfficeManagers.map((manager) => {
+                                                    const isChecked = selectedManagerIds.includes(manager.id);
+                                                    return (
+                                                        <label key={manager.id} className="flex items-center gap-2 rounded p-2 text-xs hover:bg-muted/50 cursor-pointer">
+                                                            <Checkbox
+                                                                checked={isChecked}
+                                                                onCheckedChange={(checked) => {
+                                                                    setSelectedManagerIds((prev) =>
+                                                                        checked
+                                                                            ? [...prev, manager.id]
+                                                                            : prev.filter((id) => id !== manager.id)
+                                                                    );
+                                                                }}
+                                                            />
+                                                            <span>{getManagerName(manager)}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            className="w-full h-9"
+                                            onClick={handleSaveManagers}
+                                            disabled={isSaving}
+                                        >
+                                            {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                            Save Regional Managers
+                                        </Button>
+                                    </div>
+                                )}
+
+                                {teamPanelSection === 'cities' && (
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-medium">Existing Cities</Label>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {assignedCities.map((city) => (
+                                                    <Badge key={city} variant="secondary" className="text-xs gap-1">
+                                                        {toSentenceCase(city)}
+                                                        <X
+                                                            className="h-3 w-3 cursor-pointer hover:text-destructive"
+                                                            onClick={() => confirmRemoveCity(city)}
+                                                        />
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-medium">Assign New City</Label>
+                                            <Input
+                                                placeholder="Enter city name..."
+                                                value={selectedCities[0] || ''}
+                                                onChange={(e) => setSelectedCities(e.target.value ? [e.target.value] : [])}
+                                                className="h-9 text-xs"
+                                            />
+                                            <Button
+                                                size="sm"
+                                                className="w-full h-9"
+                                                onClick={handleAssignCity}
+                                                disabled={isSaving || selectedCities.length === 0}
+                                            >
+                                                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                                Assign City
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {teamPanelSection === 'officers' && (
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-medium">Available Field Officers</Label>
+                                            <div className="max-h-60 overflow-y-auto rounded-lg border p-2 space-y-1">
+                                                {fieldOfficers.map((officer) => {
+                                                    const isChecked = selectedFieldOfficers.includes(officer.id);
+                                                    return (
+                                                        <label key={officer.id} className="flex items-center gap-2 rounded p-2 text-xs hover:bg-muted/50 cursor-pointer">
+                                                            <Checkbox
+                                                                checked={isChecked}
+                                                                onCheckedChange={(checked) => {
+                                                                    setSelectedFieldOfficers((prev) =>
+                                                                        checked
+                                                                            ? [...prev, officer.id]
+                                                                            : prev.filter((id) => id !== officer.id)
+                                                                    );
+                                                                }}
+                                                            />
+                                                            <span>{officer.firstName} {officer.lastName}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                                {fieldOfficers.length === 0 && (
+                                                    <p className="p-3 text-xs text-muted-foreground text-center">No available officers</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            className="w-full h-9"
+                                            onClick={handleAddFieldOfficer}
+                                            disabled={isSaving || selectedFieldOfficers.length === 0}
+                                        >
+                                            {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                            Add Selected Officers
+                                        </Button>
                                     </div>
                                 )}
                             </ScrollArea>
                         </div>
+                    )}
+                </SheetContent>
+            </Sheet>
 
-                        {selectedManagerIds.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                                {selectedManagerIds.map((managerId) => {
-                                    const manager = allOfficeManagers.find((item) => item.id === managerId);
-                                    return (
-                                        <Badge key={managerId} variant="secondary" className="text-xs">
-                                            {manager ? getManagerName(manager) : `Manager ${managerId}`}
-                                        </Badge>
-                                    );
-                                })}
-                            </div>
-                        )}
-
-                        {modalError && (
-                            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                                <p><strong>Error:</strong> {modalError}</p>
-                            </div>
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsManagersModalVisible(false)} disabled={isSaving}>
+            {/* Delete Team Dialog */}
+            <Dialog open={isDeleteModalVisible} onOpenChange={setIsDeleteModalVisible}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Team</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete Team #{deleteTeamId}? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setIsDeleteModalVisible(false)} disabled={isSaving}>
                             Cancel
                         </Button>
-                        <Button onClick={handleSaveManagers} disabled={selectedManagerIds.length === 0 || isSaving || isLoadingManagers}>
-                            {isSaving ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Saving...
-                                </>
-                            ) : (
-                                'Save Managers'
-                            )}
+                        <Button variant="destructive" onClick={handleDeleteTeam} disabled={isSaving}>
+                            {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Delete Team
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* Manage Cities Modal */}
-            <Dialog open={isManageCitiesModalVisible} onOpenChange={(open) => {
-                setIsManageCitiesModalVisible(open);
-                if (!open) {
-                    setError(null); // Clear errors when modal closes
-                    setModalError(null);
-                    setSelectedCities([]);
-                    setCitySearchTerm('');
-                    setIsCityPopoverOpen(false);
-                    setCurrentTeamId(null);
-                }
-            }}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle>Manage Cities</DialogTitle>
-                        <p className="text-sm text-muted-foreground mt-1">Add or remove cities assigned to this team</p>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        {currentTeamManagers.length > 1 && (
-                            <div>
-                                <Label className="text-sm font-medium text-foreground mb-2 block">Manager</Label>
-                                <div className="flex flex-wrap gap-2">
-                                    {currentTeamManagers.map((manager) => (
-                                        <Button
-                                            key={manager.id}
-                                            type="button"
-                                            variant={selectedOfficeManagerId === manager.id ? "default" : "outline"}
-                                            size="sm"
-                                            onClick={() => {
-                                                setSelectedOfficeManagerId(manager.id);
-                                                setAssignedCities(manager.assignedCity ?? []);
-                                                setSelectedCities([]);
-                                            }}
-                                        >
-                                            {getManagerName(manager)}
-                                        </Button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        <div>
-                            <Label className="text-sm font-medium text-foreground mb-2 block">Assigned Cities</Label>
-                            {assignedCities.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                    {assignedCities.map((city, index) => (
-                                        <Badge key={index} variant="secondary" className="flex items-center gap-1.5 pr-1 pl-2 py-1.5">
-                                            <Building2 size={14} className="text-primary" />
-                                            <span className="text-sm font-medium">{city}</span>
-                                            <Button 
-                                                size="sm" 
-                                                variant="ghost" 
-                                                onClick={() => handleRemoveCity(city)} 
-                                                className="h-5 w-5 p-0 ml-0.5 hover:bg-destructive/20 hover:text-destructive rounded-full transition-colors"
-                                                disabled={isSaving}
-                                            >
-                                                <X size={12} />
-                                            </Button>
-                                        </Badge>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-6 text-sm text-muted-foreground border border-dashed rounded-md">
-                                    <MapPin className="h-5 w-5 mx-auto mb-2 opacity-50" />
-                                    <p>No cities assigned yet</p>
-                                </div>
-                            )}
-                        </div>
-                        
-                        <div className="space-y-2 pt-2 border-t">
-                            <Label htmlFor="newCityModal">Add New City</Label>
-                            {selectedCities.length > 0 && (
-                                <div className="flex flex-wrap gap-2">
-                                    {selectedCities.map((city) => (
-                                        <Badge key={city} variant="secondary" className="text-xs">
-                                            {toSentenceCase(city)}
-                                        </Badge>
-                                    ))}
-                                </div>
-                            )}
-                            <Popover open={isCityPopoverOpen} onOpenChange={setIsCityPopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className="w-full justify-between text-left font-normal"
-                                    >
-                                        <span className={selectedCities.length === 0 ? "text-muted-foreground" : ""}>
-                                            {cityTriggerLabel}
-                                        </span>
-                                        <Search className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[320px] p-0" align="start">
-                                    <div className="border-b p-3 space-y-2">
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                            <Input
-                                                placeholder="Search city..."
-                                                value={citySearchTerm}
-                                                onChange={(event) => setCitySearchTerm(event.target.value)}
-                                                className="pl-9"
-                                            />
-                                        </div>
-                                        {selectedCities.length > 0 && (
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                className="w-full justify-start text-primary"
-                                                onClick={() => setSelectedCities([])}
-                                            >
-                                                <X className="h-4 w-4 mr-2" />
-                                                Clear selection
-                                            </Button>
-                                        )}
-                                    </div>
-                                    <ScrollArea className="max-h-64">
-                                        {availableCities.length === 0 ? (
-                                            <div className="p-4 text-sm text-muted-foreground">
-                                                No cities available
-                                            </div>
-                                        ) : filteredCities.length === 0 ? (
-                                            <div className="p-4 text-sm text-muted-foreground">
-                                                No matches found
-                                            </div>
-                                        ) : (
-                                            <div className="p-1 space-y-1">
-                                                {filteredCities.map((city) => (
-                                                        <div
-                                                            key={city.value}
-                                                            className="flex items-center space-x-2 rounded-md px-3 py-2 hover:bg-muted/40"
-                                                        >
-                                                            <Checkbox
-                                                                id={`city-${city.value}`}
-                                                                checked={selectedCities.includes(city.value)}
-                                                                onCheckedChange={() => handleToggleCity(city.value)}
-                                                            />
-                                                            <label
-                                                                htmlFor={`city-${city.value}`}
-                                                                className="text-sm flex-1 truncate cursor-pointer"
-                                                            >
-                                                                {toSentenceCase(city.label)}
-                                                            </label>
-                                                            {(cityAssignments.get(normalizeCityKey(city.value)) ?? []).length > 0 && (
-                                                                <Badge variant="outline" className="max-w-[130px] truncate text-[10px] font-normal">
-                                                                    Assigned to {(cityAssignments.get(normalizeCityKey(city.value)) ?? []).join(', ')}
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    ))}
-                                            </div>
-                                        )}
-                                    </ScrollArea>
-                                </PopoverContent>
-                            </Popover>
-                            <Button 
-                                className="mt-2 w-full" 
-                                onClick={handleAssignCity} 
-                                disabled={selectedCities.length === 0 || isSaving}
-                            >
-                                {isSaving ? (
-                                    <span className="inline-flex items-center">
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Assigning...
-                                    </span>
-                                ) : (
-                                    'Assign Cities'
-                                )}
-                            </Button>
-                        </div>
-                        
-                        {modalError && (
-                            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                                <p><strong>Error:</strong> {modalError}</p>
-                            </div>
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <Button 
-                            variant="outline" 
-                            onClick={() => {
-                                setIsManageCitiesModalVisible(false);
-                                setModalError(null);
-                                setSelectedCities([]);
-                                setCitySearchTerm('');
-                                setIsCityPopoverOpen(false);
-                            }}
-                            disabled={isSaving}
-                        >
-                            Close
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Edit Team Modal - Add Field Officer */}
-            <Dialog open={isEditModalVisible} onOpenChange={(open) => {
-                setIsEditModalVisible(open);
-                if (!open) {
-                    setError(null); // Clear errors when modal closes
-                    setModalError(null);
-                }
-            }}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle>Add Field Officer</DialogTitle>
-                        <p className="text-sm text-muted-foreground mt-1">Select field officers to add to this team</p>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <div>
-                            <Label className="text-sm font-medium text-foreground">Available Field Officers</Label>
-                            <div className="space-y-2 max-h-60 overflow-y-auto mt-2">
-                                {fieldOfficers.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground py-4 text-center">
-                                        No available field officers found
-                                    </div>
-                                ) : (() => {
-                                    const unassignedOfficers = fieldOfficers.filter((officer) => officer.teamId == null);
-                                    const assignedOfficers = fieldOfficers.filter((officer) => officer.teamId != null);
-
-                                    return (
-                                        <div className="space-y-4">
-                                            <div className="space-y-2">
-                                                <div className="text-xs font-medium text-muted-foreground">Unassigned</div>
-                                                {unassignedOfficers.length === 0 ? (
-                                                    <div className="text-xs text-muted-foreground">No unassigned officers found</div>
-                                                ) : unassignedOfficers.map((officer) => (
-                                                    <div key={officer.id} className="flex items-center space-x-2">
-                                                        <div className="flex items-center w-full">
-                                                            <Checkbox
-                                                                id={`officer-${officer.id}`}
-                                                                checked={selectedFieldOfficers.includes(officer.id)}
-                                                                onCheckedChange={(checked) => {
-                                                                    setSelectedFieldOfficers(prev =>
-                                                                        checked
-                                                                            ? [...prev, officer.id]
-                                                                            : prev.filter(id => id !== officer.id)
-                                                                    );
-                                                                }}
-                                                            />
-                                                            <Label htmlFor={`officer-${officer.id}`} className="ml-2 text-sm text-foreground">
-                                                                {`${officer.firstName} ${officer.lastName} (${officer.role})`}
-                                                            </Label>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div className="space-y-2 border-t pt-3">
-                                                <div className="text-xs font-medium text-muted-foreground">Already Assigned</div>
-                                                {assignedOfficers.length === 0 ? (
-                                                    <div className="text-xs text-muted-foreground">No assigned officers found</div>
-                                                ) : assignedOfficers.map((officer) => (
-                                                    <div key={officer.id} className="flex items-center justify-between gap-2 opacity-80">
-                                                        <div className="flex min-w-0 items-center">
-                                                            <Checkbox id={`officer-assigned-${officer.id}`} checked={false} disabled />
-                                                            <Label htmlFor={`officer-assigned-${officer.id}`} className="ml-2 truncate text-sm text-muted-foreground">
-                                                                {`${officer.firstName} ${officer.lastName} (${officer.role})`}
-                                                            </Label>
-                                                        </div>
-                                                        <Badge variant="outline" className="shrink-0 text-xs">
-                                                            Team {officer.teamId}
-                                                        </Badge>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    );
-                                })()}
-                            </div>
-                        </div>
-                        {modalError && (
-                            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                                <p><strong>Error:</strong> {modalError}</p>
-                            </div>
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsEditModalVisible(false)}>
-                            Cancel
-                        </Button>
-                        <Button 
-                            onClick={handleAddFieldOfficer} 
-                            disabled={
-                                selectedFieldOfficers.filter((id) =>
-                                    fieldOfficers.some((officer) => officer.id === id && officer.teamId == null)
-                                ).length === 0 || isSaving
-                            }
-                        >
-                            {isSaving ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Adding...
-                                </>
-                            ) : (
-                                'Add Selected Officers'
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* View All Officers Modal */}
-            <Dialog open={isViewAllModalVisible} onOpenChange={setIsViewAllModalVisible}>
-                <DialogContent className="sm:max-w-[560px]">
-                    <DialogHeader>
-                        <DialogTitle>Field Officers</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <Input
-                            placeholder="Search field officers"
-                            value={officersSearch}
-                            onChange={(e) => setOfficersSearch(e.target.value)}
-                        />
-                        <ScrollArea className="h-80 pr-3">
-                            <div className="space-y-2">
-                                {(() => {
-                                    const team = teams.find(t => t.id === viewAllTeamId);
-                                    const list = team ? [...team.fieldOfficers].sort((a, b) => `${a.firstName} ${a.lastName}`.toLowerCase().localeCompare(`${b.firstName} ${b.lastName}`.toLowerCase())) : [];
-                                    const filtered = list.filter(o =>
-                                        `${o.firstName} ${o.lastName}`.toLowerCase().includes(officersSearch.toLowerCase())
-                                    );
-                                    return filtered.length === 0 ? (
-                                        <div className="text-sm text-muted-foreground py-8 text-center">No field officers found</div>
-                                    ) : (
-                                        filtered.map((officer) => (
-                                            <div key={officer.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
-                                                <div className="flex items-center min-w-0">
-                                                    <User size={18} className="text-foreground mr-2 flex-shrink-0" />
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-medium text-foreground truncate">{`${officer.firstName} ${officer.lastName}`}</p>
-                                                        <p className="text-xs text-muted-foreground truncate">{officer.role}</p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center">
-                                                    {officer.status === 'inactive' && (
-                                                        <Badge variant="destructive" className="mr-2 text-xs">Inactive</Badge>
-                                                    )}
-                                                    {team && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                            onClick={() => showRemoveOfficerModal(team.id, officer)}
-                                                            disabled={isSaving}
-                                                        >
-                                                            <X size={14} />
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))
-                                    );
-                                })()}
-                            </div>
-                        </ScrollArea>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsViewAllModalVisible(false)}>Close</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Confirm Remove Field Officer Modal */}
+            {/* Remove Officer Dialog */}
             <Dialog open={isRemoveOfficerModalVisible} onOpenChange={setIsRemoveOfficerModalVisible}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Remove Field Officer</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to remove {officerToRemove?.name} from Team #{officerToRemove?.teamId}?
+                        </DialogDescription>
                     </DialogHeader>
-                    <p className="text-muted-foreground">
-                        Are you sure you want to remove{' '}
-                        <span className="font-medium">{officerToRemove?.name}</span>{' '}
-                        from this team? This will not delete the employee.
-                    </p>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsRemoveOfficerModalVisible(false)}>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setIsRemoveOfficerModalVisible(false)} disabled={isSaving}>
                             Cancel
                         </Button>
                         <Button variant="destructive" onClick={confirmRemoveFieldOfficer} disabled={isSaving}>
-                            {isSaving ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Removing...
-                                </>
-                            ) : (
-                                'Remove'
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Remove City Modal */}
-            <Dialog open={isCityRemoveModalVisible} onOpenChange={(open) => {
-                setIsCityRemoveModalVisible(open);
-                if (!open) {
-                    setModalError(null); // Clear error when modal closes
-                    setCityToRemove(null);
-                }
-            }}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Remove City</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <p className="text-muted-foreground">Are you sure you want to remove {cityToRemove} from this team?</p>
-                        {modalError && (
-                            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                                <p><strong>Error:</strong> {modalError}</p>
-                            </div>
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <Button 
-                            variant="outline" 
-                            onClick={() => {
-                                setIsCityRemoveModalVisible(false);
-                                setModalError(null);
-                            }}
-                            disabled={isSaving}
-                        >
-                            Cancel
-                        </Button>
-                        <Button 
-                            variant="destructive" 
-                            onClick={confirmRemoveCity}
-                            disabled={isSaving}
-                        >
-                            {isSaving ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Removing...
-                                </>
-                            ) : (
-                                'Remove'
-                            )}
+                            {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Remove Officer
                         </Button>
                     </DialogFooter>
                 </DialogContent>

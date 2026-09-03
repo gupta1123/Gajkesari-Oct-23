@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -12,11 +12,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SearchIcon, Loader2, Grid3X3, Table as TableIcon, CheckCircle, XCircle, Download, Eye } from "lucide-react";
+import { Loader2, Grid3X3, Table as TableIcon, CheckCircle, XCircle, Download, Eye, MoreHorizontal, Clock } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import EmployeeExpenseCard from "@/components/employee-expense-card";
 import ExpenseDetailsDialog, { type ExpenseViewModel } from "@/components/expense-details-dialog";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 import { Text } from "@/components/ui/typography";
-import { apiService, ExpenseDto } from "@/lib/api";
+import { API, apiService, type EmployeeUserDto, type ExpenseDto } from "@/lib/api";
+import { getEmployeeRoleCategory, getEmployeeRoleLabel } from "@/lib/employee-role";
 import {
   Table,
   TableBody,
@@ -28,8 +42,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const API_BASE_URL = "https://api.gajkesaristeels.in";
+
+interface Expense {
+  id: number;
+  date: string;
+  category: string;
+  amount: number;
+  description: string;
+  status: "approved" | "pending" | "rejected";
+  attachments?: string[];
+}
 
 interface Employee {
   id: number;
@@ -43,87 +68,6 @@ interface Employee {
   expenses: ExpenseViewModel[];
 }
 
-// Mock data for employees and their expenses (fallback)
-const mockEmployees = [
-  {
-    id: 1,
-    name: "Alice Smith",
-    position: "Field Officer",
-    avatar: "/placeholder.svg?height=40&width=40",
-    totalExpenses: 1250.75,
-    approved: 950.50,
-    pending: 200.25,
-    rejected: 100.00,
-    expenses: [
-      { id: 1, date: "2023-06-15", category: "Travel", amount: 45.50, description: "Taxi to client meeting", status: "approved" },
-      { id: 2, date: "2023-06-10", category: "Meals", amount: 32.75, description: "Lunch with client", status: "pending" },
-      { id: 3, date: "2023-06-05", category: "Supplies", amount: 15.99, description: "Office supplies", status: "approved" },
-      { id: 4, date: "2023-06-01", category: "Travel", amount: 65.00, description: "Bus fare", status: "rejected" },
-      { id: 5, date: "2023-05-28", category: "Meals", amount: 28.50, description: "Team lunch", status: "approved" },
-      { id: 6, date: "2023-05-25", category: "Supplies", amount: 42.25, description: "Stationery", status: "pending" },
-      { id: 7, date: "2023-05-20", category: "Travel", amount: 55.75, description: "Train ticket", status: "approved" },
-    ]
-  },
-  {
-    id: 2,
-    name: "Bob Johnson",
-    position: "Field Officer",
-    avatar: "/placeholder.svg?height=40&width=40",
-    totalExpenses: 890.25,
-    approved: 720.00,
-    pending: 120.25,
-    rejected: 50.00,
-    expenses: [
-      { id: 8, date: "2023-06-12", category: "Travel", amount: 35.00, description: "Metro fare", status: "approved" },
-      { id: 9, date: "2023-06-08", category: "Meals", amount: 25.50, description: "Client dinner", status: "pending" },
-      { id: 10, date: "2023-06-03", category: "Supplies", amount: 18.99, description: "Printing", status: "approved" },
-    ]
-  },
-  {
-    id: 3,
-    name: "Charlie Brown",
-    position: "Sales Manager",
-    avatar: "/placeholder.svg?height=40&width=40",
-    totalExpenses: 2100.00,
-    approved: 1800.00,
-    pending: 200.00,
-    rejected: 100.00,
-    expenses: [
-      { id: 11, date: "2023-06-18", category: "Travel", amount: 120.00, description: "Flight ticket", status: "approved" },
-      { id: 12, date: "2023-06-14", category: "Accommodation", amount: 250.00, description: "Hotel stay", status: "pending" },
-    ]
-  },
-  {
-    id: 4,
-    name: "Diana Prince",
-    position: "Field Officer",
-    avatar: "/placeholder.svg?height=40&width=40",
-    totalExpenses: 650.30,
-    approved: 580.30,
-    pending: 50.00,
-    rejected: 20.00,
-    expenses: [
-      { id: 13, date: "2023-06-20", category: "Travel", amount: 40.00, description: "Taxi fare", status: "approved" },
-      { id: 14, date: "2023-06-16", category: "Meals", amount: 30.00, description: "Business lunch", status: "approved" },
-    ]
-  },
-  {
-    id: 5,
-    name: "Bruce Wayne",
-    position: "Sales Manager",
-    avatar: "/placeholder.svg?height=40&width=40",
-    totalExpenses: 3200.50,
-    approved: 2900.50,
-    pending: 200.00,
-    rejected: 100.00,
-    expenses: [
-      { id: 15, date: "2023-06-22", category: "Travel", amount: 450.00, description: "Flight ticket", status: "approved" },
-      { id: 16, date: "2023-06-19", category: "Accommodation", amount: 320.00, description: "Hotel booking", status: "pending" },
-    ]
-  },
-];
-
-// Mock data for filters
 const months = [
   { value: "all", label: "All Months" },
   { value: "01", label: "January" },
@@ -143,25 +87,51 @@ const months = [
 const currentYear = new Date().getFullYear();
 const years = Array.from({ length: 2030 - currentYear + 6 }, (_, i) => currentYear - 5 + i);
 
-// Get one month prior date
-const oneMonthAgo = new Date();
-oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-const defaultMonth = (oneMonthAgo.getMonth() + 1).toString().padStart(2, '0');
-const defaultYear = oneMonthAgo.getFullYear().toString();
+const today = new Date();
+const defaultMonth = (today.getMonth() + 1).toString().padStart(2, "0");
+const defaultYear = today.getFullYear().toString();
 
 export default function ExpensesPage() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
   const [selectedYear, setSelectedYear] = useState(defaultYear);
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeUserDto[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [selectedExpense, setSelectedExpense] = useState<ExpenseViewModel | null>(null);
   const { token } = useAuth();
+  const reviewLock = useRef(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [rejectionIds, setRejectionIds] = useState<number[]>([]);
+  const [rejectionReason, setRejectionReason] = useState('');
 
-  // Transform API data to match component interface
+  const employeeOptions = useMemo<SearchableOption[]>(() => employeeDirectory
+    .map((employee) => ({
+      value: String(employee.id),
+      label: `${employee.firstName} ${employee.lastName}`.trim(),
+      description: getEmployeeRoleLabel(employee.role),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)), [employeeDirectory]);
+
+  useEffect(() => {
+    const loadEmployeeDirectory = async () => {
+      try {
+        const directory = await API.getAllEmployees();
+        setEmployeeDirectory(directory.filter((employee) => {
+          const category = getEmployeeRoleCategory(employee.role);
+          return category === "field-officer" || category === "regional-manager";
+        }));
+      } catch (directoryError) {
+        console.error("Error loading employee directory:", directoryError);
+      }
+    };
+
+    loadEmployeeDirectory();
+  }, []);
+
   const transformExpenseData = (expenses: ExpenseDto[]): Employee[] => {
     const employeeMap = new Map<string, Employee>();
 
@@ -215,196 +185,68 @@ export default function ExpensesPage() {
     return Array.from(employeeMap.values());
   };
 
-  // Handle approve expense
-  const handleApprove = async (employeeName: string, expenseId: number) => {
+  const reviewExpenses = async (ids: number[], action: 'approved' | 'rejected', reason = '') => {
+    if (reviewLock.current || !token) return;
+    const uniqueIds = [...new Set(ids)];
+    const records = employees.flatMap(employee => employee.expenses).filter(expense => uniqueIds.includes(expense.id));
+    if (!records.length || records.length !== uniqueIds.length || records.some(expense => expense.status !== 'pending')) {
+      return;
+    }
+    if (action === 'rejected' && !reason.trim()) return;
+    reviewLock.current = true;
+    setReviewBusy(true);
     try {
-      const response = await fetch(`https://api.gajkesaristeels.in/expense/updateApproval?id=${expenseId}`, {
+      const payloads = records.map(expense => action === 'approved'
+        ? {
+            id: expense.id,
+            approvalStatus: 'Approved',
+            approvalDate: new Date().toISOString().split('T')[0],
+            reimbursedDate: new Date().toISOString().split('T')[0],
+            reimbursementAmount: expense.amount,
+            paymentMethod: 'cash',
+          }
+        : { id: expense.id, approvalStatus: 'Rejected', approvalDate: new Date().toISOString().split('T')[0], rejectionReason: reason.trim() });
+      const single = records.length === 1;
+      const route = single
+        ? `${action === 'approved' ? 'updateApproval' : 'reject'}?id=${records[0].id}`
+        : action === 'approved' ? 'approveMultiple' : 'rejectMultiple';
+      const response = await fetch(`${API_BASE_URL}/expense/${route}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          approvalStatus: 'Approved',
-          approvalDate: new Date().toISOString().split('T')[0],
-          reimbursedDate: '2023-03-23',
-          reimbursementAmount: 200,
-          paymentMethod: 'cash',
-        }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(single ? payloads[0] : payloads),
       });
-
-      if (response.ok) {
-        // Update local state
-        setEmployees(prevEmployees => 
-          prevEmployees.map(employee => 
-            employee.name === employeeName 
-              ? {
-                  ...employee,
-                  expenses: employee.expenses.map(expense => 
-                    expense.id === expenseId 
-                      ? { ...expense, status: 'approved' as const }
-                      : expense
-                  )
-                }
-              : employee
-          )
-        );
-        console.log('Expense approved successfully');
-      } else {
-        console.error('Error approving expense');
-      }
+      if (!response.ok) throw new Error(`Unable to ${action === 'approved' ? 'approve' : 'reject'} expense (HTTP ${response.status}).`);
+      setEmployees(previous => previous.map(employee => ({
+        ...employee,
+        expenses: employee.expenses.map(expense => uniqueIds.includes(expense.id) ? { ...expense, status: action } : expense),
+      })));
+      setRejectionIds([]);
+      setRejectionReason('');
     } catch (error) {
-      console.error('Error approving expense:', error);
+      console.error(error);
+    } finally {
+      reviewLock.current = false;
+      setReviewBusy(false);
     }
   };
 
-  // Handle approve multiple expenses
-  const handleApproveMultiple = async (employeeName: string, expenseIds: number[]) => {
-    try {
-      const approveExpenses = expenseIds.map((expenseId) => ({
-        id: expenseId,
-        approvalStatus: "Approved",
-        approvalDate: new Date().toISOString().split('T')[0],
-        reimbursedDate: '2023-03-23',
-        reimbursementAmount: 200,
-        paymentMethod: 'cash',
-      }));
+  const handleApprove = (_name: string, id: number) => reviewExpenses([id], 'approved');
+  const handleApproveMultiple = (_name: string, ids: number[]) => reviewExpenses(ids, 'approved');
+  const handleReject = (_name: string, id: number) => { setRejectionReason(''); setRejectionIds([id]); };
+  const handleRejectMultiple = (_name: string, ids: number[]) => { setRejectionReason(''); setRejectionIds(ids); };
 
-      const response = await fetch('https://api.gajkesaristeels.in/expense/approveMultiple', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(approveExpenses),
-      });
-
-      if (response.ok) {
-        // Update local state
-        setEmployees(prevEmployees => 
-          prevEmployees.map(employee => 
-            employee.name === employeeName 
-              ? {
-                  ...employee,
-                  expenses: employee.expenses.map(expense => 
-                    expenseIds.includes(expense.id)
-                      ? { ...expense, status: 'approved' as const }
-                      : expense
-                  )
-                }
-              : employee
-          )
-        );
-        console.log('Multiple expenses approved successfully');
-      } else {
-        console.error('Error approving multiple expenses');
-      }
-    } catch (error) {
-      console.error('Error approving multiple expenses:', error);
-    }
-  };
-
-  // Handle reject expense
-  const handleReject = async (employeeName: string, expenseId: number) => {
-    try {
-      const response = await fetch(`https://api.gajkesaristeels.in/expense/reject?id=${expenseId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          approvalStatus: 'Rejected',
-          approvalDate: new Date().toISOString().split('T')[0],
-          rejectionReason: 'Reason',
-        }),
-      });
-
-      if (response.ok) {
-        // Update local state
-        setEmployees(prevEmployees => 
-          prevEmployees.map(employee => 
-            employee.name === employeeName 
-              ? {
-                  ...employee,
-                  expenses: employee.expenses.map(expense => 
-                    expense.id === expenseId 
-                      ? { ...expense, status: 'rejected' as const }
-                      : expense
-                  )
-                }
-              : employee
-          )
-        );
-        console.log('Expense rejected successfully');
-      } else {
-        console.error('Error rejecting expense');
-      }
-    } catch (error) {
-      console.error('Error rejecting expense:', error);
-    }
-  };
-
-  // Handle reject multiple expenses
-  const handleRejectMultiple = async (employeeName: string, expenseIds: number[]) => {
-    try {
-      const rejectExpenses = expenseIds.map((expenseId) => ({
-        id: expenseId,
-        approvalStatus: 'Rejected',
-        approvalDate: new Date().toISOString().split('T')[0],
-        rejectionReason: 'Reason',
-      }));
-
-      const response = await fetch('https://api.gajkesaristeels.in/expense/rejectMultiple', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(rejectExpenses),
-      });
-
-      if (response.ok) {
-        // Update local state
-        setEmployees(prevEmployees => 
-          prevEmployees.map(employee => 
-            employee.name === employeeName 
-              ? {
-                  ...employee,
-                  expenses: employee.expenses.map(expense => 
-                    expenseIds.includes(expense.id)
-                      ? { ...expense, status: 'rejected' as const }
-                      : expense
-                  )
-                }
-              : employee
-          )
-        );
-        console.log('Multiple expenses rejected successfully');
-      } else {
-        console.error('Error rejecting multiple expenses');
-      }
-    } catch (error) {
-      console.error('Error rejecting multiple expenses:', error);
-    }
-  };
-
-  // Load expenses data
   const loadExpenses = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      // Calculate date range based on selected month and year
       let startDate: string;
       let endDate: string;
       
       if (selectedMonth === "all") {
-        // Get all expenses for the selected year
         startDate = `${selectedYear}-01-01`;
         endDate = `${selectedYear}-12-31`;
       } else {
-        // Get expenses for specific month and year
         const month = selectedMonth.padStart(2, '0');
         startDate = `${selectedYear}-${month}-01`;
         const lastDay = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
@@ -417,42 +259,24 @@ export default function ExpensesPage() {
     } catch (err) {
       console.error('Error loading expenses:', err);
       setError('Failed to load expenses. Please try again.');
-      // Fallback to mock data
-      setEmployees(mockEmployees.map((employee) => ({
-        ...employee,
-        expenses: employee.expenses.map((expense) => ({
-          ...expense,
-          status: expense.status as ExpenseViewModel["status"],
-          employeeName: employee.name,
-          employeePosition: employee.position,
-          attachments: [],
-        })),
-      })));
+      setEmployees([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Load data on component mount and when filters change
   useEffect(() => {
     loadExpenses();
   }, [selectedMonth, selectedYear]);
 
-  const filteredEmployees = employees.filter(employee => {
-    const matchesSearch = searchTerm === "" || 
-      employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.position.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // In a real app, you would filter based on the month and year of expenses
-    // For now, we'll just return all employees that match the search
-    return matchesSearch;
-  });
+  const filteredEmployees = employees.filter((employee) =>
+    !selectedEmployeeId || String(employee.id) === selectedEmployeeId
+  );
 
   const toggleCardExpansion = (id: number) => {
     setExpandedCardId(expandedCardId === id ? null : id);
   };
 
-  // Get status badge for table view
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case "approved":
@@ -466,18 +290,16 @@ export default function ExpensesPage() {
     }
   };
 
-  // Flatten expenses for table view
   const allExpenses = employees.flatMap(employee => 
     employee.expenses.map(expense => ({
       ...expense,
+      employeeId: employee.id,
       employeeName: employee.name,
       employeePosition: employee.position
     }))
   );
-  const filteredTableExpenses = allExpenses.filter(expense => 
-    searchTerm === "" || 
-    expense.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    expense.employeePosition.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredTableExpenses = allExpenses.filter((expense) =>
+    !selectedEmployeeId || String(expense.employeeId) === selectedEmployeeId
   );
 
   const handleExport = () => {
@@ -487,7 +309,7 @@ export default function ExpensesPage() {
     const rows = filteredTableExpenses.map((expense) => [
       expense.employeeName,
       expense.employeePosition,
-      format(new Date(expense.date), "MMM d, yyyy"),
+      format(new Date(expense.date), "MMM dd, yyyy"),
       expense.category,
       expense.description ?? "",
       `₹${(expense.amount || 0).toFixed(2)}`,
@@ -517,127 +339,86 @@ export default function ExpensesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-          <CardTitle>Filters</CardTitle>
-          <Text tone="muted" size="sm">
-          </Text>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 justify-end">
-              <Text size="sm" tone="muted">View:</Text>
-              <div className="flex border rounded-lg">
-                <Button
-                  variant={viewMode === "card" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setViewMode("card")}
-                  className="rounded-r-none"
-                >
-                  <Grid3X3 className="h-4 w-4 mr-1" />
-                  Cards
-                </Button>
-                <Button
-                  variant={viewMode === "table" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setViewMode("table")}
-                  className="rounded-l-none"
-                >
-                  <TableIcon className="h-4 w-4 mr-1" />
-                  Table
-                </Button>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExport}
-                disabled={filteredTableExpenses.length === 0 || isLoading}
-                className="flex items-center gap-2"
-              >
-                <Download className="h-4 w-4" />
-                Export CSV
-              </Button>
-            </div>
+    <div className="mx-auto w-full max-w-none py-4 px-4 sm:px-6">
+      <div className="mb-4 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-2 sm:grid-cols-[240px_140px_104px]">
+          <div className="min-w-0">
+            <Label className="sr-only">Employee</Label>
+            <SearchableSelect
+              options={employeeOptions}
+              value={selectedEmployeeId}
+              onSelect={(option) => setSelectedEmployeeId(option?.value ?? "")}
+              placeholder="All employees"
+              searchPlaceholder="Search employees..."
+              emptyMessage="No employees available"
+              noResultsMessage="No matching employees"
+              allowClear
+              triggerClassName="h-9 w-full bg-background text-xs shadow-none"
+              contentClassName="w-[var(--radix-popover-trigger-width)]"
+            />
           </div>
-        </CardHeader>
-        <CardContent>
-          <Separator className="mb-6" />
-          <div className="flex flex-col lg:flex-row gap-4 items-end">
-            {/* Search Employee */}
-            <div className="flex-1 min-w-0">
-              <Label className="text-sm font-medium text-foreground mb-2 block">Search Employee</Label>
-              <div className="relative">
-                <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or position..."
-                  className="pl-10 h-10"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-            
-            {/* Month & Year */}
-            <div className="flex gap-3 items-end">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-foreground">Month</Label>
-                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                  <SelectTrigger className="w-32 h-10">
-                    <SelectValue placeholder="Month">
-                      {months.find(month => month.value === selectedMonth)?.label || "Month"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {months.map((month) => (
-                      <SelectItem key={month.value} value={month.value}>
-                        {month.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-foreground">Year</Label>
-                <Select value={selectedYear} onValueChange={setSelectedYear}>
-                  <SelectTrigger className="w-24 h-10">
-                    <SelectValue placeholder="Year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {years.map((year) => (
-                      <SelectItem key={year} value={year.toString()}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            {/* Apply Filters Button */}
-            <div className="flex-shrink-0">
-              <Button 
-                onClick={loadExpenses}
-                disabled={isLoading}
-                className="h-10 px-6"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  "Apply Filters"
-                )}
-              </Button>
-            </div>
+
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="h-9 w-full bg-background text-xs shadow-none" aria-label="Filter by month">
+              <SelectValue placeholder="Month">
+                {months.find(month => month.value === selectedMonth)?.label || "Month"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {months.map((month) => (
+                <SelectItem key={month.value} value={month.value}>{month.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={selectedYear} onValueChange={setSelectedYear}>
+            <SelectTrigger className="h-9 w-full bg-background text-xs shadow-none" aria-label="Filter by year">
+              <SelectValue placeholder="Year" />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((year) => (
+                <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className="flex overflow-hidden rounded-md border border-border">
+            <Button
+              variant={viewMode === "card" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("card")}
+              className="rounded-r-none h-9 text-xs"
+            >
+              <Grid3X3 className="mr-2 h-4 w-4" />
+              Cards
+            </Button>
+            <Button
+              variant={viewMode === "table" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("table")}
+              className="rounded-l-none h-9 text-xs"
+            >
+              <TableIcon className="mr-2 h-4 w-4" />
+              Table
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={filteredTableExpenses.length === 0 || isLoading}
+            className="flex items-center gap-2 h-9 text-xs"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
+      </div>
 
       {error && (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-red-200 bg-red-50 mb-4">
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-red-800">
               <Text size="sm">{error}</Text>
@@ -679,19 +460,20 @@ export default function ExpensesPage() {
           </div>
         </div>
       ) : viewMode === "card" ? (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredEmployees.length === 0 ? (
             <div className="col-span-full text-center py-12">
               <Text tone="muted">No expenses found for the selected period.</Text>
             </div>
           ) : (
             filteredEmployees.map((employee) => (
-          <EmployeeExpenseCard 
-            key={employee.id} 
-            employee={employee} 
-            showExpenses={expandedCardId === employee.id}
-            onToggleExpenses={() => toggleCardExpansion(employee.id)}
+              <EmployeeExpenseCard 
+                key={employee.id} 
+                employee={employee} 
+                showExpenses={expandedCardId === employee.id}
+                onToggleExpenses={() => toggleCardExpansion(employee.id)}
                 onApprove={handleApprove}
+                busy={reviewBusy}
                 onReject={handleReject}
                 onApproveMultiple={handleApproveMultiple}
                 onRejectMultiple={handleRejectMultiple}
@@ -701,107 +483,117 @@ export default function ExpensesPage() {
           )}
         </div>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Expenses Table</CardTitle>
-            <Text tone="muted" size="sm">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
+          <CardHeader className="py-3 px-4 border-b">
+            <CardTitle className="text-sm font-semibold text-foreground">Expenses Table</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
               Detailed view of all expenses for the selected period
-            </Text>
+            </p>
           </CardHeader>
-          <CardContent>
-            <Separator className="mb-6" />
-            <div className="rounded-md border overflow-hidden w-full">
-              <div className="overflow-x-auto w-full">
-                <Table className="min-w-full">
-                  <TableHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto w-full">
+              <Table className="w-full text-xs font-poppins">
+                <TableHeader className="bg-muted/30">
+                  <TableRow>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Employee</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Position</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Date</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Category</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Description</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Amount</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Status</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10 text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredTableExpenses.length === 0 ? (
                     <TableRow>
-                      <TableHead className="whitespace-nowrap">Employee</TableHead>
-                      <TableHead className="whitespace-nowrap">Position</TableHead>
-                      <TableHead className="whitespace-nowrap">Date</TableHead>
-                      <TableHead className="whitespace-nowrap">Category</TableHead>
-                      <TableHead className="whitespace-nowrap">Description</TableHead>
-                      <TableHead className="whitespace-nowrap">Amount</TableHead>
-                      <TableHead className="whitespace-nowrap">Status</TableHead>
-                      <TableHead className="whitespace-nowrap">Actions</TableHead>
+                      <TableCell colSpan={8} className="h-24 text-center text-xs text-muted-foreground">
+                        No expenses found for the selected period
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredTableExpenses.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={8} className="h-24 text-center text-gray-500">
-                          No expenses found for the selected period
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredTableExpenses
-                        .map((expense) => (
-                          <TableRow key={expense.id}>
-                            <TableCell className="font-medium whitespace-nowrap">
-                              {expense.employeeName}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              {expense.employeePosition}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              {format(new Date(expense.date), "MMM d, yyyy")}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              {expense.category}
-                            </TableCell>
-                            <TableCell className="max-w-xs truncate">
-                              {expense.description}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap font-medium">
-                              ₹{(expense.amount || 0).toFixed(2)}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              {getStatusBadge(expense.status)}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setSelectedExpense(expense)}
-                                  className="h-8 w-8 p-0"
-                                  title="View expense details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                  <span className="sr-only">View expense details</span>
+                  ) : (
+                    filteredTableExpenses
+                      .map((expense) => (
+                        <TableRow key={expense.id} className="hover:bg-muted/25">
+                          <TableCell className="font-medium text-xs whitespace-nowrap py-3">
+                            {expense.employeeName}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap py-3 text-muted-foreground">
+                            {expense.employeePosition}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap py-3">
+                            {format(new Date(expense.date), "MMM dd, yyyy")}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap py-3">
+                            {expense.category}
+                          </TableCell>
+                          <TableCell className="text-xs py-3 max-w-[140px]">
+                            {expense.description ? (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="block truncate max-w-[140px] cursor-pointer">
+                                      {expense.description}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs whitespace-normal p-2">
+                                    {expense.description}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs font-semibold whitespace-nowrap py-3">
+                            ₹{(expense.amount || 0).toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap py-3">
+                            {getStatusBadge(expense.status)}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap py-3 text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" className="h-8 w-8 p-0" aria-label="Open expense actions menu">
+                                  <span className="sr-only">Open menu</span>
+                                  <MoreHorizontal className="h-4 w-4" />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleApprove(expense.employeeName, expense.id)}
-                                  className={`h-8 w-8 p-0 ${
-                                    expense.status === "approved" 
-                                      ? "bg-green-100 border-green-300 text-green-700 hover:bg-green-200" 
-                                      : "hover:bg-green-50 hover:border-green-300"
-                                  }`}
-                                >
-                                  <CheckCircle className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleReject(expense.employeeName, expense.id)}
-                                  className={`h-8 w-8 p-0 ${
-                                    expense.status === "rejected" 
-                                      ? "bg-red-100 border-red-300 text-red-700 hover:bg-red-200" 
-                                      : "hover:bg-red-50 hover:border-red-300"
-                                  }`}
-                                >
-                                  <XCircle className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-      </div>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="text-xs">
+                                <DropdownMenuItem onClick={() => setSelectedExpense(expense)} className="text-xs">
+                                  <Eye className="mr-2 h-3.5 w-3.5" />
+                                  View details
+                                </DropdownMenuItem>
+                                {expense.status === "pending" && (
+                                  <>
+                                    <DropdownMenuItem 
+                                      disabled={reviewBusy} 
+                                      onClick={() => handleApprove(expense.employeeName, expense.id)}
+                                      className="text-xs text-emerald-600 dark:text-emerald-400"
+                                    >
+                                      <CheckCircle className="mr-2 h-3.5 w-3.5" />
+                                      Approve
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem 
+                                      disabled={reviewBusy} 
+                                      onClick={() => handleReject(expense.employeeName, expense.id)}
+                                      className="text-xs text-rose-600 dark:text-rose-400"
+                                    >
+                                      <XCircle className="mr-2 h-3.5 w-3.5" />
+                                      Reject
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -813,6 +605,21 @@ export default function ExpensesPage() {
           if (!open) setSelectedExpense(null);
         }}
       />
+
+      <Dialog open={rejectionIds.length > 0} onOpenChange={open => { if (!open && !reviewBusy) setRejectionIds([]); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject {rejectionIds.length > 1 ? 'expenses' : 'expense'}</DialogTitle>
+            <DialogDescription>Explain why this claim cannot be approved.</DialogDescription>
+          </DialogHeader>
+          <Label htmlFor="expense-rejection-reason">Reason</Label>
+          <textarea id="expense-rejection-reason" className="min-h-24 w-full rounded-md border bg-background p-3 text-sm" value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} maxLength={500} disabled={reviewBusy} />
+          <DialogFooter>
+            <Button variant="outline" disabled={reviewBusy} onClick={() => setRejectionIds([])}>Cancel</Button>
+            <Button variant="destructive" disabled={reviewBusy || !rejectionReason.trim()} onClick={() => void reviewExpenses(rejectionIds, 'rejected', rejectionReason)}>{reviewBusy ? 'Saving…' : 'Reject'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -19,10 +19,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, User, Building, Clock, Target, ChevronDown, ChevronUp } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, User, ChevronDown, ChevronUp, Filter } from "lucide-react";
 import { format } from "date-fns";
-import { DateRange } from "react-day-picker";
 import {
   Popover,
   PopoverContent,
@@ -32,16 +31,17 @@ import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from "next/navigation";
-// Removed dropdown menu imports as Actions now uses direct navigation
 import { API, type VisitDto, type VisitResponse, type EmployeeUserDto, type TeamDataDto } from "@/lib/api";
 import { format as formatDate } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
-import { hasManagerPrivileges, getCorrectedRoleFlags } from "@/lib/auth";
+import { getCorrectedRoleFlags } from "@/lib/auth";
 import { getTeamIds, getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 import { formatTimeTo12Hour, formatDateToUserFriendly, formatLastUpdated } from "@/lib/utils";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
+import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
+import { isAdminEmployeeRole } from "@/lib/employee-role";
 
-const VISITS_TABLE_STORAGE_KEY = "visits.table.state.v1";
+const VISITS_TABLE_STORAGE_KEY = "visits.table.state.v2";
 
 type Row = {
   id: number;
@@ -63,6 +63,15 @@ type Row = {
   checkinTime?: string;
   checkoutTime?: string;
 };
+
+function Ellipsis({ value }: { value: string | number | null | undefined }) {
+  const displayValue = value === null || value === undefined || value === "" ? "—" : String(value);
+  return (
+    <span className="block min-w-0 truncate" title={displayValue}>
+      {displayValue}
+    </span>
+  );
+}
 
 const buildEmployeeFilterName = (employee: EmployeeUserDto): string => {
   const primary = [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim();
@@ -104,7 +113,6 @@ export default function VisitsTable() {
   const router = useRouter();
   const [navigatingVisitId, setNavigatingVisitId] = useState<number | null>(null);
   const [isNavigating, startTransition] = useTransition();
-  const filterInitialisedRef = useRef(false);
   const hasHydratedRef = useRef(false);
   const [isStateHydrated, setIsStateHydrated] = useState(false);
   
@@ -115,6 +123,7 @@ export default function VisitsTable() {
   
   const [startDate, setStartDate] = useState<Date | undefined>(defaultStartDate);
   const [endDate, setEndDate] = useState<Date | undefined>(defaultEndDate);
+  const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
   const [selectedPurpose, setSelectedPurpose] = useState<string>("all");
   const [selectedExecutive, setSelectedExecutive] = useState<string>("all");
   const [customerName, setCustomerName] = useState<string>("");
@@ -122,11 +131,12 @@ export default function VisitsTable() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
-  const [pageSize, setPageSize] = useState(100);
+  const [pageSize, setPageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
   const [expandedCards, setExpandedCards] = useState<number[]>([]);
+  const [areFiltersVisible, setAreFiltersVisible] = useState(true);
 
   const [employees, setEmployees] = useState<EmployeeUserDto[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
@@ -141,7 +151,7 @@ export default function VisitsTable() {
         if (!isMounted) {
           return;
         }
-        setEmployees(employeeList);
+        setEmployees(employeeList.filter((employee) => !isAdminEmployeeRole(employee.role)));
       } catch (err) {
         console.error("Failed to load employees list:", err);
       } finally {
@@ -162,8 +172,7 @@ export default function VisitsTable() {
   const [isManager, setIsManager] = useState(false);
   const [teamMembers, setTeamMembers] = useState<EmployeeUserDto[]>([]);
   const [managerTeamIds, setManagerTeamIds] = useState<number[]>([]);
-  // Use teamId from auth context as primary source, with local state as fallback
-  const authTeamId = teamId; // from useAuth hook
+  const authTeamId = teamId;
   const [localTeamId, setLocalTeamId] = useState<number | null>(null);
   const effectiveTeamId = authTeamId || localTeamId;
 
@@ -278,8 +287,9 @@ export default function VisitsTable() {
   }, [rows]);
 
   const employeeOptions = useMemo<SearchableOption[]>(() => {
-    // For managers, use team members (field officers); for admins, use all employees
-    const employeesToUse = isManager ? teamMembers : employees;
+    const employeesToUse = (isManager ? teamMembers : employees).filter(
+      (employee) => !isAdminEmployeeRole(employee.role)
+    );
     
     const base = employeesToUse.map((employee) => {
       const identifier = employee.userDto?.employeeId ?? null;
@@ -293,7 +303,7 @@ export default function VisitsTable() {
 
     base.sort((a, b) => a.label.localeCompare(b.label));
 
-    return [{ value: "all", label: "All Executives" }, ...base];
+    return [{ value: "all", label: "All employees" }, ...base];
   }, [employees, teamMembers, isManager]);
 
   useEffect(() => {
@@ -343,31 +353,19 @@ export default function VisitsTable() {
     }
   }, [isNavigating, navigatingVisitId]);
 
-  // Determine user role using corrected flags from teamId fetch
   useEffect(() => {
     const checkUserRole = () => {
-      // Use corrected role flags if available (most reliable - based on teamId fetch)
       const roleFlags = getCorrectedRoleFlags(userRole, currentUser, correctedRoleFlags, teamId);
-
-      console.log('Role detection - userRole:', userRole);
-      console.log('Role detection - currentUser authorities:', currentUser?.authorities);
-      console.log('Role detection - teamId:', teamId);
-      console.log('Role detection - correctedRoleFlags:', correctedRoleFlags);
-      console.log('Role detection - final isManager:', roleFlags.isManager);
-      console.log('Role detection - final isFieldOfficer:', roleFlags.isFieldOfficer);
-
       setIsManager(roleFlags.isManager);
     };
     checkUserRole();
   }, [userRole, currentUser, teamId, correctedRoleFlags]);
 
-  // Use all team data for managers. Do not widen manager filters to all employees.
   useEffect(() => {
     const loadTeamMembers = async () => {
       if (!isManager || !userData?.employeeId) return;
 
       try {
-        console.log('Loading team members for manager employee ID:', userData.employeeId);
         const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
         
         if (teamData && teamData.length > 0) {
@@ -375,16 +373,13 @@ export default function VisitsTable() {
           setManagerTeamIds(accessibleTeamIds);
           setLocalTeamId(accessibleTeamIds[0] ?? null);
           setTeamMembers(getUniqueFieldOfficersFromTeams(teamData));
-          console.log('Team IDs set to:', accessibleTeamIds);
         } else {
-          console.log('No team data found for manager');
           setLocalTeamId(null);
           setManagerTeamIds([]);
           setTeamMembers([]);
         }
       } catch (err) {
         console.error('Failed to load team members:', err);
-        console.error('Error details:', (err as Error).message, (err as Error).stack);
         setError('Failed to load team members');
         setLocalTeamId(null);
         setManagerTeamIds([]);
@@ -400,18 +395,14 @@ export default function VisitsTable() {
     }
   }, [isManager, userData?.employeeId, authTeamId]);
 
-  // Fallback field-officer load only when employeeId-based team data is unavailable.
   useEffect(() => {
     const loadFieldOfficers = async () => {
       if (!isManager || !effectiveTeamId || userData?.employeeId) return;
 
       try {
-        console.log('Loading field officers for team ID:', effectiveTeamId);
         const teamData = await API.getTeamById(effectiveTeamId);
-        console.log('Team data received:', teamData);
         
         if (teamData && teamData.fieldOfficers) {
-          // Convert field officers to EmployeeUserDto format for compatibility
           const fieldOfficersAsEmployees: EmployeeUserDto[] = teamData.fieldOfficers.map(fo => ({
             id: fo.id,
             firstName: fo.firstName,
@@ -440,10 +431,8 @@ export default function VisitsTable() {
             }
           }));
           
-          console.log('Field officers loaded:', fieldOfficersAsEmployees);
           setTeamMembers(fieldOfficersAsEmployees);
         } else {
-          console.log('No field officers found in team data');
           setTeamMembers([]);
         }
       } catch (err) {
@@ -460,17 +449,14 @@ export default function VisitsTable() {
 
   useEffect(() => {
     if (!isStateHydrated) return;
-    if (!startDate || !endDate) return;
+    if (!startDate || !endDate || dateRangeInvalid) return;
     
-    // For managers, wait until we have teamId
     if (isManager && managerTeamIds.length === 0) {
-      console.log('⏳ Manager detected but no teamId yet - waiting for team data');
       return;
     }
     
     const startStr = formatDate(startDate, 'yyyy-MM-dd');
     const endStr = formatDate(endDate, 'yyyy-MM-dd');
-    // For managers, use team members; for admins, use all employees
     const employeesToSearch = isManager ? teamMembers : employees;
     const selectedEmployee = selectedExecutive !== 'all'
       ? employeesToSearch.find(emp => String(emp.id) === selectedExecutive)
@@ -484,101 +470,23 @@ export default function VisitsTable() {
         const storeNameFilter = customerName.trim() !== '' ? customerName : undefined;
         const purposeFilter = selectedPurpose && selectedPurpose !== 'all' && selectedPurpose !== 'All Purposes' ? selectedPurpose : undefined;
         
-        console.log('Making API call with filters:', {
-          startDate: startStr,
-          endDate: endStr,
-          page: currentPage,
-          size: pageSize,
-          sort: isManager ? 'visitDate,desc' : 'id,desc',
-          storeName: storeNameFilter,
-          purpose: purposeFilter,
-          isManager,
-          teamIds: managerTeamIds,
-          teamMemberCount: teamMembers.length,
-          userRole: userRole,
-          currentUserAuthorities: currentUser?.authorities,
-          employeeName: employeeNameFilter
-        });
-        
         let response: VisitResponse;
-        
-        // Use team-specific API for managers, regular API for admins
-        console.log('🔍 API Selection Debug:', {
-          isManager,
-          teamIds: managerTeamIds,
-          userRole,
-          currentUserAuthorities: currentUser?.authorities,
-          userDataEmployeeId: userData?.employeeId,
-          teamMembersCount: teamMembers.length,
-          employeeName: employeeNameFilter
-        });
 
         if (isManager && managerTeamIds.length > 0) {
-          console.log('🔵 MANAGER DETECTED - Using team-specific API');
-          console.log('Team IDs:', managerTeamIds);
-          console.log('API Endpoint: /visit/getForTeam');
-          if (managerTeamIds.length === 1) {
-            response = await API.getVisitsForTeam(
-              managerTeamIds[0],
-              startStr,
-              endStr,
-              currentPage,
-              pageSize,
-              'visitDate,desc',
-              purposeFilter,
-              undefined,
-              storeNameFilter,
-              employeeNameFilter
-            );
-          } else {
-            const responses = await Promise.all(managerTeamIds.map((id) =>
-              API.getVisitsForTeam(
-                id,
-                startStr,
-                endStr,
-                0,
-                1000,
-                'visitDate,desc',
-                purposeFilter,
-                undefined,
-                storeNameFilter,
-                employeeNameFilter
-              )
-            ));
-            const uniqueVisits = new Map<number, VisitDto>();
-            responses.flatMap((item) => item.content ?? []).forEach((visit) => {
-              uniqueVisits.set(visit.id, visit);
-            });
-            const allVisits = Array.from(uniqueVisits.values()).sort((a, b) =>
-              String(b.visit_date ?? '').localeCompare(String(a.visit_date ?? ''))
-            );
-            const startIndex = currentPage * pageSize;
-            const paginatedVisits = allVisits.slice(startIndex, startIndex + pageSize);
-            response = {
-              content: paginatedVisits,
-              pageable: {
-                pageNumber: currentPage,
-                pageSize,
-                sort: { empty: false, sorted: true, unsorted: false },
-                offset: startIndex,
-                paged: true,
-                unpaged: false,
-              },
-              totalPages: Math.max(1, Math.ceil(allVisits.length / pageSize)),
-              totalElements: allVisits.length,
-              last: startIndex + pageSize >= allVisits.length,
-              size: pageSize,
-              number: currentPage,
-              sort: { empty: false, sorted: true, unsorted: false },
-              numberOfElements: paginatedVisits.length,
-              first: currentPage === 0,
-              empty: paginatedVisits.length === 0,
-            };
-          }
+          response = await API.getVisitsForTeams(
+            managerTeamIds,
+            startStr,
+            endStr,
+            currentPage,
+            pageSize,
+            'visitDate,desc',
+            purposeFilter,
+            undefined,
+            undefined,
+            storeNameFilter,
+            employeeNameFilter
+          );
         } else {
-          console.log('🟢 ADMIN DETECTED - Using regular API');
-          console.log('Reason:', !isManager ? 'Not a manager' : 'No teamId');
-          console.log('API Endpoint: /visit/getByDateSortedOld');
           response = await API.getVisitsByDateSortedOld(
             startStr,
             endStr,
@@ -589,11 +497,6 @@ export default function VisitsTable() {
           );
         }
         
-        console.log('API Response:', response);
-        console.log('Total elements:', response.totalElements);
-        console.log('Content length:', response.content?.length);
-        
-        // Extract visits from the content array
         const visits: VisitDto[] = response.content || [];
         
         const mapped: Row[] = visits.map(v => ({
@@ -618,7 +521,6 @@ export default function VisitsTable() {
         }));
         
         setRows(mapped);
-        // Use actual total pages and elements from API response
         const resolvedTotalPages = response.totalPages && response.totalPages > 0 ? response.totalPages : 1;
         setTotalPages(resolvedTotalPages);
         setTotalElements(response.totalElements || 0);
@@ -630,48 +532,52 @@ export default function VisitsTable() {
           }
         }
       } catch (err) {
-        setError((err as Error)?.message || 'Failed to load visits');
+        console.error('API Error:', err);
+        setError('Failed to fetch visits. Please try again.');
+        setRows([]);
+        setTotalPages(1);
+        setTotalElements(0);
       } finally {
         setIsLoading(false);
       }
     };
+
     run();
-  }, [isStateHydrated, startDate, endDate, selectedPurpose, customerName, currentPage, pageSize, isManager, managerTeamIds, selectedExecutive, employees, teamMembers]);
+  }, [
+    isStateHydrated,
+    startDate,
+    endDate,
+    dateRangeInvalid,
+    currentPage,
+    pageSize,
+    selectedPurpose,
+    selectedExecutive,
+    customerName,
+    isManager,
+    managerTeamIds,
+    teamMembers,
+    employees,
+  ]);
 
-  // Reset to first page when filters change
-  useEffect(() => {
-    if (!isStateHydrated) return;
-    if (!filterInitialisedRef.current) {
-      filterInitialisedRef.current = true;
-      return;
-    }
-    setCurrentPage(0);
-  }, [isStateHydrated, startDate, endDate, selectedPurpose, selectedExecutive, customerName]);
-
-  const filteredVisits = rows.filter(visit => {
-    if (customerName.trim() !== '' && !visit.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) {
-      return false;
-    }
-
-    // Purpose filter (client-side since API doesn't support it yet)
-    if (selectedPurpose !== "all" && visit.purpose !== selectedPurpose) return false;
-    
-    // Executive filter (client-side since API doesn't support it yet)
-    if (selectedExecutive !== "all" && String(visit.employeeId ?? '') !== selectedExecutive) return false;
-    
-    return true;
-  });
-
-
-  const csvEscape = (val: string | number | null | undefined): string => {
-    if (val === null || val === undefined) return '';
-    let s = String(val);
-    if (s.includes('"')) s = s.replace(/"/g, '""');
-    if (/[",\n]/.test(s)) s = `"${s}"`;
-    return s;
-  };
+  const filteredVisits = useMemo(() => {
+    return rows.filter((r) => {
+      if (selectedPurpose !== "all" && selectedPurpose !== "All Purposes") {
+        if (r.purpose !== selectedPurpose) return false;
+      }
+      if (customerName.trim() !== "") {
+        if (!r.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [rows, selectedPurpose, customerName]);
 
   const buildCsvAndDownload = (rowsForCsv: Row[]) => {
+    const csvEscape = (val: string | number | null | undefined): string => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
     const headers = [
       'Customer Name',
       'Executive',
@@ -718,9 +624,9 @@ export default function VisitsTable() {
   };
 
   const handleExport = async () => {
+    if (!startDate || !endDate || dateRangeInvalid) return;
     try {
       setIsExporting(true);
-      if (!startDate || !endDate) return;
       const startStr = formatDate(startDate, 'yyyy-MM-dd');
       const endStr = formatDate(endDate, 'yyyy-MM-dd');
 
@@ -734,10 +640,25 @@ export default function VisitsTable() {
       const employeeNameFilter = selectedEmployee ? buildEmployeeFilterName(selectedEmployee) : undefined;
 
       if (isManager) {
-        for (const teamAccessId of managerTeamIds) {
-          page = 0;
-          const first = await API.getVisitsForTeam(
-            teamAccessId,
+        const first = await API.getVisitsForTeams(
+          managerTeamIds,
+          startStr,
+          endStr,
+          page,
+          size,
+          'visitDate,desc',
+          selectedPurpose !== 'all' ? selectedPurpose : undefined,
+          undefined,
+          undefined,
+          customerName.trim() !== '' ? customerName : undefined,
+          employeeNameFilter
+        );
+        all = all.concat(first.content || []);
+        const total = first.totalPages || 1;
+
+        for (page = 1; page < total; page++) {
+          const res = await API.getVisitsForTeams(
+            managerTeamIds,
             startStr,
             endStr,
             page,
@@ -745,27 +666,11 @@ export default function VisitsTable() {
             'visitDate,desc',
             selectedPurpose !== 'all' ? selectedPurpose : undefined,
             undefined,
+            undefined,
             customerName.trim() !== '' ? customerName : undefined,
             employeeNameFilter
           );
-          all = all.concat(first.content || []);
-          const total = first.totalPages || 1;
-
-          for (page = 1; page < total; page++) {
-            const res = await API.getVisitsForTeam(
-              teamAccessId,
-              startStr,
-              endStr,
-              page,
-              size,
-              'visitDate,desc',
-              selectedPurpose !== 'all' ? selectedPurpose : undefined,
-              undefined,
-              customerName.trim() !== '' ? customerName : undefined,
-              employeeNameFilter
-            );
-            all = all.concat(res.content || []);
-          }
+          all = all.concat(res.content || []);
         }
       } else {
         const first = await API.getVisitsByDateSortedOld(
@@ -794,13 +699,11 @@ export default function VisitsTable() {
 
       all = Array.from(new Map(all.map((visit) => [visit.id, visit])).values());
 
-      // Filter visits based on role
       if (isManager && teamMembers.length > 0) {
         const teamMemberIds = teamMembers.map(member => member.id);
         all = all.filter(visit => teamMemberIds.includes(visit.employeeId));
       }
 
-      // Map to table Row type
       const mapped: Row[] = all.map((v) => ({
         id: v.id,
         customerName: v.storeName,
@@ -822,7 +725,6 @@ export default function VisitsTable() {
         checkoutTime: v.checkoutTime ?? undefined,
       }));
 
-      // Apply same client-side Purpose/Executive filters
       const rowsForCsv = mapped.filter(visit => {
         if (customerName.trim() !== '' && !visit.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) return false;
         if (selectedPurpose !== 'all' && visit.purpose !== selectedPurpose) return false;
@@ -839,420 +741,228 @@ export default function VisitsTable() {
     }
   };
 
+  const statusClassName = (status?: string) => {
+    if (status === "Completed") return "bg-emerald-50 text-emerald-700 ring-emerald-600/15 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-900";
+    if (status === "Ongoing") return "bg-amber-50 text-amber-700 ring-amber-600/15 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900";
+    return "bg-blue-50 text-blue-700 ring-blue-600/15 dark:bg-blue-950/50 dark:text-blue-300 dark:ring-blue-900";
+  };
+
   return (
-    <>
-      <Card className="w-full">
-      <CardHeader>
-        <div className="flex items-center justify-end">
-          {userRole && (
-            <Badge variant={isManager ? "secondary" : "default"} className="text-xs">
-              {isManager ? "Manager View" : "Admin View"}
-            </Badge>
-          )}
+    <div className="mx-auto w-full max-w-none py-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setAreFiltersVisible((visible) => !visible)}>
+            <Filter className="mr-2 h-4 w-4" />
+            {areFiltersVisible ? "Hide Filters" : "Show Filters"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={isExporting || dateRangeInvalid || !startDate || !endDate}
+          >
+            {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadIcon className="mr-2 h-4 w-4" />}
+            {isExporting ? "Exporting…" : "Export"}
+          </Button>
         </div>
-      </CardHeader>
-      <CardContent className="w-full">
-        {error && (
-          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{error}</div>
+        {userRole && (
+          <Badge variant={isManager ? "secondary" : "default"} className="text-xs">
+            {isManager ? "Manager View" : "Admin View"}
+          </Badge>
         )}
-        
-        {/* Status indicator */}
-        {!startDate || !endDate ? (
-          <div className="mb-4 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-3">
-            Please select both start and end dates to load visits data.
-          </div>
-        ) : isLoading ? (
-          <div className="mb-4 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
-            Loading visits data...
-          </div>
-        ) : isManager && managerTeamIds.length === 0 ? (
-          <div className="mb-4 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-3">
-            🔵 Manager detected - Loading team data...
-          </div>
-        ) : null}
-        
-        {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-          <div className="space-y-2">
-            <Label>Start Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start text-left font-normal"
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {startDate ? (
-                    format(startDate, "LLL dd, y")
-                  ) : (
-                    <span>Select start date</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <SpacedCalendar
-                  initialFocus
-                  mode="single"
-                  defaultMonth={startDate}
-                  selected={startDate}
-                  onSelect={setStartDate}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          
-          <div className="space-y-2">
-            <Label>End Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start text-left font-normal"
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {endDate ? (
-                    format(endDate, "LLL dd, y")
-                  ) : (
-                    <span>Select end date</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <SpacedCalendar
-                  initialFocus
-                  mode="single"
-                  defaultMonth={endDate}
-                  selected={endDate}
-                  onSelect={setEndDate}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          
-          <div className="space-y-2">
-            <Label>Purpose</Label>
-            <Select value={selectedPurpose} onValueChange={setSelectedPurpose}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select purpose" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Purposes</SelectItem>
-                {purposes.map((purpose) => (
-                  <SelectItem key={purpose} value={purpose}>
-                    {purpose}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="space-y-2">
-            <Label>Customer Name</Label>
-            <Input
-              placeholder="Search customer"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label>Executive</Label>
-            <SearchableSelect
-              options={employeeOptions}
-              value={selectedExecutive}
-              onSelect={(option) => {
-                if (!option || option.value === "all") {
-                  setSelectedExecutive("all");
-                } else {
-                  setSelectedExecutive(option.value);
-                }
-              }}
-              placeholder="Select executive"
-              loading={isLoadingEmployees}
-              triggerClassName="w-full justify-between h-11"
-              contentClassName="w-[var(--radix-popover-trigger-width)]"
-              searchPlaceholder="Search executives..."
-            />
-          </div>
-          
-          <div className="flex items-end">
-            <Button onClick={handleExport} className="w-full" disabled={isExporting}>
-              {isExporting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <DownloadIcon className="mr-2 h-4 w-4" />
-                  Export CSV
-                </>
-              )}
-            </Button>
+      </div>
+
+      {error && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2.5 text-sm text-red-700">{error}</div>}
+      <DateRangeError fromDate={startDate} toDate={endDate} className="mb-3" />
+
+      {areFiltersVisible && (
+        <div className="mb-4 rounded-xl border border-border/70 bg-muted/20 p-3">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="min-w-0">
+              <Label className="sr-only">Start Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-8 w-full justify-start bg-background px-2.5 text-xs font-normal shadow-none">
+                    <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                    {startDate ? format(startDate, "MMM dd, yyyy") : "Start date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <SpacedCalendar initialFocus mode="single" defaultMonth={startDate} selected={startDate} onSelect={setStartDate} />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="min-w-0">
+              <Label className="sr-only">End Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-8 w-full justify-start bg-background px-2.5 text-xs font-normal shadow-none">
+                    <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                    {endDate ? format(endDate, "MMM dd, yyyy") : "End date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <SpacedCalendar initialFocus mode="single" defaultMonth={endDate} selected={endDate} onSelect={setEndDate} />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="min-w-0">
+              <Label className="sr-only">Purpose</Label>
+              <Select value={selectedPurpose} onValueChange={setSelectedPurpose}>
+                <SelectTrigger className="h-8 w-full bg-background text-xs shadow-none"><SelectValue placeholder="Purpose" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Purposes</SelectItem>
+                  {purposes.map((purpose) => <SelectItem key={purpose} value={purpose}>{purpose}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="min-w-0">
+              <Label htmlFor="visit-customer-filter" className="sr-only">Customer Name</Label>
+              <Input
+                id="visit-customer-filter"
+                type="search"
+                autoComplete="off"
+                placeholder="Customer name"
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
+                className="h-8 bg-background text-xs shadow-none"
+              />
+            </div>
+
+            <div className="min-w-0">
+              <Label className="sr-only">Employee</Label>
+              <SearchableSelect
+                options={employeeOptions}
+                value={selectedExecutive}
+                onSelect={(option) => setSelectedExecutive(!option || option.value === "all" ? "all" : option.value)}
+                placeholder="All employees"
+                loading={isLoadingEmployees}
+                triggerClassName="h-8 w-full justify-between bg-background text-xs shadow-none"
+                contentClassName="w-[var(--radix-popover-trigger-width)]"
+                searchPlaceholder="Search employees..."
+              />
+            </div>
           </div>
         </div>
-        
-        {/* Desktop Table View */}
-        <div className="hidden md:block rounded-md border overflow-hidden w-full">
-          <div className="overflow-x-auto w-full">
-            <Table className="min-w-full">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="whitespace-nowrap">Customer Name</TableHead>
-                  <TableHead className="whitespace-nowrap">Executive</TableHead>
-                  <TableHead className="whitespace-nowrap">Date</TableHead>
-                  <TableHead className="whitespace-nowrap">Status</TableHead>
-                  <TableHead className="whitespace-nowrap">Purpose</TableHead>
-                  <TableHead className="whitespace-nowrap">Visit Start</TableHead>
-                  <TableHead className="whitespace-nowrap">Visit End</TableHead>
-                  <TableHead className="whitespace-nowrap">Intent</TableHead>
-                  <TableHead className="whitespace-nowrap">Last Updated</TableHead>
-                  <TableHead className="whitespace-nowrap">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {!startDate || !endDate ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center text-gray-500">
-                      Select both start and end dates to view visits
-                    </TableCell>
-                  </TableRow>
-                ) : isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center">Loading visits…</TableCell>
-                  </TableRow>
-                ) : filteredVisits.length > 0 ? (
-                  filteredVisits.map((visit) => (
-                    <TableRow key={visit.id}>
-                      <TableCell className="font-medium whitespace-nowrap">
-                        {visit.customerName}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{visit.executive}</TableCell>
-                      <TableCell className="whitespace-nowrap">{formatDateToUserFriendly(visit.date)}</TableCell>
-                      <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
-                          visit.status === "Completed" 
-                            ? "bg-green-100 text-green-800" 
-                            : visit.status === "Ongoing" 
-                              ? "bg-yellow-100 text-yellow-800" 
-                              : visit.status === "Assigned" 
-                                ? "bg-blue-100 text-blue-800" 
-                                : "bg-red-100 text-red-800"
-                        }`}>
-                          {visit.status ?? '—'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{visit.purpose ?? '—'}</TableCell>
-                      <TableCell className="whitespace-nowrap">{visit.visitStart ? formatTimeTo12Hour(visit.visitStart) : '—'}</TableCell>
-                      <TableCell className="whitespace-nowrap">{visit.visitEnd ? formatTimeTo12Hour(visit.visitEnd) : '—'}</TableCell>
-                      <TableCell className="whitespace-nowrap">{visit.intent}</TableCell>
-                      <TableCell className="whitespace-nowrap">{visit.lastUpdated ? formatLastUpdated(visit.lastUpdated) : '—'}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewDetails(visit.id)}
-                          disabled={navigatingVisitId !== null}
-                        >
-                          {navigatingVisitId === visit.id ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Opening…
-                            </>
-                          ) : (
-                            "View Details"
-                          )}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center">
-                      No visits found matching the selected filters
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
+      )}
 
-        {/* Mobile Card View */}
-        <div className="md:hidden space-y-4">
-          {!startDate || !endDate ? (
-            <div className="text-center py-10">
-              <p className="text-lg text-gray-500">Select both start and end dates to view visits</p>
-            </div>
-          ) : isLoading ? (
-            <div className="text-center py-10">
-              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-              <p className="text-lg">Loading visits…</p>
-            </div>
-          ) : filteredVisits.length > 0 ? (
-            filteredVisits.map((visit) => (
-              <Card key={visit.id} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="h-12 w-12 bg-primary rounded-full flex items-center justify-center">
-                        <Building className="h-6 w-6 text-primary-foreground" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-lg font-bold">{visit.customerName}</CardTitle>
-                        <p className="text-sm text-muted-foreground">{formatDateToUserFriendly(visit.date)}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                        visit.status === "Completed" 
-                          ? "bg-green-100 text-green-800" 
-                          : visit.status === "Ongoing" 
-                            ? "bg-yellow-100 text-yellow-800" 
-                            : visit.status === "Assigned" 
-                              ? "bg-blue-100 text-blue-800" 
-                              : "bg-red-100 text-red-800"
-                      }`}>
-                        {visit.status ?? '—'}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleCardExpansion(visit.id)}
-                      >
-                        {expandedCards.includes(visit.id) ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <User className="text-blue-500 h-4 w-4" />
-                      <span className="text-base font-medium">Executive:</span>
-                      <span className="text-base">{visit.executive}</span>
-                    </div>
-                  </div>
-
-                  {expandedCards.includes(visit.id) && (
-                    <div className="mt-4 space-y-3 text-base">
-                      {visit.purpose && (
-                        <div className="flex items-center space-x-2">
-                          <Target className="text-purple-500 h-4 w-4" />
-                          <span className="font-medium">Purpose:</span>
-                          <span>{visit.purpose}</span>
-                        </div>
-                      )}
-                      {visit.visitStart && (
-                        <div className="flex items-center space-x-2">
-                          <Clock className="text-green-500 h-4 w-4" />
-                          <span className="font-medium">Visit Start:</span>
-                          <span>{formatTimeTo12Hour(visit.visitStart)}</span>
-                        </div>
-                      )}
-                      {visit.visitEnd && (
-                        <div className="flex items-center space-x-2">
-                          <Clock className="text-red-500 h-4 w-4" />
-                          <span className="font-medium">Visit End:</span>
-                          <span>{formatTimeTo12Hour(visit.visitEnd)}</span>
-                        </div>
-                      )}
-                      {visit.intent && (
-                        <div className="flex items-center space-x-2">
-                          <Target className="text-orange-500 h-4 w-4" />
-                          <span className="font-medium">Intent:</span>
-                          <span>{visit.intent}</span>
-                        </div>
-                      )}
-                      {visit.lastUpdated && (
-                        <div className="flex items-center space-x-2">
-                          <CalendarIcon className="text-indigo-500 h-4 w-4" />
-                          <span className="font-medium">Last Updated:</span>
-                          <span>{formatLastUpdated(visit.lastUpdated)}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-4 flex justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-base px-4 py-2"
-                      onClick={() => handleViewDetails(visit.id)}
-                      disabled={navigatingVisitId !== null}
-                    >
-                      {navigatingVisitId === visit.id ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Opening…
-                        </>
-                      ) : (
-                        "View Details"
-                      )}
+      <div className="hidden min-w-0 md:block">
+        <Table className="table-fixed text-xs font-poppins">
+          <colgroup>
+            <col className="w-[16%]" /><col className="w-[15%]" /><col className="w-[10%]" />
+            <col className="w-[10%]" /><col className="w-[10%]" /><col className="w-[8%]" />
+            <col className="w-[8%]" /><col className="w-[5%]" /><col className="w-[13%]" /><col className="w-[5%]" />
+          </colgroup>
+          <TableHeader>
+            <TableRow>
+              {['Customer Name', 'Executive', 'Date', 'Status', 'Purpose', 'Visit Start', 'Visit End', 'Intent', 'Last Updated', 'Actions'].map((heading) => (
+                <TableHead key={heading} className="overflow-hidden text-ellipsis whitespace-nowrap" title={heading}>{heading}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!startDate || !endDate ? (
+              <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">Select both dates to view visits</TableCell></TableRow>
+            ) : isLoading ? (
+              Array.from({ length: 3 }, (_, index) => (
+                <TableRow key={`visit-skeleton-${index}`}>{Array.from({ length: 10 }, (_, cell) => <TableCell key={cell}><Skeleton className="h-4 w-full max-w-24" /></TableCell>)}</TableRow>
+              ))
+            ) : filteredVisits.length > 0 ? (
+              filteredVisits.map((visit) => (
+                <TableRow key={visit.id}>
+                  <TableCell className="font-medium"><Ellipsis value={visit.customerName} /></TableCell>
+                  <TableCell><Ellipsis value={visit.executive} /></TableCell>
+                  <TableCell><Ellipsis value={formatDateToUserFriendly(visit.date)} /></TableCell>
+                  <TableCell>
+                    <span className={`inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${statusClassName(visit.status)}`}>
+                      {visit.status ?? '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell><Ellipsis value={visit.purpose} /></TableCell>
+                  <TableCell><Ellipsis value={visit.visitStart ? formatTimeTo12Hour(visit.visitStart) : '—'} /></TableCell>
+                  <TableCell><Ellipsis value={visit.visitEnd ? formatTimeTo12Hour(visit.visitEnd) : '—'} /></TableCell>
+                  <TableCell><Ellipsis value={visit.intent} /></TableCell>
+                  <TableCell><Ellipsis value={visit.lastUpdated ? formatLastUpdated(visit.lastUpdated) : '—'} /></TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => handleViewDetails(visit.id)} disabled={navigatingVisitId !== null}>
+                      {navigatingVisitId === visit.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View"}
                     </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No visits match the selected filters</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="space-y-3 md:hidden">
+        {!startDate || !endDate ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">Select both dates to view visits</div>
+        ) : isLoading ? (
+          Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-36 w-full rounded-xl" />)
+        ) : filteredVisits.length > 0 ? (
+          filteredVisits.map((visit) => (
+            <Card key={visit.id} className="overflow-hidden shadow-none">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold" title={visit.customerName}>{visit.customerName}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{formatDateToUserFriendly(visit.date)}</p>
                   </div>
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <div className="text-center py-10">
-              <p className="text-lg">No visits found matching the selected filters</p>
-            </div>
-          )}
-        </div>
-        
-        {/* Pagination Controls */}
-        {startDate && endDate && (
-          <div className="flex items-center justify-between mt-4">
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="pageSize">Rows per page:</Label>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${statusClassName(visit.status)}`}>{visit.status ?? '—'}</span>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex min-w-0 items-center gap-1.5"><User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><Ellipsis value={visit.executive} /></div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => toggleCardExpansion(visit.id)} aria-label="Toggle visit details">
+                    {expandedCards.includes(visit.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {expandedCards.includes(visit.id) && (
+                  <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-xs">
+                    <div><span className="text-muted-foreground">Purpose</span><p className="truncate font-medium">{visit.purpose ?? '—'}</p></div>
+                    <div><span className="text-muted-foreground">Intent</span><p className="font-medium">{visit.intent ?? '—'}</p></div>
+                    <div><span className="text-muted-foreground">Start</span><p className="font-medium">{visit.visitStart ? formatTimeTo12Hour(visit.visitStart) : '—'}</p></div>
+                    <div><span className="text-muted-foreground">End</span><p className="font-medium">{visit.visitEnd ? formatTimeTo12Hour(visit.visitEnd) : '—'}</p></div>
+                  </div>
+                )}
+                <div className="mt-3 flex justify-end">
+                  <Button variant="outline" size="sm" className="h-7 px-3 text-xs" onClick={() => handleViewDetails(visit.id)} disabled={navigatingVisitId !== null}>
+                    {navigatingVisitId === visit.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View details"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <div className="py-10 text-center text-sm text-muted-foreground">No visits match the selected filters</div>
+        )}
+      </div>
+
+      {startDate && endDate && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs">
+            <Label htmlFor="pageSize" className="text-xs">Rows per page:</Label>
             <Select value={pageSize.toString()} onValueChange={(value) => setPageSize(parseInt(value))}>
-              <SelectTrigger className="w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
+              <SelectTrigger id="pageSize" className="h-8 w-20 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>{[10, 25, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
-              disabled={currentPage === 0}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-8" onClick={() => setCurrentPage(Math.max(0, currentPage - 1))} disabled={currentPage === 0}>
+              <ChevronLeft className="h-4 w-4" /><span className="hidden sm:inline">Previous</span>
             </Button>
-            
-            <span className="text-sm text-muted-foreground">
-              Page {currentPage + 1} of {totalPages}
-            </span>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
-              disabled={currentPage >= totalPages - 1}
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
+            <span className="text-xs text-muted-foreground">Page {currentPage + 1} of {Math.max(totalPages, 1)}</span>
+            <Button variant="outline" size="sm" className="h-8" onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))} disabled={currentPage >= totalPages - 1}>
+              <span className="hidden sm:inline">Next</span><ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>
-        )}
-      </CardContent>
-      </Card>
-    </>
+      )}
+    </div>
   );
 }

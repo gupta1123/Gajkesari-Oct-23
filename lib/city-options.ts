@@ -76,3 +76,8 @@ export const mergeCityOptions = <T extends CityOptionLike>(
     a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
   );
 };
+
+export const formatCityLabel = (city?: string | null): string => {
+  if (!city) return 'N/A';
+  return city.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+};

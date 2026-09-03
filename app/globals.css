@@ -296,3 +296,53 @@
 .detail-value {
   @apply text-sm text-gray-200;
 }
+
+/* Match German Steel's denser dashboard card primitive without changing the
+   spacing of Gajkesari's other pages while they are migrated one at a time. */
+.german-dashboard-density [data-slot="card"] {
+  gap: 1.25rem;
+  padding-block: 1.25rem;
+}
+
+.german-dashboard-density [data-slot="card-header"] {
+  padding-inline: 1.25rem;
+}
+
+.german-dashboard-density [data-slot="card-header"].border-b {
+  padding-bottom: 1.25rem;
+}
+
+.german-dashboard-density [data-slot="card-content"]:not(.p-0) {
+  padding-inline: 1.25rem;
+}
+
+.german-dashboard-density [data-slot="card-footer"] {
+  padding-inline: 1.25rem;
+}
+
+.german-dashboard-density [data-slot="card-footer"].border-t {
+  padding-top: 1.25rem;
+}
+
+.german-dashboard-density [data-slot="card-title"]:not(.text-lg) {
+  font-size: 0.875rem;
+}
+
+/* Keep the dashboard basemap on German Steel's untinted OpenStreetMap palette,
+   including when the surrounding application uses dark mode. */
+.german-steel-map {
+  background: #ddd;
+}
+
+.german-steel-map .leaflet-tile {
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.dark .german-steel-map {
+  background: #262626;
+}
+
+.dark .german-steel-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) saturate(0.35) brightness(0.8);
+}

@@ -31,6 +31,14 @@ export interface EmployeeDto {
 // Alias for backward compatibility
 export type Employee = EmployeeDto;
 
+export interface VisitAttachmentResponse {
+  fileName: string;
+  fileDownloadUri: string;
+  fileType: string;
+  tag?: string;
+  size?: number;
+}
+
 export interface VisitDto {
   id: number;
   storeId: number;
@@ -60,7 +68,7 @@ export interface VisitDto {
   outcome?: string;
   feedback?: string;
   attachment?: Array<Record<string, unknown>>;
-  attachmentResponse?: Array<Record<string, unknown>>;
+  attachmentResponse?: VisitAttachmentResponse[];
   visitIntentId?: number;
   visitIntentValue?: number;
   city?: string;
@@ -165,6 +173,13 @@ export interface Task {
   assignedTo: string;
   dueDate: string;
   visitId: number;
+  assignedToId?: number;
+  assignedBy?: string;
+  storeName?: string;
+  storeCity?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  imageCount?: number;
 }
 
 // Alias for backward compatibility
@@ -386,6 +401,7 @@ export interface EmployeeUserDto {
   dateOfJoining: string;
   city: string;
   state: string;
+  assignedCity?: string[];
   country?: string;
   addressLine1?: string;
   addressLine2?: string;
@@ -410,6 +426,49 @@ export interface EmployeeStatsWithVisits {
     absences: number;
   };
   visitDto: VisitDto[];
+}
+
+export interface VisitPurposeCount {
+  purpose: string;
+  count: number;
+}
+
+export interface EmployeeVisitSummary {
+  completedVisits: number;
+  visitsByPurpose: VisitPurposeCount[];
+}
+
+export interface EmployeeStatsOptimizedResponse {
+  statsDto: EmployeeStatsWithVisits['statsDto'];
+  summary: EmployeeVisitSummary;
+  visitPage: VisitResponse;
+}
+
+export interface EmployeeDashboardSummary {
+  employeeId: number;
+  employeeName: string;
+  startDate: string;
+  endDate: string;
+  statsDto: EmployeeStatsWithVisits['statsDto'] & {
+    presentDays?: number;
+    completedVisitCount?: number;
+    totalVisitCount?: number;
+  };
+  visitSummary: EmployeeVisitSummary;
+  expenseSummary: {
+    expenseCount: number;
+    totalAmount: number;
+    approvedCount: number;
+    approvedAmount: number;
+    pendingCount: number;
+    pendingAmount: number;
+    rejectedCount: number;
+    rejectedAmount: number;
+  };
+  brandSummary: {
+    pricingEntryCount: number;
+    distinctBrandCount: number;
+  };
 }
 
 export interface TeamManagerDto {
@@ -463,6 +522,37 @@ export interface DailyBreakdownDto {
   baseEarned: number;
 }
 
+export interface DashboardSummary {
+  startDate: string;
+  endDate: string;
+  totalVisits: number;
+  activeEmployees: number;
+  countsByEmployee: Array<{
+    employeeId: number;
+    employeeName: string;
+    visitCount: number;
+  }>;
+}
+
+export interface EmployeeJourneyPoint {
+  id: number;
+  employeeId: number;
+  employeeName: string;
+  storeName: string;
+  lat: number;
+  lng: number;
+  coordinateSource: string;
+  visitDate: string;
+  checkinDate?: string | null;
+  checkinTime?: string | null;
+  checkoutDate?: string | null;
+  checkoutTime?: string | null;
+  purpose?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+}
+
 // API Service Class
 export class API {
   private baseUrl: string;
@@ -498,6 +588,14 @@ export class API {
     return apiService.getReportCounts(startDate, endDate);
   }
 
+  static async getDashboardSummary(startDate: string, endDate: string): Promise<DashboardSummary> {
+    return apiService.getDashboardSummary(startDate, endDate);
+  }
+
+  static async getEmployeeJourney(employeeId: number, startDate: string, endDate: string): Promise<EmployeeJourneyPoint[]> {
+    return apiService.getEmployeeJourney(employeeId, startDate, endDate);
+  }
+
   static async getAttendanceByDate(date: string): Promise<AttendanceLogItem[]> {
     return apiService.getAttendanceForRange(date, date);
   }
@@ -522,6 +620,10 @@ export class API {
 
   static async getVisitsForTeam(teamId: number, startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', purpose?: string, priority?: string, storeName?: string, employeeName?: string): Promise<VisitResponse> {
     return apiService.getVisitsForTeam(teamId, startDate, endDate, page, size, sort, purpose, priority, storeName, employeeName);
+  }
+
+  static async getVisitsForTeams(teamIds: number[], startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', purpose?: string, priority?: string, outcome?: string, storeName?: string, employeeName?: string): Promise<VisitResponse> {
+    return apiService.getVisitsForTeams(teamIds, startDate, endDate, page, size, sort, purpose, priority, outcome, storeName, employeeName);
   }
 
   static async checkoutVisit(id: number, payload: VisitCheckoutPayload): Promise<string> {
@@ -632,6 +734,18 @@ export class API {
     return apiService.editUsername(id, username);
   }
 
+  static async assignEmployeeCity(employeeId: number, city: string): Promise<unknown> {
+    return apiService.assignEmployeeCity(employeeId, city);
+  }
+
+  static async removeEmployeeCity(employeeId: number, city: string): Promise<unknown> {
+    return apiService.removeEmployeeCity(employeeId, city);
+  }
+
+  static async getArchivedEmployees(): Promise<EmployeeUserDto[]> {
+    return apiService.getAllInactiveEmployees();
+  }
+
   static async setEmployeeActive(id: number): Promise<unknown> {
     return apiService.setEmployeeActive(id);
   }
@@ -642,6 +756,14 @@ export class API {
 
   static async getEmployeeStatsWithVisits(employeeId: number, startDate: string, endDate: string): Promise<EmployeeStatsWithVisits> {
     return apiService.getEmployeeStatsWithVisits(employeeId, startDate, endDate);
+  }
+
+  static async getEmployeeStatsOptimized(employeeId: number, startDate: string, endDate: string, page: number = 0, size: number = 20, sort: string = 'id,desc'): Promise<EmployeeStatsOptimizedResponse> {
+    return apiService.getEmployeeStatsOptimized(employeeId, startDate, endDate, page, size, sort);
+  }
+
+  static async getEmployeeDashboardSummary(employeeId: number, startDate: string, endDate: string): Promise<EmployeeDashboardSummary> {
+    return apiService.getEmployeeDashboardSummary(employeeId, startDate, endDate);
   }
 
   static async getEmployeeLiveLocation(employeeId: number): Promise<LiveLocationDto> {
@@ -920,6 +1042,47 @@ Please check your internet connection and try again.`);
     return this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
   }
 
+  async getEmployeeStatsOptimized(employeeId: number, startDate: string, endDate: string, page: number = 0, size: number = 20, sort: string = 'id,desc'): Promise<EmployeeStatsOptimizedResponse> {
+    void sort;
+    const result = await this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
+      const completedVisits = (result.visitDto || []).filter((visit) => visit.checkinTime && visit.checkoutTime);
+      const purposeCounts = new Map<string, number>();
+      completedVisits.forEach((visit) => {
+        const purpose = (visit.purpose || 'Other').trim() || 'Other';
+        purposeCounts.set(purpose, (purposeCounts.get(purpose) || 0) + 1);
+      });
+      const startIndex = Math.max(page, 0) * size;
+      const content = completedVisits.slice(startIndex, startIndex + size);
+      const totalPages = Math.max(Math.ceil(completedVisits.length / size), 1);
+    return {
+        statsDto: result.statsDto,
+        summary: {
+          completedVisits: completedVisits.length,
+          visitsByPurpose: Array.from(purposeCounts, ([purpose, count]) => ({ purpose, count })),
+        },
+        visitPage: {
+          content,
+          pageable: {
+            pageNumber: page,
+            pageSize: size,
+            sort: { empty: false, sorted: true, unsorted: false },
+            offset: startIndex,
+            paged: true,
+            unpaged: false,
+          },
+          totalPages,
+          totalElements: completedVisits.length,
+          last: page >= totalPages - 1,
+          size,
+          number: page,
+          sort: { empty: false, sorted: true, unsorted: false },
+          numberOfElements: content.length,
+          first: page === 0,
+          empty: content.length === 0,
+        },
+    };
+  }
+
   async getVisitsByDateSorted(startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', storeName?: string, employeeName?: string): Promise<VisitResponse> {
     let url = `/visit/getByDateSorted?startDate=${startDate}&endDate=${endDate}&page=${page}&size=${size}&sort=${sort}`;
     if (storeName && storeName.trim() !== '') {
@@ -962,6 +1125,19 @@ Please check your internet connection and try again.`);
     
     console.log('Team API URL:', `${this.baseUrl}${url}`);
     return this.makeRequest<VisitResponse>(url);
+  }
+
+  async getVisitsForTeams(teamIds: number[], startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', purpose?: string, priority?: string, outcome?: string, storeName?: string, employeeName?: string): Promise<VisitResponse> {
+    const query = new URLSearchParams({
+      startDate, endDate, page: String(page), size: String(size), sort,
+    });
+    teamIds.forEach((teamId) => query.append('teamIds', String(teamId)));
+    if (purpose?.trim()) query.set('purpose', purpose.trim());
+    if (priority?.trim()) query.set('priority', priority.trim());
+    if (outcome?.trim()) query.set('outcome', outcome.trim());
+    if (storeName?.trim()) query.set('storeName', storeName.trim());
+    if (employeeName?.trim()) query.set('employeeName', employeeName.trim());
+    return this.makeRequest<VisitResponse>(`/visit/getForTeams?${query}`);
   }
 
   // Visit detail APIs
@@ -1295,6 +1471,20 @@ Please check your internet connection and try again.`);
     return this.makeRequest<string[]>('/employee/getCities');
   }
 
+  async assignEmployeeCity(employeeId: number, city: string): Promise<unknown> {
+    return this.makeRequest<unknown>(
+      `/employee/assignCity?id=${employeeId}&city=${encodeURIComponent(city)}`,
+      { method: 'PUT' }
+    );
+  }
+
+  async removeEmployeeCity(employeeId: number, city: string): Promise<unknown> {
+    return this.makeRequest<unknown>(
+      `/employee/removeAssignedCity?employeeId=${employeeId}&city=${encodeURIComponent(city)}`,
+      { method: 'DELETE' }
+    );
+  }
+
   async getAllInactiveEmployees(): Promise<EmployeeUserDto[]> {
     return this.makeRequest<EmployeeUserDto[]>('/employee/getAllInactive');
   }
@@ -1346,6 +1536,82 @@ Please check your internet connection and try again.`);
 
   async getCurrentUser(): Promise<CurrentUserDto> {
     return this.makeRequest<CurrentUserDto>(`${SECONDARY_API_BASE_URL}/user/manage/current-user`);
+  }
+
+  async getDashboardSummary(startDate: string, endDate: string): Promise<DashboardSummary> {
+    const query = new URLSearchParams({ startDate, endDate });
+    return this.makeRequest<DashboardSummary>(`/dashboard/summary?${query}`);
+  }
+
+  async getEmployeeJourney(employeeId: number, startDate: string, endDate: string): Promise<EmployeeJourneyPoint[]> {
+    const query = new URLSearchParams({ employeeId: String(employeeId), startDate, endDate });
+    try {
+      return await this.makeRequest<EmployeeJourneyPoint[]>(`/visit/employee-journey?${query}`);
+    } catch (optimizedEndpointError) {
+      console.warn('Optimized employee journey endpoint unavailable; using the existing visit endpoint.', optimizedEndpointError);
+      const result = await this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
+      return (result.visitDto || []).map((visit) => ({
+        id: visit.id,
+        employeeId: visit.employeeId,
+        employeeName: visit.employeeName,
+        storeName: visit.storeName,
+        lat: visit.checkinLatitude ?? visit.visitLatitude ?? visit.storeLatitude ?? 0,
+        lng: visit.checkinLongitude ?? visit.visitLongitude ?? visit.storeLongitude ?? 0,
+        coordinateSource: visit.checkinLatitude != null && visit.checkinLongitude != null
+          ? 'check-in'
+          : visit.visitLatitude != null && visit.visitLongitude != null
+            ? 'visit'
+            : 'store',
+        visitDate: visit.visit_date,
+        checkinDate: visit.checkinDate,
+        checkinTime: visit.checkinTime,
+        checkoutDate: visit.checkoutDate,
+        checkoutTime: visit.checkoutTime,
+        purpose: visit.purpose,
+        city: visit.city,
+        state: visit.state,
+        country: visit.country,
+      }));
+    }
+  }
+
+  async getEmployeeDashboardSummary(employeeId: number, startDate: string, endDate: string): Promise<EmployeeDashboardSummary> {
+    const result = await this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
+      const completedVisits = (result.visitDto || []).filter((visit) => visit.checkinTime && visit.checkoutTime);
+      const purposeCounts = new Map<string, number>();
+      completedVisits.forEach((visit) => {
+        const purpose = (visit.purpose || 'Other').trim() || 'Other';
+        purposeCounts.set(purpose, (purposeCounts.get(purpose) || 0) + 1);
+      });
+    return {
+        employeeId,
+        employeeName: result.visitDto?.[0]?.employeeName || '',
+        startDate,
+        endDate,
+        statsDto: {
+          ...result.statsDto,
+          completedVisitCount: completedVisits.length,
+          totalVisitCount: result.visitDto?.length || 0,
+        },
+        visitSummary: {
+          completedVisits: completedVisits.length,
+          visitsByPurpose: Array.from(purposeCounts, ([purpose, count]) => ({ purpose, count })),
+        },
+        expenseSummary: {
+          expenseCount: 0,
+          totalAmount: 0,
+          approvedCount: 0,
+          approvedAmount: 0,
+          pendingCount: 0,
+          pendingAmount: 0,
+          rejectedCount: 0,
+          rejectedAmount: 0,
+        },
+        brandSummary: {
+          pricingEntryCount: 0,
+          distinctBrandCount: 0,
+        },
+    };
   }
 
   async getStoresForTeam(teamId: number, page: number = 0, size: number = 10): Promise<StoreResponse> {

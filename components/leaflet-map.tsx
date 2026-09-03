@@ -1,331 +1,331 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import { FC, memo, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Home, UserRound } from "lucide-react";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import "./location-map.css";
+import { groupMapMarkers, type EmployeeMapMarker } from "@/lib/employee-map";
+import { INDIA_MAP_BOUNDS } from "@/lib/map-region";
 
-// Fix for default marker icons in Leaflet
-delete (L.Icon.Default.prototype as unknown as Record<string, never>)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
-
-// Color palette for different employees
-const colorPalette = [
-  '#ef4444', // red
-  '#3b82f6', // blue
-  '#10b981', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#84cc16', // lime
-  '#f97316', // orange
-  '#6366f1', // indigo
-  '#14b8a6', // teal
-  '#a855f7', // purple
-  '#e11d48', // rose
-  '#0ea5e9', // sky
-  '#22c55e', // emerald
-  '#facc15', // yellow
-];
-
-// Function to get color for an employee based on their ID
-const getEmployeeColor = (employeeId: number | string): string => {
-  const id = typeof employeeId === 'string' ? parseInt(employeeId) : employeeId;
-  return colorPalette[id % colorPalette.length];
-};
-
-// Custom marker icons for different types with employee-specific colors
-const createCustomIcon = (color: string, markerType: string, order?: number) => {
-  // Different shapes for different marker types
-  const shape = markerType === 'house' ? 'square' : 'circle';
-  // Mobile-friendly sizes - larger for touch interaction
-  const size = markerType === 'house' ? '36px' : '40px';
-  
-  const isVisitWithOrder = markerType === 'visit' && typeof order === 'number' && order > 0;
-
-  return L.divIcon({
-    className: 'custom-marker',
-    html: `<div style="
-      background-color: ${color};
-      width: ${size};
-      height: ${size};
-      border-radius: ${shape === 'square' ? '8px' : '50%'};
-      border: 3px solid white;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      font-size: 16px;
-      color: #fff;
-      font-weight: 700;
-      line-height: 1;
-      cursor: pointer;
-      touch-action: manipulation;
-    ">
-      ${isVisitWithOrder ? `${order}` : (markerType === 'house' ? '🏠' : markerType === 'visit' ? '📍' : '👤')}
-    </div>`,
-    iconSize: markerType === 'house' ? [36, 36] : [40, 40],
-    iconAnchor: markerType === 'house' ? [18, 18] : [20, 20],
-  });
-};
-
-interface MapMarker {
-  id: number | string;
-  name?: string;
-  lat: number;
-  lng: number;
-  subtitle?: string;
-  type?: "live" | "house" | "visit";
-  tooltipLines?: string[];
-  employeeId?: number; // Employee ID for color assignment
-  order?: number; // Visit order number
-}
-
-interface LeafletMapProps {
+export interface LeafletMapProps {
   center: [number, number];
   zoom: number;
   highlightedEmployee: Record<string, unknown> | null;
-  markers?: MapMarker[];
-  onMarkerClick?: (marker: MapMarker) => void;
+  markers?: EmployeeMapMarker[];
+  onMarkerClick?: (marker: EmployeeMapMarker) => void;
+  fitMarkers?: boolean;
+  viewKey?: string;
+  overviewZoom?: number;
+  overviewMarkerId?: number | null;
 }
 
-const getHighlightedId = (employee: Record<string, unknown> | null) => {
-  if (!employee) return null;
-  if (employee.listId) return employee.listId;
-  if (employee.id) return employee.id;
-  if (employee.location) return employee.location;
-  return String(employee);
+const homeSvg = renderToStaticMarkup(<Home size={16} aria-hidden />);
+const employeeSvg = renderToStaticMarkup(<UserRound size={16} aria-hidden />);
+
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
+
+const markerLabel = (marker: EmployeeMapMarker) =>
+  marker.type === "visit"
+    ? `Visit ${marker.order ?? ""}: ${marker.name || "Customer"}`
+    : marker.type === "house"
+      ? marker.name || "Home location"
+      : `${marker.name || "Employee"}: last-known location`;
+
+const isInsideIndiaViewport = (marker: EmployeeMapMarker) => {
+  const [[south, west], [north, east]] = INDIA_MAP_BOUNDS;
+  return marker.lat >= south && marker.lat <= north && marker.lng >= west && marker.lng <= east;
 };
 
-// Helper component to imperatively update map view when props change
-const MapController: FC<{ center: [number, number]; zoom: number }> = ({ center, zoom }) => {
-  const map = useMap();
-  useEffect(() => {
-    try {
-      map.flyTo(center, zoom, { duration: 0.8 });
-    } catch {
-      // no-op
-    }
-  }, [center[0], center[1], zoom]);
-  return null;
-};
+function pointIcon(marker: EmployeeMapMarker) {
+  const type = marker.type || "live";
+  const content = type === "house" ? homeSvg : type === "visit" ? escapeHtml(String(marker.order ?? "V")) : employeeSvg;
+  return L.divIcon({
+    className: "location-marker",
+    html: `<span class="location-marker-face location-marker-${type}" aria-label="${escapeHtml(markerLabel(marker))}">${content}</span>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+    popupAnchor: [0, -20],
+  });
+}
 
-const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmployee, markers = [], onMarkerClick }) => {
-  const [isClient, setIsClient] = useState(false);
-
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  if (!isClient) {
-    return (
-      <div className="h-full w-full bg-gray-100 rounded-xl flex items-center justify-center">
-        <div className="text-gray-500">Loading map...</div>
-      </div>
-    );
-  }
-
+function LocationDetails({ marker }: { marker: EmployeeMapMarker }) {
   return (
-    <MapContainer 
-      center={center} 
-      zoom={zoom} 
-      style={{ height: '100%', width: '100%' }}
-      className="rounded-xl"
-    >
-      {/* Keep map view in sync with incoming props */}
-      <MapController center={center} zoom={zoom} />
-      <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        // attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        subdomains="abcd"
-        maxZoom={20}
-      />
-      {/* Dynamic employee markers */}
-      {markers.map((m, index) => {
-        console.log('Rendering marker:', m);
-        const markerType = m.type || 'live';
-        const employeeId = m.employeeId || m.id;
-        const employeeColor = getEmployeeColor(employeeId);
-        
-        // Create unique key combining id, type, coordinates, and index
-        const uniqueKey = `${m.id}-${markerType}-${m.lat}-${m.lng}-${index}`;
-        
-        // Special handling for "no location data" markers
-        if (m.id && String(m.id).startsWith('no-location-')) {
-          const noLocationIcon = createCustomIcon('#6B7280', 'live'); // Gray color for no location
-          return (
-            <Marker 
-              key={uniqueKey} 
-              position={[m.lat, m.lng]}
-              icon={noLocationIcon}
-            >
-              <Popup>
-                <div className="min-w-[320px] max-w-[400px] sm:min-w-[350px] sm:max-w-[450px]">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100">
-                        <svg className="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          📍 Location Data Unavailable
-                        </h3>
-                        <p className="text-xs text-gray-500">
-                          {m.name || 'Employee Location Information'}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-sm text-gray-700 mb-2">
-                        No location information is currently available for this employee.
-                      </p>
-                      <div className="text-xs text-gray-600">
-                        <p className="font-medium mb-1">This could be due to:</p>
-                        <ul className="space-y-1 list-disc list-inside">
-                          <li>Location services disabled on their device</li>
-                          <li>No recent location updates</li>
-                          <li>Data synchronization in progress</li>
-                          <li>Privacy settings restricting location sharing</li>
-                        </ul>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>Contact the employee to enable location services</span>
-                    </div>
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
-          );
-        }
-        
-        const icon = createCustomIcon(employeeColor, markerType, (m as { order?: number }).order);
-        
-        // Validate coordinates before rendering
-        if (isNaN(m.lat) || isNaN(m.lng) || m.lat === 0 || m.lng === 0) {
-          console.log('Skipping marker with invalid coordinates:', m);
-          return null;
-        }
-        
+    <div className="location-popup-content">
+      <h3>{marker.name || "Employee location"}</h3>
+      <p className="location-popup-kind">
+        {marker.type === "house"
+          ? "Home location"
+          : marker.type === "visit"
+            ? `Visit ${marker.order ?? ""} · ${marker.subtitle || ""}`
+            : "Last-known location"}
+      </p>
+      {marker.type !== "visit" && marker.subtitle && (
+        <p>{marker.type === "live" ? "Updated: " : ""}{marker.subtitle}</p>
+      )}
+      {marker.tooltipLines?.map((line, index) => {
+        const separator = line.indexOf(": ");
         return (
-          <Marker 
-            key={uniqueKey} 
-            position={[m.lat, m.lng]}
-            icon={icon}
-            eventHandlers={onMarkerClick ? { click: () => onMarkerClick(m) } : undefined}
-          >
-            <Popup>
-              <div className="min-w-[280px] max-w-[320px] sm:min-w-[300px] sm:max-w-[350px]">
-                {markerType === 'visit' ? (
-                  // Visit Card Layout - Mobile Optimized
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="h-3 w-3 rounded-full"
-                        style={{ backgroundColor: employeeColor }}
-                      />
-                      <span className="text-sm sm:text-base font-semibold text-gray-900">
-                        {m.name || 'Visit'}
-                      </span>
-                    </div>
-                    
-                    {m.tooltipLines && m.tooltipLines.length > 0 && (
-                      <div className="space-y-2">
-                        {m.tooltipLines.map((line: string, index: number) => {
-                          const [label, value] = line.split(': ');
-                          return (
-                            <div key={index} className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2">
-                              <span className="text-xs sm:text-sm font-medium text-gray-600 sm:min-w-[80px]">
-                                {label}:
-                              </span>
-                              <span className="text-xs sm:text-sm text-gray-800 sm:text-right break-words">
-                                {value}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    
-                    <div className="pt-2 border-t border-gray-200">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                        <span 
-                          className="inline-flex items-center rounded-full px-2 py-1 text-xs sm:text-sm font-medium text-white"
-                          style={{ backgroundColor: employeeColor }}
-                        >
-                          Visit Location
-                        </span>
-                        {m.subtitle && (
-                          <span className="text-xs sm:text-sm text-gray-500 break-words">
-                            {m.subtitle}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  // Default Layout for Live/House locations - Mobile Optimized
-                  <div className="space-y-2">
-                    <div className="text-sm sm:text-base font-semibold">{m.name || 'Employee'}</div>
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                      <span 
-                        className="inline-flex items-center rounded-full px-2 py-1 text-xs sm:text-sm font-medium text-white"
-                        style={{ backgroundColor: employeeColor }}
-                      >
-                        {markerType === 'live' ? 'Live location' :
-                         markerType === 'house' ? 'Home' :
-                         'Location'}
-                      </span>
-                      {m.subtitle && (
-                        <span className="text-xs sm:text-sm text-muted-foreground break-words">
-                          {markerType === 'live' ? 'Updated: ' : ''}{m.subtitle}
-                        </span>
-                      )}
-                    </div>
-                    {m.tooltipLines && m.tooltipLines.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {m.tooltipLines.map((line: string, index: number) => (
-                          <div key={index} className="text-xs sm:text-sm text-muted-foreground break-words">
-                            {line}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Popup>
-          </Marker>
+          <div className="location-popup-row" key={index}>
+            <span>{separator < 0 ? "" : line.slice(0, separator)}</span>
+            <strong>{separator < 0 ? line : line.slice(separator + 2)}</strong>
+          </div>
         );
       })}
-    </MapContainer>
+      <div className="location-popup-coordinate">
+        Recorded coordinates: {Number(marker.lat).toFixed(5)}, {Number(marker.lng).toFixed(5)}
+      </div>
+    </div>
   );
-};
+}
 
-const LeafletMap = memo(
-  LeafletMapComponent,
-  (prev, next) =>
-    prev.zoom === next.zoom &&
-    prev.center[0] === next.center[0] &&
-    prev.center[1] === next.center[1] &&
-    getHighlightedId(prev.highlightedEmployee) ===
-      getHighlightedId(next.highlightedEmployee)
-);
+function MapViewport({
+  markers,
+  center,
+  zoom,
+  fitMarkers,
+  viewKey,
+  overviewZoom,
+  overviewMarkerId,
+}: {
+  markers: EmployeeMapMarker[];
+  center: [number, number];
+  zoom: number;
+  fitMarkers?: boolean;
+  viewKey?: string;
+  overviewZoom?: number;
+  overviewMarkerId?: number | null;
+}) {
+  const map = useMap();
+  const geometry = markers.map((marker) => `${marker.id}:${marker.lat}:${marker.lng}`).sort().join("|");
 
-LeafletMap.displayName = 'LeafletMap';
+  useEffect(() => {
+    const fit = () => {
+      if (!map.getContainer().isConnected || !map.getPane("mapPane")) return;
+      map.invalidateSize({ pan: false });
+      map.setMinZoom(0);
+      map.setMinZoom(map.getBoundsZoom(INDIA_MAP_BOUNDS));
+      if (overviewZoom != null && markers.length) {
+        // A multi-state fit hides local streets. Start at the same city-detail
+        // scale as German Steel without replacing Gajkesari's real locations.
+        const focus = markers.find((marker) => Number(marker.employeeId ?? marker.id) === overviewMarkerId) ?? markers[0];
+        map.setView([focus.lat, focus.lng], overviewZoom, { animate: false });
+      } else if (fitMarkers && markers.length) {
+        map.fitBounds(
+          L.latLngBounds(markers.map((marker) => [marker.lat, marker.lng] as [number, number])),
+          { padding: [48, 48], maxZoom: 15, animate: false },
+        );
+      } else {
+        map.fitBounds(INDIA_MAP_BOUNDS, { animate: false });
+      }
+    };
+    fit();
+    const observer = new ResizeObserver(() => {
+      if (map.getContainer().clientWidth > 0) fit();
+    });
+    observer.observe(map.getContainer());
+    return () => observer.disconnect();
+  }, [map, geometry, viewKey, fitMarkers, center, zoom, overviewZoom, overviewMarkerId]);
 
-export default LeafletMap;
+  return null;
+}
+
+function LocationLayers({
+  markers,
+  focused,
+  onMarkerClick,
+}: {
+  markers: EmployeeMapMarker[];
+  focused: boolean;
+  onMarkerClick?: (marker: EmployeeMapMarker) => void;
+}) {
+  const [revision, setRevision] = useState(0);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const map = useMapEvents({
+    zoomend: () => {
+      setRevision((value) => value + 1);
+      setExpanded(null);
+    },
+    moveend: () => setRevision((value) => value + 1),
+    resize: () => setRevision((value) => value + 1),
+  });
+
+  const groups = useMemo(
+    () =>
+      groupMapMarkers(
+        markers.map((marker) => {
+          const point = map.latLngToLayerPoint([marker.lat, marker.lng]);
+          return { marker, x: point.x, y: point.y };
+        }),
+      ),
+    [markers, map, revision],
+  );
+
+  return (
+    <>
+      {groups.map((group) => {
+        const groupKey = group.map((point) => `${point.marker.type || "live"}-${point.marker.id}`).sort().join("|");
+        const centerPoint = L.point(
+          group.reduce((sum, point) => sum + point.x, 0) / group.length,
+          group.reduce((sum, point) => sum + point.y, 0) / group.length,
+        );
+        const groupPosition = map.layerPointToLatLng(centerPoint);
+        const spread = group.length > 1 && (focused || expanded === groupKey);
+
+        if (group.length > 1 && !spread) {
+          const label = `${group.length} nearby employee locations. Click to expand.`;
+          return (
+            <Marker
+              key={groupKey}
+              position={groupPosition}
+              title={label}
+              alt={label}
+              icon={L.divIcon({
+                className: "location-marker",
+                html: `<span class="location-cluster">${group.length}<small>people</small></span>`,
+                iconSize: [46, 46],
+                iconAnchor: [23, 23],
+              })}
+              eventHandlers={{
+                click: () => {
+                  const coordinates = new Set(group.map((point) => `${point.marker.lat},${point.marker.lng}`));
+                  if (coordinates.size > 1 && map.getZoom() < 17) {
+                    map.fitBounds(
+                      L.latLngBounds(group.map((point) => [point.marker.lat, point.marker.lng] as [number, number])),
+                      { padding: [70, 70], maxZoom: 17, animate: false },
+                    );
+                  }
+                  setExpanded(groupKey);
+                },
+              }}
+            />
+          );
+        }
+
+        return (
+          <Fragment key={groupKey}>
+            {group.map(({ marker }, index) => {
+              const ring = Math.floor(index / 10);
+              const countInRing = Math.min(10, group.length - ring * 10);
+              const angle = ((index % 10) / countInRing) * Math.PI * 2 - Math.PI / 2;
+              const radius = 48 + ring * 42;
+              const display = spread
+                ? map.layerPointToLatLng(centerPoint.add(L.point(Math.cos(angle) * radius, Math.sin(angle) * radius)))
+                : L.latLng(marker.lat, marker.lng);
+              const label = markerLabel(marker);
+
+              return (
+                <Fragment key={`${marker.type || "live"}-${marker.id}`}>
+                  {spread && (
+                    <Polyline
+                      positions={[
+                        [marker.lat, marker.lng],
+                        [display.lat, display.lng],
+                      ]}
+                      interactive={false}
+                      pathOptions={{ color: "#64748b", weight: 1.5, opacity: 0.65, dashArray: "3 3" }}
+                    />
+                  )}
+                  <Marker
+                    position={display}
+                    icon={pointIcon(marker)}
+                    title={label}
+                    alt={label}
+                    eventHandlers={onMarkerClick ? { click: () => onMarkerClick(marker) } : undefined}
+                  >
+                    <Popup minWidth={180} maxWidth={280} className="employee-location-popup">
+                      <LocationDetails marker={marker} />
+                    </Popup>
+                  </Marker>
+                </Fragment>
+              );
+            })}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+export default function LeafletMap({
+  center,
+  zoom,
+  highlightedEmployee,
+  markers = [],
+  onMarkerClick,
+  fitMarkers = false,
+  viewKey,
+  overviewZoom,
+  overviewMarkerId,
+}: LeafletMapProps) {
+  const [tileError, setTileError] = useState(false);
+  const [tileRetry, setTileRetry] = useState(0);
+
+  const validMarkers = useMemo(
+    () =>
+      markers
+        .filter(
+          (marker) =>
+            !String(marker.id).startsWith("no-location-") &&
+            marker.lat != null &&
+            marker.lng != null &&
+            !Number.isNaN(Number(marker.lat)) &&
+            !Number.isNaN(Number(marker.lng)) &&
+            !(Number(marker.lat) === 0 && Number(marker.lng) === 0),
+        )
+        .map((marker) => ({ ...marker, lat: Number(marker.lat), lng: Number(marker.lng) }))
+        .filter(isInsideIndiaViewport),
+    [markers],
+  );
+
+  return (
+    <div className="employee-location-map relative h-full w-full">
+      <MapContainer
+        bounds={INDIA_MAP_BOUNDS}
+        maxBounds={INDIA_MAP_BOUNDS}
+        maxBoundsViscosity={1}
+        zoomSnap={0.1}
+        zoomDelta={0.5}
+        center={center}
+        zoom={zoom}
+        style={{ height: "100%", width: "100%" }}
+        className="german-steel-map relative isolate z-0 rounded-xl"
+        scrollWheelZoom
+      >
+        <MapViewport markers={validMarkers} center={center} zoom={zoom} fitMarkers={fitMarkers} viewKey={viewKey} overviewZoom={overviewZoom} overviewMarkerId={overviewMarkerId} />
+        <TileLayer
+          key={tileRetry}
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          referrerPolicy="strict-origin-when-cross-origin"
+          maxNativeZoom={19}
+          maxZoom={20}
+          noWrap
+          eventHandlers={{ tileerror: () => setTileError(true) }}
+        />
+        <LocationLayers markers={validMarkers} focused={highlightedEmployee != null} onMarkerClick={onMarkerClick} />
+      </MapContainer>
+      {tileError && (
+        <div
+          role="alert"
+          className="absolute bottom-8 left-2 right-2 z-[600] flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground shadow-sm"
+        >
+          Some map tiles could not load.
+          <button
+            type="button"
+            className="font-medium underline"
+            onClick={() => {
+              setTileError(false);
+              setTileRetry((value) => value + 1);
+            }}
+          >
+            Retry map
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

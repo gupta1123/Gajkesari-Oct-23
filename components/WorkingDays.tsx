@@ -1,19 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-    Table,
-    TableHeader,
-    TableBody,
-    TableHead,
-    TableRow,
-    TableCell,
-} from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Loader2, Calendar, Clock } from 'lucide-react';
+import { Loader2, CalendarDays, Clock3, Pencil } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface WorkingDaysData {
     fullDayCount: number;
@@ -33,7 +26,12 @@ const WorkingDays: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Get auth data from localStorage instead of props
+    const isValidDayCount = (value: number | "") =>
+        value !== "" && Number.isInteger(value) && value >= 1;
+    const isWorkingDaysFormValid =
+        isValidDayCount(editedData.fullDayCount) && isValidDayCount(editedData.halfDayCount);
+
+    // Get auth data from localStorage
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
     const fetchWorkingDays = useCallback(async () => {
@@ -66,6 +64,8 @@ const WorkingDays: React.FC = () => {
     }, [token]);
 
     const updateWorkingDays = async () => {
+        if (!isWorkingDaysFormValid) return;
+
         if (!token) {
             setError('Authentication token not found. Please log in.');
             return;
@@ -75,8 +75,8 @@ const WorkingDays: React.FC = () => {
         setError(null);
         try {
             const payload = {
-                fullDayCount: Number(editedData.fullDayCount || 0),
-                halfDayCount: Number(editedData.halfDayCount || 0),
+                fullDayCount: Number(editedData.fullDayCount),
+                halfDayCount: Number(editedData.halfDayCount),
             };
 
             const response = await fetch(`https://api.gajkesaristeels.in/attendance-rule/edit?id=2`, {
@@ -92,10 +92,12 @@ const WorkingDays: React.FC = () => {
                 throw new Error(`Failed to update working days: ${response.statusText}`);
             }
 
-            await fetchWorkingDays();
+            setWorkingDays(payload);
+            setEditedData(payload);
             setEditMode(false);
         } catch (error) {
-            setError(error instanceof Error ? error.message : 'Error updating working days');
+            const message = error instanceof Error ? error.message : 'Error updating working days';
+            setError(message);
         } finally {
             setIsSaving(false);
         }
@@ -142,235 +144,149 @@ const WorkingDays: React.FC = () => {
     }, [fetchWorkingDays]);
 
     return (
-        <div className="space-y-6">
-            <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-4">
-                    <CardTitle className="text-3xl md:text-xl font-semibold text-foreground">Working Days Configuration</CardTitle>
-                    <p className="text-lg md:text-sm text-muted-foreground">Configure full day and half day thresholds for attendance calculations</p>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {isLoading && (
-                        <div className="flex justify-center items-center py-12">
-                            <div className="flex flex-col items-center gap-3">
-                                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                                <p className="text-sm text-muted-foreground">Loading working days configuration...</p>
-                            </div>
+        <Card className="gap-0 border-border/70 py-0 shadow-sm">
+            <CardContent className="space-y-4 p-4">
+                {isLoading && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Skeleton className="h-32 rounded-xl" />
+                        <Skeleton className="h-32 rounded-xl" />
+                        <Skeleton className="h-16 rounded-xl sm:col-span-2" />
+                    </div>
+                )}
+
+                {error && (
+                    <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p>{error}</p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => {
+                                    setError(null);
+                                    fetchWorkingDays();
+                                }}
+                            >
+                                Try Again
+                            </Button>
                         </div>
-                    )}
+                    </div>
+                )}
 
-                    {error && (
-                        <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                            <div className="flex items-center justify-between">
-                                <p><strong>Error:</strong> {error}</p>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                        setError(null);
-                                        fetchWorkingDays();
-                                    }}
-                                >
-                                    Try Again
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {!isLoading && !error && (
-                        <>
-                            {/* Mobile view */}
-                            <div className="md:hidden space-y-4">
-                                <Card className="overflow-hidden">
-                                    <CardHeader className="pb-2">
-                                        <CardTitle className="text-xl font-bold flex items-center gap-3">
-                                            <Calendar className="h-6 w-6 text-foreground" />
-                                            Working Days Settings
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="space-y-5">
-                                        <div className="space-y-4">
-                                            <div className="flex items-center justify-between py-3 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                <div className="flex items-center space-x-3">
-                                                    <Clock className="h-6 w-6 text-foreground" />
-                                                    <Label className="font-medium text-lg">Full Days:</Label>
-                                                </div>
-                                                {editMode ? (
-                                                    <Input
-                                                        type="number"
-                                                        value={editedData.fullDayCount}
-                                                        onChange={(e) => handleInputChange('fullDayCount', e.target.value)}
-                                                        className="w-32 text-right h-12 text-lg"
-                                                        min="0"
-                                                    />
-                                                ) : (
-                                                    <span className="font-semibold text-xl">{workingDays.fullDayCount}</span>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center justify-between py-3 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                <div className="flex items-center space-x-3">
-                                                    <Clock className="h-6 w-6 text-foreground" />
-                                                    <Label className="font-medium text-lg">Half Days:</Label>
-                                                </div>
-                                                {editMode ? (
-                                                    <Input
-                                                        type="number"
-                                                        value={editedData.halfDayCount}
-                                                        onChange={(e) => handleInputChange('halfDayCount', e.target.value)}
-                                                        className="w-32 text-right h-12 text-lg"
-                                                        min="0"
-                                                    />
-                                                ) : (
-                                                    <span className="font-semibold text-xl">{workingDays.halfDayCount}</span>
-                                                )}
-                                            </div>
+                {!isLoading && !error && (
+                    <div className="space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <section className="rounded-xl border border-border/70 bg-card p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                                            <CalendarDays className="h-4 w-4" />
+                                        </span>
+                                        <div>
+                                            <Label htmlFor="fullDayCount" className="text-sm font-semibold text-foreground">Full days</Label>
+                                            <p className="mt-0.5 text-xs text-muted-foreground">Complete attendance threshold</p>
                                         </div>
-                                        <div className="pt-4 border-t">
-                                            {editMode ? (
-                                                <div className="flex space-x-3">
-                                                    <Button 
-                                                        onClick={updateWorkingDays} 
-                                                        className="flex-1 h-14 text-lg font-medium" 
-                                                        disabled={isSaving}
-                                                    >
-                                                        {isSaving ? (
-                                                            <>
-                                                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                                                Saving...
-                                                            </>
-                                                        ) : (
-                                                            'Save Changes'
-                                                        )}
-                                                    </Button>
-                                                    <Button onClick={cancelEdit} variant="outline" className="flex-1 h-14 text-lg font-medium">
-                                                        Cancel
-                                                    </Button>
-                                                </div>
-                                            ) : (
-                                                <Button onClick={startEdit} className="w-full h-14 text-lg font-medium">
-                                                    Edit Configuration
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </div>
-
-                            {/* Desktop view */}
-                            <div className="hidden md:block">
-                                <div className="rounded-lg border bg-card">
-                                    <div className="p-4 border-b">
-                                        <h3 className="text-lg font-semibold text-foreground">Working Days Configuration</h3>
-                                        <p className="text-sm text-muted-foreground">Set the number of full days and half days for attendance calculations</p>
                                     </div>
-                                    <div className="overflow-x-auto">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead className="w-1/3">Full Days</TableHead>
-                                                    <TableHead className="w-1/3">Half Days</TableHead>
-                                                    <TableHead className="w-1/3">Action</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                <TableRow>
-                                                    <TableCell>
-                                                        {editMode ? (
-                                                            <div className="space-y-2">
-                                                                <Label htmlFor="fullDayCount" className="text-sm font-medium text-foreground">
-                                                                    Full Days Count
-                                                                </Label>
-                                                                <Input
-                                                                    id="fullDayCount"
-                                                                    type="number"
-                                                                    value={editedData.fullDayCount}
-                                                                    onChange={(e) => handleInputChange('fullDayCount', e.target.value)}
-                                                                    className="w-full"
-                                                                    min="0"
-                                                                />
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex items-center space-x-2">
-                                                                <Clock className="h-5 w-5 text-foreground" />
-                                                                <span className="font-semibold text-lg">{workingDays.fullDayCount}</span>
-                                                            </div>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {editMode ? (
-                                                            <div className="space-y-2">
-                                                                <Label htmlFor="halfDayCount" className="text-sm font-medium text-foreground">
-                                                                    Half Days Count
-                                                                </Label>
-                                                                <Input
-                                                                    id="halfDayCount"
-                                                                    type="number"
-                                                                    value={editedData.halfDayCount}
-                                                                    onChange={(e) => handleInputChange('halfDayCount', e.target.value)}
-                                                                    className="w-full"
-                                                                    min="0"
-                                                                />
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex items-center space-x-2">
-                                                                <Clock className="h-5 w-5 text-foreground" />
-                                                                <span className="font-semibold text-lg">{workingDays.halfDayCount}</span>
-                                                            </div>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {editMode ? (
-                                                            <div className="flex space-x-2">
-                                                                <Button 
-                                                                    onClick={updateWorkingDays} 
-                                                                    className="flex-1" 
-                                                                    disabled={isSaving}
-                                                                >
-                                                                    {isSaving ? (
-                                                                        <>
-                                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                                            Saving...
-                                                                        </>
-                                                                    ) : (
-                                                                        'Save'
-                                                                    )}
-                                                                </Button>
-                                                                <Button onClick={cancelEdit} variant="outline" className="flex-1">
-                                                                    Cancel
-                                                                </Button>
-                                                            </div>
-                                                        ) : (
-                                                            <Button onClick={startEdit} className="w-full">
-                                                                Edit
-                                                            </Button>
-                                                        )}
-                                                    </TableCell>
-                                                </TableRow>
-                                            </TableBody>
-                                        </Table>
-                                    </div>
+                                    {editMode ? (
+                                        <Input
+                                            id="fullDayCount"
+                                            type="number"
+                                            value={editedData.fullDayCount}
+                                            onChange={(event) => handleInputChange('fullDayCount', event.target.value)}
+                                            className="h-9 w-24 text-right text-sm font-semibold"
+                                            min="1"
+                                            step="1"
+                                            aria-invalid={!isValidDayCount(editedData.fullDayCount)}
+                                        />
+                                    ) : (
+                                        <span className="text-2xl font-semibold tracking-tight text-foreground">{workingDays.fullDayCount}</span>
+                                    )}
                                 </div>
-                            </div>
+                            </section>
 
-                            {/* Information Card */}
-                            <Card className="bg-muted/30">
-                                <CardContent className="pt-6">
-                                    <div className="flex items-start space-x-3">
-                                        <Calendar className="h-6 w-6 text-foreground mt-0.5" />
-                                        <div className="space-y-2">
-                                            <h4 className="font-medium text-xl text-foreground">About Working Days Configuration</h4>
-                                            <p className="text-lg md:text-sm text-muted-foreground">
-                                                This configuration determines how attendance is calculated for salary purposes. 
-                                                Full days represent complete working days, while half days represent partial attendance.
-                                            </p>
+                            <section className="rounded-xl border border-border/70 bg-card p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                                            <Clock3 className="h-4 w-4" />
+                                        </span>
+                                        <div>
+                                            <Label htmlFor="halfDayCount" className="text-sm font-semibold text-foreground">Half days</Label>
+                                            <p className="mt-0.5 text-xs text-muted-foreground">Partial attendance threshold</p>
                                         </div>
                                     </div>
-                                </CardContent>
-                            </Card>
-                        </>
-                    )}
-                </CardContent>
-            </Card>
-        </div>
+                                    {editMode ? (
+                                        <Input
+                                            id="halfDayCount"
+                                            type="number"
+                                            value={editedData.halfDayCount}
+                                            onChange={(event) => handleInputChange('halfDayCount', event.target.value)}
+                                            className="h-9 w-24 text-right text-sm font-semibold"
+                                            min="1"
+                                            step="1"
+                                            aria-invalid={!isValidDayCount(editedData.halfDayCount)}
+                                        />
+                                    ) : (
+                                        <span className="text-2xl font-semibold tracking-tight text-foreground">{workingDays.halfDayCount}</span>
+                                    )}
+                                </div>
+                            </section>
+                        </div>
+
+                        <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex min-w-0 items-start gap-3">
+                                <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                                <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
+                                    These values determine how attendance is classified for salary calculations. Full days represent complete attendance; half days represent partial attendance.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2 sm:shrink-0">
+                                {editMode ? (
+                                    <>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-9"
+                                            onClick={cancelEdit}
+                                            disabled={isSaving}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            className="h-9"
+                                            onClick={updateWorkingDays}
+                                            disabled={isSaving || !isWorkingDaysFormValid}
+                                        >
+                                            {isSaving ? (
+                                                <>
+                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    Saving...
+                                                </>
+                                            ) : (
+                                                'Save changes'
+                                            )}
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="h-9"
+                                        onClick={startEdit}
+                                    >
+                                        <Pencil className="mr-2 h-4 w-4" />
+                                        Edit rules
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
     );
 };
 

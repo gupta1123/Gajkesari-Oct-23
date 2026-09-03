@@ -1,16 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, use } from 'react';
+import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Head from 'next/head';
 import { useAuth } from '@/components/auth-provider';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { format, formatDuration, intervalToDuration, differenceInMinutes } from "date-fns";
-import { Calendar as CalendarIcon } from 'lucide-react';
+import { format, formatDuration, intervalToDuration } from "date-fns";
+import { Badge } from '@/components/ui/badge';
+import { Building2, Calendar as CalendarIcon, CalendarDays, Mail, MapPin, Pencil, Phone, User } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft } from "lucide-react";
 import {
   Select,
   SelectTrigger,
@@ -19,6 +19,14 @@ import {
   SelectItem
 } from "@/components/ui/select";
 import { SpacedCalendar } from "@/components/ui/spaced-calendar";
+import { API } from "@/lib/api";
+import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
+import { useDashboardHeader } from '@/components/dashboard-header-context';
+import { getEmployeeRoleLabel } from '@/lib/employee-role';
+import { formatCityLabel } from '@/lib/city-options';
+import { EmployeeManagedTeams } from '@/components/employee-managed-teams';
+
+const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
 const ACTIVITY_TABS = [
   { value: 'visits', label: 'Visits', icon: 'fas fa-map-marked-alt' },
@@ -47,13 +55,6 @@ interface Visit {
   outcome: string | null;
 }
 
-interface StatsDto {
-  visitCount: number;
-  fullDays: number;
-  halfDays: number;
-  absences: number;
-}
-
 interface Expense {
   id: number;
   type: string;
@@ -71,7 +72,7 @@ interface EmployeeData {
   firstName: string;
   lastName: string;
   employeeId: string;
-  primaryContact: number;
+  primaryContact: string | number;
   email: string;
   role: string;
   city: string;
@@ -99,13 +100,11 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const { token } = useAuth();
 
   const [activeTab, setActiveTab] = useState('visits');
-  const [activeInfoTab, setActiveInfoTab] = useState('personal-info');
   const [showExpenseStartCalendar, setShowExpenseStartCalendar] = useState(false);
   const [showExpenseEndCalendar, setShowExpenseEndCalendar] = useState(false);
 
   const [employeeData, setEmployeeData] = useState<EmployeeData | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [stats, setStats] = useState<StatsDto | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [attendanceStats, setAttendanceStats] = useState<Record<string, unknown> | null>(null);
   const [dailyPricing, setDailyPricing] = useState<PricingData[]>([]);
@@ -117,8 +116,12 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const [expenseEndDate, setExpenseEndDate] = useState<Date | undefined>(new Date());
   const [pricingStartDate, setPricingStartDate] = useState<Date | undefined>(new Date());
   const [pricingEndDate, setPricingEndDate] = useState<Date | undefined>(new Date());
+  const expenseDateRangeInvalid = isDateRangeInvalid(expenseStartDate, expenseEndDate);
+  const pricingDateRangeInvalid = isDateRangeInvalid(pricingStartDate, pricingEndDate);
   const [visitPage, setVisitPage] = useState(1);
   const [visitPageSize, setVisitPageSize] = useState(5);
+  const [visitTotalElements, setVisitTotalElements] = useState(0);
+  const [visitTotalPages, setVisitTotalPages] = useState(1);
 
   const [showPricingStartCalendar, setShowPricingStartCalendar] = useState(false);
   const [showPricingEndCalendar, setShowPricingEndCalendar] = useState(false);
@@ -133,6 +136,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const getInitials = (name: string) => {
     return name
       .split(' ')
+      .filter(Boolean)
       .map(word => word[0])
       .join('')
       .toUpperCase();
@@ -141,16 +145,15 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'Completed':
-        return { emoji: '✅', color: 'bg-green-100 text-green-800' };
+        return { emoji: '✅', color: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' };
       case 'In Progress':
-        return { emoji: '🟡', color: 'bg-blue-100 text-blue-800' };
+        return { emoji: '🟡', color: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' };
       default:
-        return { emoji: '⏳', color: 'bg-gray-100 text-gray-800' };
+        return { emoji: '⏳', color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300' };
     }
   };
-  
-  const handleBack = () => {
-    // If navigated from employees list, simple back will restore persisted filters
+
+  const handleBack = useCallback(() => {
     try {
       const raw = sessionStorage.getItem('employees.last.view');
       if (raw) {
@@ -159,7 +162,12 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
       }
     } catch {}
     router.back();
-  };
+  }, [router]);
+
+  useDashboardHeader({
+    heading: 'Employee Details',
+    onBack: handleBack,
+  });
 
   const handleViewVisit = useCallback((visitId: number) => {
     try {
@@ -230,16 +238,8 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   useEffect(() => {
     const fetchEmployeeData = async () => {
       try {
-        const response = await fetch(`https://api.gajkesaristeels.in/employee/getAll`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const data = await response.json();
-        const employee = data.find((emp: EmployeeData) => emp.id.toString() === id);
-        if (employee) {
-          setEmployeeData(employee);
-        }
+        const employee = await API.getEmployeeById(Number(id));
+        setEmployeeData(employee as EmployeeData);
       } catch (error) {
         console.error("Error fetching employee data:", error);
       }
@@ -256,8 +256,9 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
         return;
       }
 
-      let startDate, endDate;
       const now = new Date();
+      let startDate = now.toISOString().split('T')[0];
+      let endDate = startDate;
 
       if (visitFilter === 'today') {
         startDate = now.toISOString().split('T')[0];
@@ -274,57 +275,45 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
         endDate = now.toISOString().split('T')[0];
       } else if (visitFilter === 'this-week') {
         const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - now.getDay()); // Start from Sunday
+        startOfWeek.setDate(now.getDate() - now.getDay());
         startDate = startOfWeek.toISOString().split('T')[0];
-        endDate = now.toISOString().split('T')[0]; // Cap at today
+        endDate = now.toISOString().split('T')[0];
       } else if (visitFilter === 'this-month') {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        endDate = now.toISOString().split('T')[0]; // Cap at today instead of end of month
+        endDate = now.toISOString().split('T')[0];
       } else if (visitFilter === 'last-month') {
         startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
         endDate = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
       }
 
       try {
-        const response = await fetch(`https://api.gajkesaristeels.in/visit/getByDateRangeAndEmployeeStats?id=${id}&start=${startDate}&end=${endDate}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const data = await response.json();
-        const getSortTimestamp = (v: Visit): number => {
-          const datePart = (v as unknown as { checkoutDate?: string }).checkoutDate || v.checkinDate || v.visit_date;
-          const timePart = (v as unknown as { checkoutTime?: string }).checkoutTime || v.checkinTime || '23:59:59';
-          if (datePart) {
-            const dt = new Date(`${datePart}T${timePart}`);
-            const ts = dt.getTime();
-            if (!Number.isNaN(ts)) return ts;
-          }
-          const fallback = new Date(v.visit_date).getTime();
-          return Number.isNaN(fallback) ? 0 : fallback;
-        };
-
-        const sortedVisits: Visit[] = Array.isArray(data.visitDto)
-          ? [...data.visitDto].sort((a: Visit, b: Visit) => getSortTimestamp(b) - getSortTimestamp(a))
-          : [];
-
-        setVisits(sortedVisits);
-        setStats(data.statsDto);
+        const data = await API.getEmployeeStatsOptimized(
+          Number(id),
+          startDate,
+          endDate,
+          visitPage - 1,
+          visitPageSize,
+          'id,desc',
+        );
+        setVisits((data.visitPage.content || []) as Visit[]);
+        setVisitTotalElements(data.visitPage.totalElements || 0);
+        setVisitTotalPages(Math.max(data.visitPage.totalPages || 1, 1));
       } catch (error) {
         console.error("Error fetching visits and stats:", error);
       }
     };
 
     fetchVisitsAndStats();
-  }, [token, id, visitFilter, filtersHydrated]);
+  }, [token, id, visitFilter, filtersHydrated, visitPage, visitPageSize]);
 
   useEffect(() => {
     const fetchExpenses = async () => {
+      if (expenseDateRangeInvalid) return;
       if (token && id) {
         const start = expenseStartDate ? expenseStartDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
         const end = expenseEndDate ? expenseEndDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-30`;
         try {
-          const response = await fetch(`https://api.gajkesaristeels.in/expense/getByEmployeeAndDate?start=${start}&end=${end}&id=${id}`, {
+          const response = await fetch(`${API_BASE_URL}/expense/getByEmployeeAndDate?start=${start}&end=${end}&id=${id}`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -338,20 +327,16 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
     };
 
     fetchExpenses();
-  }, [token, id, expenseStartDate, expenseEndDate]);
+  }, [token, id, expenseStartDate, expenseEndDate, expenseDateRangeInvalid]);
 
   useEffect(() => {
     const fetchAttendanceStats = async () => {
       if (token && id) {
         try {
-          const selectedDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-          const response = await fetch(`https://api.gajkesaristeels.in/attendance-log/monthlyVisits?date=${selectedDate}&employeeId=${id}`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          const data = await response.json();
-          setAttendanceStats(data);
+          const start = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+          const end = format(new Date(selectedYear, selectedMonth, 0), 'yyyy-MM-dd');
+          const data = await API.getEmployeeDashboardSummary(Number(id), start, end);
+          setAttendanceStats({ statsDto: data.statsDto });
         } catch (error) {
           console.error("Error fetching attendance stats:", error);
         }
@@ -363,11 +348,12 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
 
   useEffect(() => {
     const fetchDailyPricing = async () => {
+      if (pricingDateRangeInvalid) return;
       if (token && id) {
         const start = pricingStartDate ? pricingStartDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
         const end = pricingEndDate ? pricingEndDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-30`;
         try {
-          const response = await fetch(`https://api.gajkesaristeels.in/brand/getByDateRangeForEmployee?start=${start}&end=${end}&id=${id}`, {
+          const response = await fetch(`${API_BASE_URL}/brand/getByDateRangeForEmployee?start=${start}&end=${end}&id=${id}`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -381,216 +367,114 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
     };
 
     fetchDailyPricing();
-  }, [token, id, pricingStartDate, pricingEndDate]);
+  }, [token, id, pricingStartDate, pricingEndDate, pricingDateRangeInvalid]);
 
-
-  const calculateStats = () => {
-    const totalVisits = visits.length;
-    const now = new Date();
-    const currentMonthVisits = visits.filter(visit => {
-      const visitDate = new Date(visit.visit_date);
-      return visitDate.getMonth() === now.getMonth() && visitDate.getFullYear() === now.getFullYear();
-    }).length;
-
-    const totalDuration = visits.reduce((acc, visit) => {
-      if (visit.checkinTime && visit.checkoutTime) {
-        const checkinDate = new Date(`${visit.checkinDate}T${visit.checkinTime}`);
-        const checkoutDate = new Date(`${visit.checkoutDate}T${visit.checkoutTime}`);
-        const duration = differenceInMinutes(checkoutDate, checkinDate);
-        return acc + duration;
-      }
-      return acc;
-    }, 0);
-
-    const avgDuration = totalVisits > 0 ? totalDuration / totalVisits : 0;
-    const hours = Math.floor(avgDuration / 60);
-    const minutes = Math.floor(avgDuration % 60);
-
-    return {
-      totalVisits,
-      currentMonthVisits,
-      avgDuration: hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
-    };
-  };
-
-  const { totalVisits, currentMonthVisits, avgDuration } = calculateStats();
-  const totalVisitPages = useMemo(() => {
-    if (visitPageSize <= 0) return 1;
-    return Math.max(1, Math.ceil(visits.length / visitPageSize));
-  }, [visits.length, visitPageSize]);
-
-  const paginatedVisits = useMemo(() => {
-    const startIndex = (visitPage - 1) * visitPageSize;
-    return visits.slice(startIndex, startIndex + visitPageSize);
-  }, [visits, visitPage, visitPageSize]);
+  const paginatedVisits = visits;
+  const totalVisitPages = visitTotalPages;
 
   useEffect(() => {
     setVisitPage(1);
-  }, [visitFilter, visitPageSize, visits.length]);
+  }, [visitFilter, visitPageSize]);
 
-    return (
-      <div className="space-y-6">
+  const profileProperties = [
+    { label: 'Phone', value: employeeData?.primaryContact ? String(employeeData.primaryContact) : '', icon: Phone },
+    {
+      label: 'Location',
+      value: [employeeData?.city, employeeData?.state, employeeData?.country].filter(Boolean).join(', '),
+      icon: MapPin,
+    },
+    { label: 'Department', value: employeeData?.departmentName || 'Sales', icon: Building2 },
+    {
+      label: 'Joined',
+      value: employeeData?.dateOfJoining
+        ? format(new Date(employeeData.dateOfJoining), 'MMM dd, yyyy')
+        : '',
+      icon: CalendarDays,
+    },
+    { label: 'Email', value: employeeData?.email, icon: Mail },
+  ].filter((property) => property.value);
+
+  return (
+    <div className="space-y-4 py-4">
       <Head>
-        <title>Sales Executive Detail Page</title>
+        <title>{employeeData ? `${employeeData.firstName} ${employeeData.lastName}` : 'Employee Details'}</title>
       </Head>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Employee Profile */}
-        <div className="lg:col-span-1">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-xl font-semibold text-foreground">Employee Details</CardTitle>
-                  <p className="text-sm text-muted-foreground">Employee information and actions</p>
+      {/* Top Employee Hero Banner Card */}
+      <Card className="gap-0 py-0 shadow-none border border-border/70">
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <Avatar className="h-12 w-12 shrink-0 border border-border/60">
+                <AvatarFallback className="bg-muted text-sm font-semibold text-muted-foreground">
+                  {employeeData ? getInitials(`${employeeData.firstName} ${employeeData.lastName}`) : '—'}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-lg font-bold tracking-tight text-foreground">
+                    {employeeData ? `${employeeData.firstName} ${employeeData.lastName}` : 'Loading employee…'}
+                  </h2>
+                  {employeeData?.role && (
+                    <Badge variant="secondary" className="font-medium bg-muted/80 text-foreground">
+                      {getEmployeeRoleLabel(employeeData.role)}
+                    </Badge>
+                  )}
                 </div>
-                <Button variant="ghost" size="sm" onClick={handleBack}>
-                  <i className="fas fa-arrow-left mr-2"></i> Back
-                </Button>
+                <p className="mt-0.5 text-xs text-muted-foreground font-medium">
+                  {employeeData?.employeeId ? `Employee ID ${employeeData.employeeId}` : `Employee ID ${id}`}
+                </p>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-start gap-4">
-                <div className="h-14 w-14 rounded-xl border-2 border-dashed bg-muted flex items-center justify-center">
-                  <span className="text-lg font-semibold text-muted-foreground">
-                    {employeeData ? getInitials(`${employeeData.firstName} ${employeeData.lastName}`) : 'AW'}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <h3 className="text-lg font-semibold text-foreground truncate">
-                    {employeeData ? `${employeeData.firstName} ${employeeData.lastName}` : 'Abhijeet Wagh'}
-                  </h3>
-                  <p className="text-sm text-muted-foreground truncate">
-                    {employeeData ? employeeData.role : 'Field Officer'}
-                  </p>
-                </div>
-              </div>
-
-        
-            <div className="space-y-4">
-                <div className="flex border-b">
-                  <button
-                    className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-                      activeInfoTab === 'personal-info' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
-                    onClick={() => setActiveInfoTab('personal-info')}
-                  >
-                    Personal Info
-                  </button>
-                  <button
-                    className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-                      activeInfoTab === 'work-info' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
-                    onClick={() => setActiveInfoTab('work-info')}
-                  >
-                    Work Info
-                  </button>
-                </div>
-                
-                {activeInfoTab === 'personal-info' && (
-                  <div className="space-y-3">
-                    {employeeData?.email && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-envelope text-sm text-muted-foreground"></i>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Email</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.email}</p>
-                        </div>
-                      </div>
-                    )}
-                    {employeeData?.primaryContact && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-phone text-sm text-muted-foreground"></i>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Phone</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.primaryContact}</p>
-                        </div>
-                      </div>
-                    )}
-                    {(employeeData?.city || employeeData?.state || employeeData?.country) && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-map-marker-alt text-sm text-muted-foreground"></i>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Location</p>
-                          <p className="text-sm text-muted-foreground">
-                            {[employeeData?.city, employeeData?.state, employeeData?.country].filter(Boolean).join(', ')}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    {employeeData?.dateOfJoining && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-calendar text-sm text-muted-foreground"></i>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Joined</p>
-                          <p className="text-sm text-muted-foreground">
-                            {format(new Date(employeeData.dateOfJoining), 'MMM d, yyyy')}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {activeInfoTab === 'work-info' && (
-                  <div className="space-y-3">
-                    {employeeData?.departmentName && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-building text-sm text-muted-foreground"></i>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Department</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.departmentName}</p>
-                        </div>
-                      </div>
-                    )}
-                    {employeeData?.role && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-user-tie text-sm text-muted-foreground"></i>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Role</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.role}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/dashboard/employees/${id}/edit`)}
+              className="h-8 text-xs font-semibold"
+            >
+              <Pencil className="mr-2 h-3.5 w-3.5" /> Edit employee
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Right Column - Activity Details */}
-        <div className="lg:col-span-2">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-xl font-semibold text-foreground">Employee Activity</CardTitle>
-                  <p className="text-sm text-muted-foreground">View visits, attendance, expenses, and daily pricing</p>
-                </div>
-              </div>
+      {/* Two-Column Split Layout */}
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        {/* Left Sidebar: About Card */}
+        <aside>
+          <Card className="gap-0 py-0 shadow-none border border-border/70">
+            <CardHeader className="border-b border-border/60 px-4 py-3">
+              <CardTitle className="text-sm font-semibold">About</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
+            <CardContent className="p-4">
+              <dl className="space-y-4">
+                {profileProperties.map((property) => (
+                  <div key={property.label} className="flex items-start gap-3">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground border border-border/40">
+                      <property.icon className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{property.label}</dt>
+                      <dd className="break-words text-sm font-medium text-foreground">{property.value}</dd>
+                    </div>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+        </aside>
+
+        {/* Right Section: Managed Teams + Activity Tabs Panel */}
+        <section className="min-w-0 space-y-4">
+          {employeeData?.id === Number(id) && (
+            <EmployeeManagedTeams employeeId={employeeData.id} role={employeeData.role} />
+          )}
+          <Card className="gap-0 py-0 shadow-none border border-border/70">
+            <CardContent className="p-0">
+              <div className="space-y-4 p-4">
                 <div className="md:hidden">
                   <Select value={activeTab} onValueChange={setActiveTab}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="h-9 w-full">
                       <SelectValue placeholder="Select section" />
                     </SelectTrigger>
                     <SelectContent>
@@ -605,11 +489,11 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="hidden md:flex border-b">
+                <div className="hidden border-b border-border/60 md:flex gap-1">
                   {ACTIVITY_TABS.map((tab) => (
                     <button
                       key={tab.value}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                      className={`flex items-center gap-2 border-b-2 px-3 py-2 text-xs font-semibold transition-colors ${
                         activeTab === tab.value
                           ? 'border-primary text-primary'
                           : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -623,9 +507,9 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
 
                 {activeTab === 'visits' && (
                   <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Select value={visitFilter} onValueChange={handleVisitFilterChange}>
-                        <SelectTrigger className="w-[180px]">
+                        <SelectTrigger className="h-9 min-w-[150px] flex-1 sm:flex-none">
                           <SelectValue placeholder="Select Filter" />
                         </SelectTrigger>
                         <SelectContent>
@@ -641,7 +525,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                         value={visitPageSize.toString()}
                         onValueChange={(value) => setVisitPageSize(parseInt(value, 10))}
                       >
-                        <SelectTrigger className="w-[150px]">
+                        <SelectTrigger className="h-9 min-w-[140px] flex-1 sm:flex-none">
                           <SelectValue placeholder="Page size" />
                         </SelectTrigger>
                         <SelectContent>
@@ -652,14 +536,14 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs text-muted-foreground sm:ml-auto">
                         Showing {visits.length === 0 ? 0 : (visitPage - 1) * visitPageSize + 1}-
-                        {Math.min(visitPage * visitPageSize, visits.length)} of {visits.length}
+                        {Math.min(visitPage * visitPageSize, visitTotalElements)} of {visitTotalElements}
                       </p>
                     </div>
                     <div className="space-y-3">
                       {paginatedVisits.length === 0 ? (
-                        <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-8 text-center text-sm font-medium text-muted-foreground">
                           No visits found for this filter
                         </div>
                       ) : (
@@ -674,29 +558,27 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                           return (
                             <div
                               key={visit.id}
-                              className="rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow"
+                              className="rounded-lg border border-border/70 bg-card p-4 shadow-sm space-y-3 transition-colors hover:bg-muted/20"
                             >
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <div>
-                                    <h4 className="font-semibold text-sm">{visit.storeName}</h4>
-                                    <p className="text-xs text-muted-foreground">
-                                      Visit on {format(new Date(visit.visit_date), 'MMM dd, yyyy')}
-                                    </p>
-                                  </div>
+                              <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-2.5">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
+                                  <span className="text-sm font-semibold text-foreground truncate">
+                                    {visit.storeName}
+                                  </span>
                                 </div>
                                 <span
-                                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${color}`}
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${color}`}
                                 >
                                   {emoji} {status}
                                 </span>
                               </div>
-                              <div className="text-sm text-muted-foreground mb-2">
-                                <span className="font-medium">Purpose:</span> {visit.purpose}
+                              <div className="text-xs text-muted-foreground">
+                                <span className="font-semibold text-foreground">Purpose:</span> {visit.purpose}
                               </div>
                               {visit.checkinTime && visit.checkoutTime && (
-                                <div className="text-sm text-muted-foreground">
-                                  <span className="font-medium">Duration:</span>{' '}
+                                <div className="text-xs text-muted-foreground">
+                                  <span className="font-semibold text-foreground">Duration:</span>{' '}
                                   {formatDuration(
                                     intervalToDuration({
                                       start: new Date(`${visit.checkinDate}T${visit.checkinTime}`),
@@ -705,8 +587,8 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                                   )}
                                 </div>
                               )}
-                              <div className="flex justify-end mt-4">
-                                <Button variant="outline" size="sm" onClick={() => handleViewVisit(visit.id)}>
+                              <div className="flex justify-end border-t border-border/40 pt-2.5">
+                                <Button variant="outline" size="sm" onClick={() => handleViewVisit(visit.id)} className="h-8 text-xs font-semibold">
                                   View Visit
                                 </Button>
                               </div>
@@ -804,7 +686,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                         <PopoverTrigger asChild>
                           <Button variant="outline" className="w-[200px] justify-start">
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {expenseStartDate ? format(expenseStartDate, 'MMM d, yyyy') : 'Select Start Date'}
+                            {expenseStartDate ? format(expenseStartDate, 'MMM dd, yyyy') : 'Select Start Date'}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
@@ -820,7 +702,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                         <PopoverTrigger asChild>
                           <Button variant="outline" className="w-[200px] justify-start">
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {expenseEndDate ? format(expenseEndDate, 'MMM d, yyyy') : 'Select End Date'}
+                            {expenseEndDate ? format(expenseEndDate, 'MMM dd, yyyy') : 'Select End Date'}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
@@ -834,44 +716,52 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                       </Popover>
                     </div>
 
+                    <DateRangeError fromDate={expenseStartDate} toDate={expenseEndDate} />
+
                     <div className="space-y-3">
-                      {expenses.map((expense) => (
-                        <div key={expense.id} className="rounded-lg border bg-card p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-lg">💰</span>
-                              <div>
-                                <h4 className="font-semibold text-sm capitalize">{expense.type}</h4>
-                                <p className="text-xs text-muted-foreground">
-                                  {format(new Date(expense.expenseDate), 'MMM dd, yyyy')}
-                                </p>
-                              </div>
-                            </div>
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              expense.approvalStatus.toLowerCase() === 'approved' ? 'bg-green-100 text-green-800' :
-                              expense.approvalStatus.toLowerCase() === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              {expense.approvalStatus}
-                            </span>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            <span className="font-medium">Amount:</span> ₹{expense.amount.toFixed(2)}
-                          </div>
+                      {expenses.length === 0 ? (
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-8 text-center text-sm font-medium text-muted-foreground">
+                          No expenses found for this date range
                         </div>
-                      ))}
+                      ) : (
+                        expenses.map((expense) => (
+                          <div key={expense.id} className="rounded-lg border border-border/70 bg-card p-4 shadow-sm space-y-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">💰</span>
+                                <div>
+                                  <h4 className="font-semibold text-sm capitalize text-foreground">{expense.type}</h4>
+                                  <p className="text-xs text-muted-foreground">
+                                    {format(new Date(expense.expenseDate), 'MMM dd, yyyy')}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                expense.approvalStatus.toLowerCase() === 'approved' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
+                                expense.approvalStatus.toLowerCase() === 'pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' :
+                                'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                              }`}>
+                                {expense.approvalStatus}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-semibold text-foreground">Amount:</span> ₹{expense.amount.toFixed(2)}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
 
                 {activeTab === 'daily-pricing' && (
                   <div className="space-y-4">
-        <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4">
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button variant="outline" className="w-[200px] justify-start">
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {pricingStartDate ? format(pricingStartDate, 'MMM d, yyyy') : 'Select Start Date'}
+                            {pricingStartDate ? format(pricingStartDate, 'MMM dd, yyyy') : 'Select Start Date'}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
@@ -887,8 +777,8 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                         <PopoverTrigger asChild>
                           <Button variant="outline" className="w-[200px] justify-start">
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {pricingEndDate ? format(pricingEndDate, 'MMM d, yyyy') : 'Select End Date'}
-          </Button>
+                            {pricingEndDate ? format(pricingEndDate, 'MMM dd, yyyy') : 'Select End Date'}
+                          </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
                           <SpacedCalendar
@@ -899,36 +789,43 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                           />
                         </PopoverContent>
                       </Popover>
-        </div>
-        
+                    </div>
+                    <DateRangeError fromDate={pricingStartDate} toDate={pricingEndDate} />
+
                     <div className="space-y-3">
-                      {dailyPricing.map((pricing) => (
-                        <div key={pricing.id} className="rounded-lg border bg-card p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-lg">🏷️</span>
-                              <div>
-                                <h4 className="font-semibold text-sm capitalize">{pricing.brandName}</h4>
-                                <p className="text-xs text-muted-foreground">{pricing.city}</p>
-                              </div>
-                            </div>
-                            <span className="text-sm text-muted-foreground bg-muted px-2 py-1 rounded-full">
-                              {pricing.city}
-                            </span>
-                          </div>
-                          <div className="text-2xl font-bold text-foreground">
-                            ₹{pricing.price.toFixed(2)}
-                          </div>
+                      {dailyPricing.length === 0 ? (
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-8 text-center text-sm font-medium text-muted-foreground">
+                          No daily pricing entries found for this date range
                         </div>
-                      ))}
+                      ) : (
+                        dailyPricing.map((pricing) => (
+                          <div key={pricing.id} className="rounded-lg border border-border/70 bg-card p-4 shadow-sm space-y-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">🏷️</span>
+                                <div>
+                                  <h4 className="font-semibold text-sm capitalize text-foreground">{pricing.brandName}</h4>
+                                  <p className="text-xs text-muted-foreground">{formatCityLabel(pricing.city)}</p>
+                                </div>
+                              </div>
+                              <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                {formatCityLabel(pricing.city)}
+                              </span>
+                            </div>
+                            <div className="text-xl font-bold text-foreground">
+                              ₹{pricing.price.toFixed(2)}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
               </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </section>
       </div>
     </div>
   );
-};
+}

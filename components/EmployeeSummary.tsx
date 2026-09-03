@@ -5,7 +5,7 @@ import { CheckedState } from "@radix-ui/react-checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CalendarIcon, Search, Users, ChevronDown, Download, MoreHorizontal, FileSpreadsheet, X } from "lucide-react";
+import { Loader2, CalendarIcon, Search, Users, ChevronDown, Download, MoreHorizontal, FileSpreadsheet, X, RotateCcw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from 'framer-motion';
 import { Button } from "@/components/ui/button";
@@ -220,6 +220,24 @@ const EmployeeSummary: React.FC = () => {
         } finally {
             setSummaryLoading(false);
         }
+    };
+
+    const filtersAreAtDefaults =
+        selectedEmployeeIds.length === 0 &&
+        employeeSearchTerm === "" &&
+        startDate === "" &&
+        endDate === "";
+
+    const handleResetFilters = () => {
+        setSelectedEmployeeIds([]);
+        setEmployeeSearchTerm("");
+        setStartDate("");
+        setEndDate("");
+        setIsEmployeePopoverOpen(false);
+        setIsStartDatePopoverOpen(false);
+        setIsEndDatePopoverOpen(false);
+        setError(null);
+        setSummaryData([]);
     };
 
     // Remove automatic data fetching - only fetch on Apply Filter
@@ -586,41 +604,9 @@ const EmployeeSummary: React.FC = () => {
     const projectedAdjustedTotalSalary = regularTotalSalary + previewAdjustmentAmount;
 
     return (
-        <div className="space-y-6">
-            <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-6">
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div>
-                            <CardTitle className="text-3xl md:text-xl font-semibold text-foreground">Employee Summary</CardTitle>
-                            <p className="text-lg md:text-sm text-muted-foreground">View employee salary summaries and attendance data</p>
-                        </div>
-                        <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
-                            <Button
-                                variant="outline"
-                                className="w-full md:w-auto"
-                                onClick={handleExportCsv}
-                                disabled={summaryLoading || isExcelExporting || filteredSummaryData.length === 0}
-                            >
-                                <Download className="mr-2 h-4 w-4" />
-                                Export CSV
-                            </Button>
-                            <Button
-                                className="w-full md:w-auto"
-                                onClick={handleExportExcel}
-                                disabled={summaryLoading || isExcelExporting || filteredSummaryData.length === 0}
-                                title="Download the filtered employee TA/DA summary as Excel"
-                            >
-                                {isExcelExporting ? (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                ) : (
-                                    <FileSpreadsheet className="mr-2 h-4 w-4" />
-                                )}
-                                {isExcelExporting ? "Preparing..." : "Download Excel"}
-                            </Button>
-                        </div>
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
+        <div className="space-y-4">
+            <Card className="gap-0 border-border/70 py-0 shadow-sm">
+                <CardContent className="space-y-4 p-4">
                     {excelExportError && (
                         <div
                             role="alert"
@@ -641,213 +627,234 @@ const EmployeeSummary: React.FC = () => {
                     )}
 
                     {/* Filters Section */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-6 bg-muted/30 rounded-lg">
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <Label className="text-lg md:text-sm font-medium text-foreground">Search Employees</Label>
-                                {selectedEmployeeIds.length > 0 && (
-                                    <button
-                                        type="button"
-                                        className="text-sm text-primary transition hover:underline"
-                                        onClick={() => {
-                                            setSelectedEmployeeIds([]);
-                                            setEmployeeSearchTerm("");
-                                        }}
-                                    >
-                                        Clear
-                                    </button>
-                                )}
-                            </div>
-                            <Popover open={isEmployeePopoverOpen} onOpenChange={setIsEmployeePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className="w-full h-14 text-lg justify-between md:h-10 md:text-sm"
-                                    >
-                                        <span className="flex items-center gap-2 truncate">
-                                            <Users className="h-5 w-5 text-primary" />
-                                            {selectedEmployeeIds.length === 0
-                                                ? "Select employees..."
-                                                : `${selectedEmployeeIds.length} employee${selectedEmployeeIds.length > 1 ? "s" : ""} selected`}
-                                        </span>
-                                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[320px] p-0" align="start">
-                                    <div className="border-b p-3 space-y-2">
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                            <Input
-                                                placeholder="Search by name..."
-                                                value={employeeSearchTerm}
-                                                onChange={(event) => setEmployeeSearchTerm(event.target.value)}
-                                                className="pl-10"
-                                            />
+                    <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-end lg:gap-2">
+                            <div className="min-w-0 space-y-1.5 lg:w-[220px] lg:shrink-0">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-xs font-medium text-foreground">Employee</Label>
+                                    {selectedEmployeeIds.length > 0 && (
+                                        <button
+                                            type="button"
+                                            className="text-xs text-primary transition hover:underline"
+                                            onClick={() => {
+                                                setSelectedEmployeeIds([]);
+                                                setEmployeeSearchTerm("");
+                                            }}
+                                        >
+                                            Clear
+                                        </button>
+                                    )}
+                                </div>
+                                <Popover open={isEmployeePopoverOpen} onOpenChange={setIsEmployeePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className="h-9 w-full justify-between px-3 text-sm font-normal shadow-none"
+                                        >
+                                            <span className="flex items-center gap-2 truncate">
+                                                <Users className="h-4 w-4 text-muted-foreground" />
+                                                {selectedEmployeeIds.length === 0
+                                                    ? "All employees"
+                                                    : `${selectedEmployeeIds.length} employee${selectedEmployeeIds.length > 1 ? "s" : ""} selected`}
+                                            </span>
+                                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[320px] p-0" align="start">
+                                        <div className="border-b p-3 space-y-2">
+                                            <div className="relative">
+                                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                                <Input
+                                                    placeholder="Search by name..."
+                                                    value={employeeSearchTerm}
+                                                    onChange={(event) => setEmployeeSearchTerm(event.target.value)}
+                                                    className="pl-10"
+                                                />
+                                            </div>
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="justify-start text-primary"
+                                                    onClick={handleClearEmployeeSelection}
+                                                >
+                                                    Clear all
+                                                </Button>
+                                                {visibleEmployeeIds.length > 0 && (
+                                                    <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-muted-foreground/50 bg-muted/40 px-3 py-2">
+                                                        <Checkbox
+                                                            aria-label="Select all employees"
+                                                            checked={selectAllCheckedState}
+                                                            onCheckedChange={handleSelectAllVisibleEmployees}
+                                                        />
+                                                        <div className="flex flex-col text-left leading-tight">
+                                                            <span className="text-sm font-medium text-foreground">
+                                                                Select all ({visibleEmployeeIds.length})
+                                                            </span>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {employeeSearchTerm ? "Matches current search" : "All loaded employees"}
+                                                            </span>
+                                                        </div>
+                                                    </label>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                className="justify-start text-primary"
-                                                onClick={handleClearEmployeeSelection}
-                                            >
-                                                Clear all
-                                            </Button>
-                                            {visibleEmployeeIds.length > 0 && (
-                                                <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-muted-foreground/50 bg-muted/40 px-3 py-2">
-                                                    <Checkbox
-                                                        aria-label="Select all employees"
-                                                        checked={selectAllCheckedState}
-                                                        onCheckedChange={handleSelectAllVisibleEmployees}
-                                                    />
-                                                    <div className="flex flex-col text-left leading-tight">
-                                                        <span className="text-sm font-medium text-foreground">
-                                                            Select all ({visibleEmployeeIds.length})
-                                                        </span>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {employeeSearchTerm ? "Matches current search" : "All loaded employees"}
-                                                        </span>
-                                                    </div>
-                                                </label>
+                                        <div className="max-h-64 overflow-y-auto">
+                                            {employeesLoading ? (
+                                                <div className="p-6 text-center text-sm text-muted-foreground">
+                                                    <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                                                    Loading employees...
+                                                </div>
+                                            ) : filteredEmployeeOptionsList.length === 0 ? (
+                                                <div className="p-6 text-center text-sm text-muted-foreground">
+                                                    {employeeOptions.length === 0
+                                                        ? "No employees available."
+                                                        : "No employees match your search."}
+                                                </div>
+                                            ) : (
+                                                <div className="divide-y">
+                                                    {filteredEmployeeOptionsList.map((option) => {
+                                                        const isSelected = selectedEmployeeIds.includes(option.value);
+                                                        return (
+                                                            <label
+                                                                key={option.value}
+                                                                className="flex cursor-pointer items-center gap-3 p-3 hover:bg-muted/40"
+                                                            >
+                                                                <Checkbox
+                                                                    checked={isSelected}
+                                                                    onCheckedChange={(checked) => {
+                                                                        setSelectedEmployeeIds((prev) =>
+                                                                            checked
+                                                                                ? [...prev, option.value]
+                                                                                : prev.filter((id) => id !== option.value)
+                                                                        );
+                                                                    }}
+                                                                />
+                                                                <span className="text-sm font-medium text-foreground">
+                                                                    {option.label}
+                                                                </span>
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
                                             )}
                                         </div>
-                                    </div>
-                                    <div className="max-h-64 overflow-y-auto">
-                                        {employeesLoading ? (
-                                            <div className="p-6 text-center text-sm text-muted-foreground">
-                                                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
-                                                Loading employees...
-                                            </div>
-                                        ) : filteredEmployeeOptionsList.length === 0 ? (
-                                            <div className="p-6 text-center text-sm text-muted-foreground">
-                                                {employeeOptions.length === 0
-                                                    ? "No employees available."
-                                                    : "No employees match your search."}
-                                            </div>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="space-y-1.5 lg:w-[180px] lg:shrink-0">
+                                <Label className="text-xs font-medium text-foreground">From date</Label>
+                                <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className={`h-9 w-full justify-start px-3 text-left text-sm font-normal shadow-none ${!startDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {startDate ? format(new Date(startDate), 'MMM dd, yyyy') : <span>Pick start date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <SpacedCalendar
+                                            mode="single"
+                                            selected={startDate ? new Date(startDate) : undefined}
+                                            onSelect={(date) => {
+                                                const formattedDate = formatDateForFilter(date);
+                                                if (!formattedDate) return;
+                                                setStartDate(formattedDate);
+                                                setIsStartDatePopoverOpen(false);
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="space-y-1.5 lg:w-[180px] lg:shrink-0">
+                                <Label className="text-xs font-medium text-foreground">To date</Label>
+                                <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className={`h-9 w-full justify-start px-3 text-left text-sm font-normal shadow-none ${!endDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {endDate ? format(new Date(endDate), 'MMM dd, yyyy') : <span>Pick end date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <SpacedCalendar
+                                            mode="single"
+                                            selected={endDate ? new Date(endDate) : undefined}
+                                            onSelect={(date) => {
+                                                const formattedDate = formatDateForFilter(date);
+                                                if (!formattedDate) return;
+                                                setEndDate(formattedDate);
+                                                setIsEndDatePopoverOpen(false);
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="flex min-w-0 flex-1 flex-col justify-end gap-1.5 lg:ml-auto lg:flex-none">
+                                <div className="flex flex-nowrap items-end gap-2 lg:justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handleResetFilters}
+                                        className="h-9 flex-1 text-sm font-medium shadow-none sm:flex-none lg:w-[92px]"
+                                        disabled={summaryLoading || filtersAreAtDefaults}
+                                    >
+                                        <RotateCcw className="mr-2 h-4 w-4" />
+                                        Reset
+                                    </Button>
+                                    <Button
+                                        onClick={() => void fetchSummaryData()}
+                                        className="h-9 flex-1 text-sm font-medium shadow-none sm:flex-none lg:w-[112px]"
+                                        disabled={summaryLoading}
+                                    >
+                                        {summaryLoading ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                Loading...
+                                            </>
                                         ) : (
-                                            <div className="divide-y">
-                                                {filteredEmployeeOptionsList.map((option) => {
-                                                    const isSelected = selectedEmployeeIds.includes(option.value);
-                                                    return (
-                                                        <label
-                                                            key={option.value}
-                                                            className="flex cursor-pointer items-center gap-3 p-3 hover:bg-muted/40"
-                                                        >
-                                                            <Checkbox
-                                                                checked={isSelected}
-                                                                onCheckedChange={(checked) => {
-                                                                    setSelectedEmployeeIds((prev) =>
-                                                                        checked
-                                                                            ? [...prev, option.value]
-                                                                            : prev.filter((id) => id !== option.value)
-                                                                    );
-                                                                }}
-                                                            />
-                                                            <span className="text-sm font-medium text-foreground">
-                                                                {option.label}
-                                                            </span>
-                                                        </label>
-                                                    );
-                                                })}
-                                            </div>
+                                            'Apply'
                                         )}
-                                    </div>
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-                        <div className="space-y-3">
-                            <Label className="text-lg md:text-sm font-medium text-foreground">From Date</Label>
-                            <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className={`w-full h-14 md:h-10 text-lg md:text-sm justify-start text-left font-normal ${!startDate && 'text-muted-foreground'}`}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {startDate ? format(new Date(startDate), 'MMM d, yyyy') : <span>Pick start date</span>}
                                     </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <SpacedCalendar
-                                        mode="single"
-                                        selected={startDate ? new Date(startDate) : undefined}
-                                        onSelect={(date) => {
-                                            const formattedDate = formatDateForFilter(date);
-                                            if (!formattedDate) return;
-                                            setStartDate(formattedDate);
-                                            setEndDate("");
-                                            setDateValidationError(null);
-                                            setError(null);
-                                            setExcelExportError(null);
-                                            setIsStartDatePopoverOpen(false);
-                                        }}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-                        <div className="space-y-3">
-                            <Label className="text-lg md:text-sm font-medium text-foreground">To Date</Label>
-                            <Popover
-                                open={isEndDatePopoverOpen}
-                                onOpenChange={(open) => {
-                                    if (open && !startDate) {
-                                        setDateValidationError("Choose a From Date before selecting a To Date.");
-                                        setIsEndDatePopoverOpen(false);
-                                        return;
-                                    }
-                                    setIsEndDatePopoverOpen(open);
-                                }}
-                            >
-                                <PopoverTrigger asChild>
                                     <Button
+                                        type="button"
                                         variant="outline"
-                                        className={`w-full h-14 md:h-10 text-lg md:text-sm justify-start text-left font-normal ${!endDate && 'text-muted-foreground'}`}
+                                        className="h-9 flex-1 text-sm shadow-none sm:flex-none lg:w-[124px]"
+                                        onClick={handleExportCsv}
+                                        disabled={summaryLoading || filteredSummaryData.length === 0}
                                     >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {endDate ? format(new Date(endDate), 'MMM d, yyyy') : <span>Pick end date</span>}
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Export CSV
                                     </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <SpacedCalendar
-                                        mode="single"
-                                        selected={endDate ? new Date(endDate) : undefined}
-                                        onSelect={(date) => {
-                                            const formattedDate = formatDateForFilter(date);
-                                            if (!formattedDate) return;
-                                            if (startDate && formattedDate < startDate) {
-                                                setDateValidationError("To Date cannot be earlier than From Date. Choose a date on or after the From Date.");
-                                                return;
-                                            }
-                                            setEndDate(formattedDate);
-                                            setDateValidationError(null);
-                                            setError(null);
-                                            setExcelExportError(null);
-                                            setIsEndDatePopoverOpen(false);
-                                        }}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-9 flex-1 text-sm shadow-none sm:flex-none lg:w-[134px]"
+                                        onClick={handleExportExcel}
+                                        disabled={summaryLoading || isExcelExporting || filteredSummaryData.length === 0}
+                                        title="Download the filtered employee TA/DA summary as Excel"
+                                    >
+                                        {isExcelExporting ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <FileSpreadsheet className="mr-2 h-4 w-4" />
+                                        )}
+                                        {isExcelExporting ? "Preparing..." : "Excel"}
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex items-end">
-                            <Button onClick={fetchSummaryData} className="w-full h-14 text-lg md:h-10 md:text-sm font-medium" disabled={summaryLoading}>
-                                {summaryLoading ? (
-                                    <>
-                                        <Loader2 className="mr-2 h-6 w-6 md:h-4 md:w-4 animate-spin" />
-                                        Loading...
-                                    </>
-                                ) : (
-                                    'Apply Filter'
-                                )}
-                            </Button>
-                        </div>
-                        {dateValidationError && (
-                            <p role="alert" className="text-sm font-medium text-destructive md:col-span-2 lg:col-span-4">
-                                {dateValidationError}
-                            </p>
-                        )}
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+                            Select the first and last day of one complete calendar month.
+                        </p>
                     </div>
 
                     {summaryLoading && (
@@ -912,7 +919,7 @@ const EmployeeSummary: React.FC = () => {
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={fetchSummaryData}
+                                    onClick={() => void fetchSummaryData()}
                                     disabled={summaryLoading}
                                 >
                                     Try Again
@@ -924,10 +931,11 @@ const EmployeeSummary: React.FC = () => {
                     {!summaryLoading && !error && (
                         <>
                             {/* Mobile view */}
-                            <div className="md:hidden space-y-6">
+                            <div className="space-y-3 md:hidden">
                                 <Card>
-                                    <CardHeader className="pb-4">
-                                        <CardTitle className="text-3xl">Employee Salary Summary ({getDateRangeDisplay()})</CardTitle>
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-semibold">Summary results</CardTitle>
+                                        <p className="text-xs text-muted-foreground">{getDateRangeDisplay()}</p>
                                     </CardHeader>
                                     <CardContent className="pt-0">
                                         {summaryLoading ? (
@@ -954,11 +962,11 @@ const EmployeeSummary: React.FC = () => {
                                                 ))}
                                             </div>
                                         ) : summaryData.length === 0 ? (
-                                            <div className="text-center py-12 text-muted-foreground text-2xl">
+                                            <div className="text-center py-12 text-muted-foreground text-sm">
                                                 No summary data available
                                             </div>
                                         ) : (
-                                            <div className="space-y-5">
+                                            <div className="space-y-4">
                                                 {filteredSummaryData.map((employee) => (
                                                     <motion.div
                                                         key={employee.employeeId}
@@ -966,81 +974,81 @@ const EmployeeSummary: React.FC = () => {
                                                         animate={{ opacity: 1, y: 0 }}
                                                         transition={{ duration: 0.3 }}
                                                     >
-                                                        <Card className="border-l-4 border-l-primary shadow-md hover:shadow-lg transition-shadow duration-300">
-                                                            <CardContent className="p-6">
+                                                        <Card className="border-l-4 border-l-primary shadow-sm hover:shadow-md transition-shadow">
+                                                            <CardContent className="p-4">
                                                                 {/* Header Section */}
-                                                                <div className="mb-6">
-                                                                    <div className="flex items-start justify-between mb-3">
-                                                                        <h4 className="font-bold text-2xl text-foreground leading-tight flex-1 mr-2">
+                                                                <div className="mb-4">
+                                                                    <div className="flex items-start justify-between mb-2">
+                                                                        <h4 className="font-semibold text-base text-foreground leading-tight flex-1 mr-2">
                                                                             {employee.employeeName}
                                                                         </h4>
                                                                         {isFullMonthSelected && renderActions(employee)}
                                                                     </div>
                                                                     <div className="flex items-center justify-between">
-                                                                        <p className="text-xl text-muted-foreground">
+                                                                        <p className="text-xs text-muted-foreground">
                                                                             {getDateRangeDisplay()}
                                                                         </p>
-                                                                        <Badge variant="default" className="text-2xl font-bold px-5 py-2.5 bg-primary">
+                                                                        <Badge variant="default" className="text-sm font-semibold px-3 py-1 bg-primary">
                                                                             {formatCurrency(isFullMonthSelected ? getAdjustedTotalSalary(employee) : employee.totalSalary)}
                                                                         </Badge>
                                                                     </div>
                                                                 </div>
 
                                                                 {/* Attendance Section */}
-                                                                <div className="mb-6">
-                                                                    <h5 className="text-xl font-semibold text-foreground mb-4 uppercase tracking-wide">
+                                                                <div className="mb-4">
+                                                                    <h5 className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">
                                                                         Attendance
                                                                     </h5>
-                                                                    <div className="grid grid-cols-2 gap-4">
-                                                                        <div className="flex flex-col py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-lg font-medium text-muted-foreground mb-2">Present Days</span>
-                                                                            <span className="text-3xl font-bold text-foreground">{employee.presentDays}</span>
+                                                                    <div className="grid grid-cols-2 gap-2">
+                                                                        <div className="flex flex-col py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Present Days</span>
+                                                                            <span className="text-lg font-bold text-foreground">{employee.presentDays}</span>
                                                                         </div>
-                                                                        <div className="flex flex-col py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-lg font-medium text-muted-foreground mb-2">Full Days</span>
-                                                                            <span className="text-3xl font-bold text-foreground">{employee.fullDays}</span>
+                                                                        <div className="flex flex-col py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Full Days</span>
+                                                                            <span className="text-lg font-bold text-foreground">{employee.fullDays}</span>
                                                                         </div>
-                                                                        <div className="flex flex-col py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-lg font-medium text-muted-foreground mb-2">Half Days</span>
-                                                                            <span className="text-3xl font-bold text-foreground">{employee.halfDays}</span>
+                                                                        <div className="flex flex-col py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Half Days</span>
+                                                                            <span className="text-lg font-bold text-foreground">{employee.halfDays}</span>
                                                                         </div>
-                                                                        <div className="flex flex-col py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-lg font-medium text-muted-foreground mb-2">Absent Days</span>
-                                                                            <span className="text-3xl font-bold text-foreground">{employee.absentDays}</span>
+                                                                        <div className="flex flex-col py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Absent Days</span>
+                                                                            <span className="text-lg font-bold text-foreground">{employee.absentDays}</span>
                                                                         </div>
                                                                     </div>
                                                                 </div>
                                                                 
                                                                 {/* Separator */}
-                                                                <div className="border-t border-border/50 my-6"></div>
+                                                                <div className="border-t border-border/50 my-4"></div>
                                                                 
                                                                 {/* Salary Section */}
                                                                 <div>
-                                                                    <h5 className="text-xl font-semibold text-foreground mb-4 uppercase tracking-wide">
+                                                                    <h5 className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">
                                                                         Salary Breakdown
                                                                     </h5>
-                                                                    <div className="space-y-3">
-                                                                        <div className="flex justify-between items-center py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-xl font-medium text-muted-foreground">Base Salary</span>
-                                                                            <span className="text-2xl font-bold text-foreground">{formatCurrency(employee.baseSalary)}</span>
+                                                                    <div className="space-y-2">
+                                                                        <div className="flex justify-between items-center py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Base Salary</span>
+                                                                            <span className="text-sm font-semibold text-foreground">{formatCurrency(employee.baseSalary)}</span>
                                                                         </div>
-                                                                        <div className="flex justify-between items-center py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-xl font-medium text-muted-foreground">Travel Allowance</span>
-                                                                            <span className="text-2xl font-bold text-foreground">{formatCurrency(employee.travelAllowance)}</span>
+                                                                        <div className="flex justify-between items-center py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Travel Allowance</span>
+                                                                            <span className="text-sm font-semibold text-foreground">{formatCurrency(employee.travelAllowance)}</span>
                                                                         </div>
-                                                                        <div className="flex justify-between items-center py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-xl font-medium text-muted-foreground">Dearness Allowance</span>
-                                                                            <span className="text-2xl font-bold text-foreground">{formatCurrency(employee.dearnessAllowance)}</span>
+                                                                        <div className="flex justify-between items-center py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Dearness Allowance</span>
+                                                                            <span className="text-sm font-semibold text-foreground">{formatCurrency(employee.dearnessAllowance)}</span>
                                                                         </div>
                                                                         {isFullMonthSelected && Math.abs(getSalaryAdjustmentAmount(employee)) > 0 && (
-                                                                            <div className="flex justify-between items-center py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                                <span className="text-xl font-medium text-muted-foreground">TA Adjustment</span>
-                                                                                <span className="text-2xl font-bold text-emerald-700">{formatCurrency(getSalaryAdjustmentAmount(employee))}</span>
+                                                                            <div className="flex justify-between items-center py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                                <span className="text-xs font-medium text-muted-foreground">TA Adjustment</span>
+                                                                                <span className="text-sm font-semibold text-emerald-700">{formatCurrency(getSalaryAdjustmentAmount(employee))}</span>
                                                                             </div>
                                                                         )}
-                                                                        <div className="flex justify-between items-start gap-4 py-4 px-4 bg-muted/30 rounded-lg border border-border/50">
-                                                                            <span className="text-xl font-medium text-muted-foreground">Final Salary</span>
-                                                                            <div className="text-right">{renderTotalSalary(employee)}</div>
+                                                                        <div className="flex justify-between items-start gap-4 py-2 px-3 bg-muted/30 rounded-lg border border-border/50">
+                                                                            <span className="text-xs font-medium text-muted-foreground">Final Salary</span>
+                                                                            <div className="text-right text-sm">{renderTotalSalary(employee)}</div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -1057,9 +1065,9 @@ const EmployeeSummary: React.FC = () => {
                             {/* Desktop view */}
                             <div className="hidden md:block">
                                 <div className="rounded-lg border bg-card">
-                                    <div className="p-4 border-b">
-                                        <h3 className="text-lg font-semibold text-foreground">Employee Salary Summary ({getDateRangeDisplay()})</h3>
-                                        <p className="text-sm text-muted-foreground">Overview of employee attendance and salary calculations</p>
+                                    <div className="border-b p-4">
+                                        <h3 className="text-sm font-semibold text-foreground">Summary results</h3>
+                                        <p className="mt-0.5 text-xs text-muted-foreground">{getDateRangeDisplay()}</p>
                                     </div>
                                     <div className="overflow-x-auto">
                                         {summaryLoading ? (
@@ -1086,7 +1094,7 @@ const EmployeeSummary: React.FC = () => {
                                                 ))}
                                             </div>
                                         ) : filteredSummaryData.length === 0 ? (
-                                            <div className="text-center py-8 text-muted-foreground">
+                                            <div className="text-center py-8 text-muted-foreground text-sm">
                                                 {summaryData.length === 0 ? 'No summary data available' : 'No employees found matching your search'}
                                             </div>
                                         ) : (

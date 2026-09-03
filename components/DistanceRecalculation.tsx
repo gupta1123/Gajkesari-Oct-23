@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
 
 type EmployeeDirectoryEntry = EmployeeUserDto & {
   status?: string;
@@ -75,6 +76,7 @@ export default function DistanceRecalculation() {
 
   const [startDate, setStartDate] = useState(format(firstOfMonth, "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState(format(today, "yyyy-MM-dd"));
+  const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
   const [isStartDatePopoverOpen, setIsStartDatePopoverOpen] = useState(false);
   const [isEndDatePopoverOpen, setIsEndDatePopoverOpen] = useState(false);
 
@@ -259,50 +261,40 @@ export default function DistanceRecalculation() {
 
   const handleRecalculate = async () => {
     if (selectedEmployeeIds.length === 0) {
-      setError("Select at least one employee.");
+      setError("Please select at least one employee.");
       return;
     }
 
-    if (!startDate || !endDate) {
-      setError("Select both start and end date.");
-      return;
-    }
-
-    if (startDate > endDate) {
-      setError("Start date cannot be after end date.");
+    if (dateRangeInvalid || !startDate || !endDate) {
+      setError("Please select a valid date range.");
       return;
     }
 
     setIsSubmitting(true);
     setError(null);
+    setResponseText("");
 
     try {
-      const text = await API.recalculateDistanceForEmployeesWithOlaMaps(selectedEmployeeIds, startDate, endDate);
-      setResponseText(text);
+      const message = await API.recalculateDistanceForEmployeesWithOlaMaps(selectedEmployeeIds, startDate, endDate);
+      setResponseText(message || "Recalculation completed successfully.");
       await refreshVerification(selectedEmployeeIds, startDate, endDate);
-    } catch {
-      setError("Distance recalculation could not be completed. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred while recalculating distance.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <Card className="border-0 shadow-sm bg-background">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-xl md:text-2xl font-semibold">Distance Recalculation</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Recalculate stored travelled distance using Ola Maps for a selected employee batch and date range.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 rounded-xl border bg-muted/30 p-3 sm:p-4 md:grid-cols-3">
+    <div className="space-y-4">
+      <Card className="gap-0 border-border/70 py-0 shadow-sm">
+        <CardContent className="space-y-4 p-4">
+          <div className="grid grid-cols-1 gap-4 rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase text-muted-foreground">Employees</Label>
               <Popover open={isEmployeePickerOpen} onOpenChange={setIsEmployeePickerOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between bg-card">
+                  <Button variant="outline" className="w-full justify-between bg-card shadow-none">
                     <span className="truncate text-left">{selectedEmployeeLabel}</span>
                     <Users className="h-4 w-4 opacity-50" />
                   </Button>
@@ -402,9 +394,9 @@ export default function DistanceRecalculation() {
               <Label className="text-xs font-semibold uppercase text-muted-foreground">Start Date</Label>
               <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start bg-card text-left font-normal">
+                  <Button variant="outline" className="w-full justify-start bg-card text-left font-normal shadow-none">
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {startDate ? format(new Date(startDate), "MMM d, yyyy") : "Select date"}
+                    {startDate ? format(new Date(startDate), "MMM dd, yyyy") : "Select date"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -424,9 +416,9 @@ export default function DistanceRecalculation() {
               <Label className="text-xs font-semibold uppercase text-muted-foreground">End Date</Label>
               <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start bg-card text-left font-normal">
+                  <Button variant="outline" className="w-full justify-start bg-card text-left font-normal shadow-none">
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {endDate ? format(new Date(endDate), "MMM d, yyyy") : "Select date"}
+                    {endDate ? format(new Date(endDate), "MMM dd, yyyy") : "Select date"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -443,10 +435,12 @@ export default function DistanceRecalculation() {
             </div>
           </div>
 
+          <DateRangeError fromDate={startDate} toDate={endDate} />
+
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               onClick={handleRecalculate}
-              disabled={isSubmitting || isRefreshingVerification || selectedEmployeeIds.length === 0}
+              disabled={isSubmitting || isRefreshingVerification || selectedEmployeeIds.length === 0 || dateRangeInvalid || !startDate || !endDate}
               className="w-full sm:w-auto sm:min-w-56"
             >
               {isSubmitting ? (
@@ -472,11 +466,11 @@ export default function DistanceRecalculation() {
       )}
 
       {(responseText || isSubmitting || isRefreshingVerification || verificationSummaries.length > 0) && (
-        <Card className="border-0 shadow-sm bg-background">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold">Calculated Amount</CardTitle>
+        <Card className="gap-0 border-border/70 py-0 shadow-sm">
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="text-base font-semibold">Calculated Amount</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 p-4 pt-2">
             {isSubmitting || isRefreshingVerification ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -485,10 +479,10 @@ export default function DistanceRecalculation() {
             ) : verificationSummaries.length > 0 ? (
               <>
                 {hasMultipleEmployeeResults ? (
-                  <div className="overflow-x-auto rounded-xl border">
-                    <Table className="min-w-[640px]">
+                  <div className="overflow-x-auto rounded-lg border bg-card">
+                    <Table className="min-w-[640px] text-xs">
                       <TableHeader>
-                        <TableRow className="bg-muted/50">
+                        <TableRow className="bg-muted/30">
                           <TableHead className="w-14">#</TableHead>
                           <TableHead>Employee</TableHead>
                           <TableHead className="text-right">Days</TableHead>
@@ -512,19 +506,19 @@ export default function DistanceRecalculation() {
                 ) : (
                   <>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="rounded-xl border bg-muted/20 p-3 sm:p-4">
+                      <div className="rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4">
                         <div className="text-xs font-medium uppercase text-muted-foreground">Total Amount</div>
                         <div className="mt-2 text-xl font-semibold sm:text-2xl">{formatCurrency(calculationTotals.totalTravelAllowance)}</div>
                       </div>
-                      <div className="rounded-xl border bg-muted/20 p-3 sm:p-4">
+                      <div className="rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4">
                         <div className="text-xs font-medium uppercase text-muted-foreground">Total Distance</div>
                         <div className="mt-2 text-xl font-semibold sm:text-2xl">{calculationTotals.totalDistanceKm.toFixed(1)} km</div>
                       </div>
-                      <div className="rounded-xl border bg-muted/20 p-3 sm:p-4">
+                      <div className="rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4">
                         <div className="text-xs font-medium uppercase text-muted-foreground">Employees</div>
                         <div className="mt-2 text-xl font-semibold sm:text-2xl">{verificationSummaries.length}</div>
                       </div>
-                      <div className="rounded-xl border bg-muted/20 p-3 sm:p-4">
+                      <div className="rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4">
                         <div className="text-xs font-medium uppercase text-muted-foreground">Days Included</div>
                         <div className="mt-2 text-xl font-semibold sm:text-2xl">{calculationTotals.rowCount}</div>
                       </div>
@@ -532,7 +526,7 @@ export default function DistanceRecalculation() {
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {verificationSummaries.map((summary) => (
-                        <div key={summary.employeeId} className="rounded-xl border bg-muted/20 p-4">
+                        <div key={summary.employeeId} className="rounded-xl border border-border/70 bg-muted/20 p-4">
                           <div className="mb-4">
                             <div className="font-medium">{summary.employeeName}</div>
                             <div className="text-xs text-muted-foreground">{summary.rowCount} day rows calculated</div>
@@ -554,7 +548,7 @@ export default function DistanceRecalculation() {
                 )}
               </>
             ) : (
-              <div className="rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
                 Recalculation completed. Calculated amount will appear here when verification data is available.
               </div>
             )}

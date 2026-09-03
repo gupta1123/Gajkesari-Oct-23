@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, User, CalendarIcon, Check, Pencil } from "lucide-react";
+import { Loader2, User, CalendarIcon, Check, Pencil, ChevronDown, MoreHorizontal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -57,19 +57,19 @@ interface Employee {
 
 // Status Badge Component
 const StatusBadge = ({ status, isSunday }: { status: string; isSunday: boolean }) => {
-    let colorClass = "bg-gray-100 text-gray-800 border-gray-200";
+    let colorClass = "border-border bg-muted/50 text-muted-foreground";
     
     // Normalize "present" to "absent" for all checks
     const normalizedStatus = status.toLowerCase() === "present" ? "Absent" : status;
     const statusLower = normalizedStatus.toLowerCase();
     
     if (isSunday && statusLower !== "absent") {
-        colorClass = "bg-purple-100 text-purple-800 border-purple-200";
+        colorClass = "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/35 dark:text-violet-300";
     } else {
         switch (statusLower) {
-            case "full day": colorClass = "bg-green-100 text-green-800 border-green-200"; break;
-            case "half day": colorClass = "bg-yellow-100 text-yellow-800 border-yellow-200"; break;
-            case "absent": colorClass = "bg-red-100 text-red-800 border-red-200"; break;
+            case "full day": colorClass = "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300"; break;
+            case "half day": colorClass = "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-300"; break;
+            case "absent": colorClass = "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/35 dark:text-rose-300"; break;
         }
     }
 
@@ -110,8 +110,8 @@ const DailyBreakdown: React.FC = () => {
     const [selectedRecords, setSelectedRecords] = useState<Set<string>>(new Set());
     
     // Loading & Error States
-    const [isLoading, setIsLoading] = useState(false); // Global load
-    const [isBulkUpdating, setIsBulkUpdating] = useState(false); // Update load
+    const [isLoading, setIsLoading] = useState(false);
+    const [isBulkUpdating, setIsBulkUpdating] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     // Filter States
@@ -163,7 +163,7 @@ const DailyBreakdown: React.FC = () => {
         if (!token || !selectedEmployee) return;
         setIsLoading(true);
         setError(null);
-        setSelectedRecords(new Set()); // Reset selection on refetch
+        setSelectedRecords(new Set());
         
         try {
             const empId = selectedEmployee;
@@ -208,7 +208,7 @@ const DailyBreakdown: React.FC = () => {
 
     const toggleAll = () => {
         if (selectedRecords.size === dailyBreakdownData.length) {
-            setSelectedRecords(new Set()); // Deselect all
+            setSelectedRecords(new Set());
         } else {
             const allKeys = dailyBreakdownData.map(d => getRecordKey(d.date, d.employeeId));
             setSelectedRecords(new Set(allKeys));
@@ -222,17 +222,12 @@ const DailyBreakdown: React.FC = () => {
         setError(null);
 
         try {
-            // Convert Set to Array of objects for processing
             const updates = Array.from(selectedRecords).map(key => {
                 const [date, empIdStr] = key.split('|');
                 return { date, employeeId: parseInt(empIdStr), status: newStatus };
             });
 
-            console.log("Sending Bulk Updates:", updates);
-
-            // Update each record individually using the specified endpoint
             const updatePromises = updates.map(async (update) => {
-                // Normalize status to lowercase (e.g., "Full Day" -> "full day")
                 const normalizedStatus = update.status.toLowerCase();
                 
                 const response = await fetch(
@@ -256,7 +251,6 @@ const DailyBreakdown: React.FC = () => {
 
             await Promise.all(updatePromises);
 
-            // Success - update UI optimistically
             setDailyBreakdownData(prev => prev.map(item => {
                 const key = getRecordKey(item.date, item.employeeId);
                 if (selectedRecords.has(key)) {
@@ -265,13 +259,11 @@ const DailyBreakdown: React.FC = () => {
                 return item;
             }));
 
-            // Clear selection after success
             setSelectedRecords(new Set());
 
         } catch (error) {
             console.error("Bulk update failed", error);
             setError(error instanceof Error ? error.message : "Failed to update status. Please try again.");
-            // Refresh data to revert optimistic update
             await fetchDailyBreakdown();
         } finally {
             setIsBulkUpdating(false);
@@ -348,6 +340,7 @@ const DailyBreakdown: React.FC = () => {
 
         setDailyEditError(null);
         setIsSavingDailyEdit(true);
+
         try {
             await requestDailyTaDaEdit({
                 employeeId: editingDay.employeeId,
@@ -358,36 +351,44 @@ const DailyBreakdown: React.FC = () => {
                 currentDearnessAllowance: editingDay.dailyDearnessAllowance ?? 0,
                 token,
             });
+
             await fetchDailyBreakdown();
             resetDailyEdit();
-        } catch (error) {
-            setDailyEditError(
-                error instanceof Error ? error.message : "Failed to save the daily TA/DA changes.",
-            );
+        } catch (err) {
+            setDailyEditError(err instanceof Error ? err.message : "Failed to update daily TA/DA.");
         } finally {
             setIsSavingDailyEdit(false);
         }
     };
 
-    // --- Derived State for UI ---
-    const employeeOptions = useMemo(() => employees.map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}` })), [employees]);
-    const filteredEmployees = useMemo(() => 
-        employeeOptions.filter(e => e.name.toLowerCase().includes(employeeSearchTerm.toLowerCase())), 
-    [employeeOptions, employeeSearchTerm]);
-    const selectedEmployeeLabel = selectedEmployee
-        ? employeeOptions.find(e => e.id.toString() === selectedEmployee)?.name || "Select employee"
-        : "Select employee";
+    // --- Filter Helper ---
+    const filteredEmployees = useMemo(() => {
+        const query = employeeSearchTerm.toLowerCase();
+        return employees
+            .map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))
+            .filter(e => e.name.toLowerCase().includes(query));
+    }, [employees, employeeSearchTerm]);
+
+    const selectedEmployeeLabel = useMemo(() => {
+        if (!selectedEmployee) return "Select employee";
+        const emp = employees.find(e => e.id.toString() === selectedEmployee);
+        return emp ? `${emp.firstName} ${emp.lastName}` : "Select employee";
+    }, [selectedEmployee, employees]);
+
     const distanceRecalculationHref = useMemo(() => {
-        const params = new URLSearchParams({ tab: "distanceRecalculation" });
-        if (selectedEmployee) params.set("employeeIds", selectedEmployee);
+        const params = new URLSearchParams();
+        if (selectedEmployee) params.set("employeeId", selectedEmployee);
         if (startDate) params.set("startDate", startDate);
         if (endDate) params.set("endDate", endDate);
+        params.set("tab", "distanceRecalculation");
         return `/dashboard/settings?${params.toString()}`;
-    }, [endDate, selectedEmployee, startDate]);
+    }, [selectedEmployee, startDate, endDate]);
+
     const hasNegativeDistance = useMemo(
-        () => dailyBreakdownData.some((day) => day.carDistanceKm + day.bikeDistanceKm < 0),
+        () => dailyBreakdownData.some((day) => getPayableDistanceKm(day) < 0),
         [dailyBreakdownData]
     );
+
     const totals = useMemo(() => {
         return dailyBreakdownData.reduce(
             (acc, day) => {
@@ -404,93 +405,90 @@ const DailyBreakdown: React.FC = () => {
     }, [dailyBreakdownData]);
 
     return (
-        <div className="relative space-y-6 pb-24">
-            <Card className="border-0 shadow-sm bg-background">
-                <CardHeader className="pb-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div>
-                            <CardTitle className="text-xl md:text-2xl font-semibold">Attendance & Breakdown</CardTitle>
-                            <p className="text-sm text-muted-foreground">Manage daily attendance and view salary calculations</p>
+        <div className="relative space-y-4 pb-24">
+            <Card className="gap-0 border-border/70 py-0 shadow-sm">
+                <CardContent className="space-y-4 p-4">
+                    {hasNegativeDistance && (
+                        <div className="rounded-md border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-left dark:border-amber-900/50 dark:bg-amber-950/25">
+                            <DistanceIssueNote href={distanceRecalculationHref} />
                         </div>
-                        {hasNegativeDistance && (
-                            <div className="max-w-xs rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left dark:border-amber-900/40 dark:bg-amber-950/20">
-                                <DistanceIssueNote href={distanceRecalculationHref} />
+                    )}
+
+                    <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-end lg:gap-2">
+                            {/* Employee Select */}
+                            <div className="min-w-0 space-y-1.5 lg:w-[220px] lg:shrink-0">
+                                <Label className="text-xs font-medium text-foreground">Employee</Label>
+                                <Popover open={isEmployeePopoverOpen} onOpenChange={setIsEmployeePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="h-9 w-full justify-between px-3 text-sm font-normal shadow-none">
+                                            <span className="flex min-w-0 items-center gap-2 truncate">
+                                                <User className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                <span className="truncate">{selectedEmployeeLabel}</span>
+                                            </span>
+                                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[320px] p-0" align="start">
+                                        <div className="border-b p-3">
+                                            <Input
+                                                placeholder="Search employees..."
+                                                value={employeeSearchTerm}
+                                                onChange={e => setEmployeeSearchTerm(e.target.value)}
+                                                className="h-9"
+                                            />
+                                        </div>
+                                        <div className="max-h-60 overflow-y-auto">
+                                            {filteredEmployees.length === 0 ? (
+                                                <div className="p-4 text-center text-sm text-muted-foreground">
+                                                    No employees match your search.
+                                                </div>
+                                            ) : (
+                                                <div className="p-1">
+                                                    {filteredEmployees.map(e => (
+                                                        <button
+                                                            key={e.id}
+                                                            type="button"
+                                                            onClick={() => {setSelectedEmployee(e.id.toString()); setIsEmployeePopoverOpen(false)}}
+                                                            className={cn(
+                                                                "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50",
+                                                                selectedEmployee === e.id.toString() && "bg-primary/10 font-medium text-primary"
+                                                            )}
+                                                        >
+                                                            {e.name} {selectedEmployee === e.id.toString() && <Check className="h-3 w-3" />}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
                             </div>
-                        )}
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {/* Filters - (Keeping your existing layout compact) */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 p-4 bg-muted/30 rounded-xl border">
-                        {/* Employee Select */}
-                        <div className="lg:col-span-3 space-y-2">
-                            <Label className="text-xs font-semibold uppercase text-muted-foreground">Employee</Label>
-                            <Popover open={isEmployeePopoverOpen} onOpenChange={setIsEmployeePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" className="w-full justify-between bg-card">
-                                        <span className="truncate">{selectedEmployeeLabel}</span>
-                                        <User className="h-4 w-4 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[280px] p-0" align="start">
-                                    <div className="p-2 border-b">
-                                        <Input
-                                            placeholder="Search..."
-                                            value={employeeSearchTerm}
-                                            onChange={e => setEmployeeSearchTerm(e.target.value)}
-                                            className="h-8"
-                                        />
-                                    </div>
-                                    <div className="max-h-60 overflow-y-auto">
-                                        {filteredEmployees.length === 0 ? (
-                                            <div className="p-4 text-center text-sm text-muted-foreground">
-                                                No employees match your search.
-                                            </div>
-                                        ) : (
-                                            <div className="p-1">
-                                                {filteredEmployees.map(e => (
-                                                    <button
-                                                        key={e.id}
-                                                        onClick={() => {setSelectedEmployee(e.id.toString()); setIsEmployeePopoverOpen(false)}}
-                                                        className={cn(
-                                                            "w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted flex items-center justify-between",
-                                                            selectedEmployee === e.id.toString() && "bg-muted font-medium"
-                                                        )}
-                                                    >
-                                                        {e.name} {selectedEmployee === e.id.toString() && <Check className="h-3 w-3" />}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </PopoverContent>
-                            </Popover>
-                        </div>
 
-                        {/* Date Pickers */}
-                        <div className="lg:col-span-3 space-y-2">
-                            <Label className="text-xs font-semibold uppercase text-muted-foreground">Start Date</Label>
-                            <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" className="w-full justify-start text-left font-normal bg-card">
-                                        <CalendarIcon className="mr-2 h-4 w-4" />{startDate ? format(new Date(startDate), 'MMM d, yyyy') : "Select"}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0"><SpacedCalendar mode="single" selected={startDate ? new Date(startDate) : undefined} onSelect={d => {setStartDate(formatDateForFilter(d)); setIsStartDatePopoverOpen(false)}} /></PopoverContent>
-                            </Popover>
+                            {/* Date Pickers */}
+                            <div className="min-w-0 space-y-1.5 lg:w-[180px] lg:shrink-0">
+                                <Label className="text-xs font-medium text-foreground">From date</Label>
+                                <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="h-9 w-full justify-start px-3 text-left text-sm font-normal shadow-none">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />{startDate ? format(new Date(startDate), 'MMM dd, yyyy') : "Select"}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0"><SpacedCalendar mode="single" selected={startDate ? new Date(startDate) : undefined} onSelect={d => {setStartDate(formatDateForFilter(d)); setIsStartDatePopoverOpen(false)}} /></PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="min-w-0 space-y-1.5 lg:w-[180px] lg:shrink-0">
+                                <Label className="text-xs font-medium text-foreground">To date</Label>
+                                <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="h-9 w-full justify-start px-3 text-left text-sm font-normal shadow-none">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />{endDate ? format(new Date(endDate), 'MMM dd, yyyy') : "Select"}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0"><SpacedCalendar mode="single" selected={endDate ? new Date(endDate) : undefined} onSelect={d => {setEndDate(formatDateForFilter(d)); setIsEndDatePopoverOpen(false)}} /></PopoverContent>
+                                </Popover>
+                            </div>
                         </div>
-                        <div className="lg:col-span-3 space-y-2">
-                            <Label className="text-xs font-semibold uppercase text-muted-foreground">End Date</Label>
-                            <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" className="w-full justify-start text-left font-normal bg-card">
-                                        <CalendarIcon className="mr-2 h-4 w-4" />{endDate ? format(new Date(endDate), 'MMM d, yyyy') : "Select"}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0"><SpacedCalendar mode="single" selected={endDate ? new Date(endDate) : undefined} onSelect={d => {setEndDate(formatDateForFilter(d)); setIsEndDatePopoverOpen(false)}} /></PopoverContent>
-                            </Popover>
-                        </div>
-
                     </div>
 
                     {/* Content Area */}
@@ -510,7 +508,7 @@ const DailyBreakdown: React.FC = () => {
                                         checked={selectedRecords.size === dailyBreakdownData.length && dailyBreakdownData.length > 0}
                                         onCheckedChange={toggleAll}
                                     />
-                                    <Label htmlFor="select-all-mobile" className="text-sm font-medium">Select All</Label>
+                                    <Label htmlFor="select-all-mobile" className="text-sm font-medium">Select all</Label>
                                 </div>
                                 {dailyBreakdownData.map((day) => {
                                     const key = getRecordKey(day.date, day.employeeId);
@@ -523,13 +521,21 @@ const DailyBreakdown: React.FC = () => {
                                                 isSelected ? "ring-2 ring-primary border-primary bg-primary/5" : "shadow-sm"
                                             )}
                                         >
-                                            <div className="absolute top-4 right-4">
+                                            <div className="absolute top-4 right-4 flex items-center gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0"
+                                                    onClick={() => openDailyEdit(day)}
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </Button>
                                                 <Checkbox checked={isSelected} onCheckedChange={() => toggleRecord(day.date, day.employeeId)} />
                                             </div>
-                                            <div className="pr-8">
+                                            <div className="pr-16">
                                                 <div className="font-semibold text-lg">{day.employeeName}</div>
                                                 <div className="text-sm text-muted-foreground flex items-center gap-2 mb-2">
-                                                    {format(new Date(day.date), 'EEE, MMM d')}
+                                                    {format(new Date(day.date), 'MMM dd, yyyy')}
                                                     <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800">{day.dayOfWeek}</span>
                                                 </div>
                                                 <div className="flex flex-wrap gap-2 mb-3">
@@ -538,7 +544,7 @@ const DailyBreakdown: React.FC = () => {
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-y-1 text-sm text-muted-foreground">
                                                     <div>Visits: <span className="text-foreground font-medium">{day.completedVisits}</span></div>
-                                                    <div>TA: <span className="text-foreground font-medium">{formatCurrency(day.travelAllowance)}</span></div>
+                                                    <div>Travel: <span className="text-foreground font-medium">{formatCurrency(day.travelAllowance)}</span></div>
                                                     <div className="col-span-2">
                                                         Distance:{" "}
                                                         <span className={cn("font-medium", totalDistance < 0 ? "text-amber-600" : "text-foreground")}>
@@ -547,16 +553,6 @@ const DailyBreakdown: React.FC = () => {
                                                     </div>
                                                     <div>DA: <span className="text-foreground font-medium">{formatCurrency(day.dailyDearnessAllowance)}</span></div>
                                                 </div>
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="mt-4 w-full"
-                                                    onClick={() => openDailyEdit(day)}
-                                                >
-                                                    <Pencil className="mr-2 h-4 w-4" />
-                                                    Edit daily TA/DA
-                                                </Button>
                                             </div>
                                         </div>
                                     );
@@ -564,11 +560,11 @@ const DailyBreakdown: React.FC = () => {
                             </div>
 
                             {/* Desktop Table View */}
-                            <div className="hidden overflow-x-auto rounded-md border md:block">
-                                <Table className="min-w-[1100px]">
+                            <div className="hidden md:block rounded-md border">
+                                <Table>
                                     <TableHeader>
-                                        <TableRow className="bg-muted/50">
-                                            <TableHead className="w-[50px]">
+                                        <TableRow className="bg-muted/30">
+                                            <TableHead className="w-[40px]">
                                                 <Checkbox 
                                                     checked={selectedRecords.size === dailyBreakdownData.length && dailyBreakdownData.length > 0}
                                                     onCheckedChange={toggleAll}
@@ -579,11 +575,11 @@ const DailyBreakdown: React.FC = () => {
                                             <TableHead>Status</TableHead>
                                             <TableHead className="text-center">Visits</TableHead>
                                             <TableHead className="text-right">Base</TableHead>
-                                            <TableHead className="text-right">TA</TableHead>
+                                            <TableHead className="text-right">Travel</TableHead>
                                             <TableHead className="text-right">DA</TableHead>
                                             <TableHead className="text-right">Dist (km)</TableHead>
                                             <TableHead className="text-right">Total</TableHead>
-                                            <TableHead className="w-[60px] text-right">Actions</TableHead>
+                                            <TableHead className="w-[50px] text-center">Edit</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -597,7 +593,7 @@ const DailyBreakdown: React.FC = () => {
                                                         <Checkbox checked={isSelected} onCheckedChange={() => toggleRecord(day.date, day.employeeId)} />
                                                     </TableCell>
                                                     <TableCell className="font-medium">{day.employeeName}</TableCell>
-                                                    <TableCell>{format(new Date(day.date), 'dd/MM/yyyy')} <span className="text-muted-foreground text-xs ml-1">({day.dayOfWeek.slice(0,3)})</span></TableCell>
+                                                    <TableCell>{format(new Date(day.date), 'MMM dd, yyyy')} <span className="text-muted-foreground text-xs ml-1">({day.dayOfWeek.slice(0,3)})</span></TableCell>
                                                     <TableCell><StatusBadge status={day.dayType} isSunday={day.isSunday} /></TableCell>
                                                     <TableCell className="text-center">{day.completedVisits}</TableCell>
                                                     <TableCell className="text-right">{formatCurrency(day.baseEarned)}</TableCell>
@@ -609,17 +605,15 @@ const DailyBreakdown: React.FC = () => {
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-right font-bold">{formatCurrency(day.totalDailySalary)}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell className="text-center">
                                                         <Button
-                                                            type="button"
                                                             variant="ghost"
-                                                            size="icon"
-                                                            className="h-8 w-8"
+                                                            size="sm"
+                                                            className="h-7 w-7 p-0"
                                                             onClick={() => openDailyEdit(day)}
-                                                            title="Edit daily TA and DA"
+                                                            title="Edit TA/DA"
                                                         >
-                                                            <Pencil className="h-4 w-4" />
-                                                            <span className="sr-only">Edit daily TA and DA</span>
+                                                            <Pencil className="h-3.5 w-3.5" />
                                                         </Button>
                                                     </TableCell>
                                                 </TableRow>
@@ -646,7 +640,7 @@ const DailyBreakdown: React.FC = () => {
                 </CardContent>
             </Card>
 
-            {/* --- Floating Action Bar (The "Shadcn" way to do bulk actions) --- */}
+            {/* --- Floating Action Bar --- */}
             {selectedRecords.size > 0 && (
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] md:w-auto min-w-[350px] z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
                     <div className="bg-foreground text-background rounded-full shadow-xl px-6 py-3 flex items-center justify-between gap-6 ring-1 ring-border">
@@ -664,23 +658,21 @@ const DailyBreakdown: React.FC = () => {
                         <div className="flex items-center gap-2">
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button variant="secondary" size="sm" className="h-8 gap-2" disabled={isBulkUpdating}>
-                                        {isBulkUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                                        Mark As...
+                                    <Button size="sm" variant="secondary" className="rounded-full h-8 text-xs font-medium">
+                                        Update Status <ChevronDown className="ml-1 h-3 w-3" />
                                     </Button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
-                                    <DropdownMenuLabel>Change Status</DropdownMenuLabel>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuLabel>Set Attendance To</DropdownMenuLabel>
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => openStatusConfirmation('Full Day')} className="gap-2">
-                                        <span className="h-2 w-2 rounded-full bg-green-500" /> Full Day
+                                    <DropdownMenuItem onClick={() => openStatusConfirmation("Full Day")}>
+                                        Full Day
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => openStatusConfirmation('Half Day')} className="gap-2">
-                                        <span className="h-2 w-2 rounded-full bg-yellow-500" /> Half Day
+                                    <DropdownMenuItem onClick={() => openStatusConfirmation("Half Day")}>
+                                        Half Day
                                     </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => openStatusConfirmation('Absent')} className="gap-2 text-destructive focus:text-destructive">
-                                        <span className="h-2 w-2 rounded-full bg-red-500" /> Absent
+                                    <DropdownMenuItem onClick={() => openStatusConfirmation("Absent")}>
+                                        Absent
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
@@ -689,120 +681,79 @@ const DailyBreakdown: React.FC = () => {
                 </div>
             )}
 
+            {/* Bulk Update Confirmation Dialog */}
             <Dialog open={isConfirmOpen} onOpenChange={handleDialogOpenChange}>
-                <DialogContent showCloseButton={false}>
+                <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Confirm status change</DialogTitle>
+                        <DialogTitle>Confirm Status Update</DialogTitle>
                         <DialogDescription>
-                            {pendingStatus
-                                ? `You are about to mark ${selectedRecords.size} record${selectedRecords.size === 1 ? "" : "s"} as "${pendingStatus}". This will update their daily breakdown status.`
-                                : "Select a status to continue."}
+                            Are you sure you want to update attendance status to <strong>{pendingStatus}</strong> for {selectedRecords.size} selected record{selectedRecords.size > 1 ? 's' : ''}?
                         </DialogDescription>
                     </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => handleDialogOpenChange(false)}
-                            disabled={isBulkUpdating}
-                        >
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setIsConfirmOpen(false)} disabled={isBulkUpdating}>
                             Cancel
                         </Button>
-                        <Button
-                            onClick={confirmBulkUpdate}
-                            disabled={isBulkUpdating || !pendingStatus}
-                        >
-                            {isBulkUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Confirm
+                        <Button onClick={confirmBulkUpdate} disabled={isBulkUpdating}>
+                            {isBulkUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Confirm Update
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
+            {/* Edit Daily TA/DA Dialog */}
             <Dialog open={isEditOpen} onOpenChange={handleDailyEditOpenChange}>
-                <DialogContent className="sm:max-w-lg">
+                <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Edit daily TA and DA</DialogTitle>
+                        <DialogTitle>Edit Daily TA/DA</DialogTitle>
                         <DialogDescription>
-                            {editingDay
-                                ? `${editingDay.employeeName} · ${format(new Date(editingDay.date), "dd MMM yyyy")}`
-                                : "Update the selected day."}
+                            {editingDay ? `${editingDay.employeeName} · ${format(new Date(editingDay.date), 'MMM dd, yyyy')}` : ''}
                         </DialogDescription>
                     </DialogHeader>
 
-                    {editingDay && (
-                        <div className="space-y-5">
-                            <div className="grid grid-cols-3 divide-x rounded-md border bg-muted/20">
-                                <div className="px-3 py-3">
-                                    <p className="text-xs text-muted-foreground">Current km</p>
-                                    <p className="mt-1 text-sm font-semibold">{getPayableDistanceKm(editingDay).toFixed(1)}</p>
-                                </div>
-                                <div className="px-3 py-3">
-                                    <p className="text-xs text-muted-foreground">Current TA</p>
-                                    <p className="mt-1 text-sm font-semibold">{formatCurrency(editingDay.travelAllowance)}</p>
-                                </div>
-                                <div className="px-3 py-3">
-                                    <p className="text-xs text-muted-foreground">Current DA</p>
-                                    <p className="mt-1 text-sm font-semibold">{formatCurrency(editingDay.dailyDearnessAllowance)}</p>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="daily-ta-kilometres">TA kilometres</Label>
-                                <div className="relative">
-                                    <Input
-                                        id="daily-ta-kilometres"
-                                        type="number"
-                                        min="0"
-                                        step="0.1"
-                                        inputMode="decimal"
-                                        value={kilometresInput}
-                                        onChange={(event) => setKilometresInput(event.target.value)}
-                                        className="pr-12"
-                                        autoFocus
-                                    />
-                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                                        km
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="daily-da-amount">DA amount</Label>
-                                <div className="relative">
-                                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                                        ₹
-                                    </span>
-                                    <Input
-                                        id="daily-da-amount"
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        inputMode="decimal"
-                                        value={dearnessAllowanceInput}
-                                        onChange={(event) => setDearnessAllowanceInput(event.target.value)}
-                                        className="pl-8"
-                                    />
-                                </div>
-                            </div>
-
-                            {dailyEditError && (
-                                <div
-                                    role="alert"
-                                    className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                                >
-                                    {dailyEditError}
-                                </div>
-                            )}
+                    {dailyEditError && (
+                        <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
+                            {dailyEditError}
                         </div>
                     )}
 
-                    <DialogFooter>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="daily-edit-km" className="text-xs">Kilometres (Km)</Label>
+                            <Input
+                                id="daily-edit-km"
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={kilometresInput}
+                                onChange={(e) => setKilometresInput(e.target.value)}
+                                placeholder="Enter kilometres"
+                                className="h-9 text-sm"
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="daily-edit-da" className="text-xs">Dearness Allowance (DA ₹)</Label>
+                            <Input
+                                id="daily-edit-da"
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={dearnessAllowanceInput}
+                                onChange={(e) => setDearnessAllowanceInput(e.target.value)}
+                                placeholder="Enter DA amount"
+                                className="h-9 text-sm"
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter className="gap-2">
                         <Button variant="outline" onClick={closeDailyEdit} disabled={isSavingDailyEdit}>
                             Cancel
                         </Button>
-                        <Button onClick={handleSaveDailyEdit} disabled={isSavingDailyEdit || !editingDay}>
-                            {isSavingDailyEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {isSavingDailyEdit ? "Saving..." : "Save changes"}
+                        <Button onClick={handleSaveDailyEdit} disabled={isSavingDailyEdit}>
+                            {isSavingDailyEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Save Changes
                         </Button>
                     </DialogFooter>
                 </DialogContent>

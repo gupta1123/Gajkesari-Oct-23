@@ -36,7 +36,7 @@ import {
     TabsTrigger,
 } from "@/components/ui/tabs";
 import { useRouter, useParams } from 'next/navigation';
-import { CalendarIcon, Edit, Trash2, Search, Check, MessageSquare, ClipboardList, User, Mail, Phone, Store, Tag, MapPin, Building, Flag, Loader2, Cake } from 'lucide-react';
+import { CalendarIcon, Edit, Trash2, Search, Check, MessageSquare, ClipboardList, User, Mail, Phone, Store, Tag, MapPin, Building, Flag, Loader2, Cake, Plus, AlertCircle } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { SpacedCalendar } from '@/components/ui/spaced-calendar';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -1114,8 +1114,8 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1">
-                    <Card className="border-0 shadow-sm">
-                        <CardContent className="space-y-6">
+                    <Card className="gap-0 border border-border/70 py-0 shadow-sm bg-card">
+                        <CardContent className="p-4 sm:p-5 space-y-6">
                             <div className="flex items-start gap-4">
                                 <div className="relative h-14 w-14 rounded-xl border-2 border-dashed bg-muted flex items-center justify-center">
                                     <span className="text-lg font-semibold text-muted-foreground">
@@ -1347,7 +1347,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                     </Card>
                 </div>
                 <div className="lg:col-span-2">
-                    <Card className="border-0 shadow-sm">
+                    <Card className="gap-0 border border-border/70 py-0 shadow-sm bg-card">
                         <CardHeader className="pb-4">
                             <div className="flex items-center justify-between">
                                 <div>
@@ -1517,28 +1517,29 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
                                 {activeActivityTab === 'notes' && (
                                     <div className="space-y-4">
-                                        <div className="flex items-center gap-4">
-                                            <Button onClick={addNote}>
-                                                <i className="fas fa-plus mr-2"></i> Add Note
+                                        <div className="flex items-center justify-between">
+                                            <Button onClick={addNote} size="sm" className="h-8 text-xs">
+                                                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                                                Add Note
                                             </Button>
                                         </div>
                                         <div className="space-y-3">
                                             {paginate(notesData, currentPage.notes).map((note) => (
-                                                <div key={note.id} className="rounded-lg border bg-card p-4">
+                                                <div key={note.id} className="rounded-lg border border-border/70 bg-card p-3 sm:p-4 shadow-sm">
                                                     <div className="flex items-center justify-between mb-2">
                                                         <span className="text-xs text-muted-foreground">{formatDateToUserFriendly(note.createdDate)}</span>
-                                                        <div className="flex items-center gap-2">
-                                                            <Button variant="ghost" size="sm" onClick={() => handleEditNote(note)}>
+                                                        <div className="flex items-center gap-1">
+                                                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => handleEditNote(note)}>
                                                                 <Edit className="h-3 w-3 mr-1" />
                                                                 Edit
                                                             </Button>
-                                                            <Button variant="ghost" size="sm" onClick={() => setNotePendingDelete(note)}>
+                                                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10" onClick={() => setNotePendingDelete(note)}>
                                                                 <Trash2 className="h-3 w-3 mr-1" />
                                                                 Delete
                                                             </Button>
                                                         </div>
                                                     </div>
-                                                    <div className="text-sm text-foreground">{note.content}</div>
+                                                    <div className="text-xs sm:text-sm text-foreground whitespace-pre-wrap">{note.content}</div>
                                                 </div>
                                             ))}
                                         </div>
@@ -1558,7 +1559,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                             </Pagination>
                                         )}
                                         {notesData.length > 3 && (
-                                            <Button variant="outline" onClick={() => setShowMore(prev => ({ ...prev, notes: !prev.notes }))}>
+                                            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowMore(prev => ({ ...prev, notes: !prev.notes }))}>
                                                 {showMore.notes ? 'Show Less' : 'Show More'}
                                             </Button>
                                         )}
@@ -1567,12 +1568,12 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
                                 {activeActivityTab === 'complaints' && (
                                     <div className="space-y-4">
-                                        <div className="flex items-center gap-4">
+                                        <div className="flex items-center gap-3 flex-wrap">
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-[200px] justify-start text-left font-normal ${!startDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {startDate ? format(new Date(startDate), 'PPP') : <span>Start Date</span>}
+                                                    <Button variant="outline" size="sm" className={`h-8 w-[180px] justify-start text-left text-xs font-normal ${!startDate && 'text-muted-foreground'}`}>
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {startDate ? format(new Date(startDate), 'MMM dd, yyyy') : <span>Start Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
@@ -1589,9 +1590,9 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                             </Popover>
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-[200px] justify-start text-left font-normal ${!endDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {endDate ? format(new Date(endDate), 'PPP') : <span>End Date</span>}
+                                                    <Button variant="outline" size="sm" className={`h-8 w-[180px] justify-start text-left text-xs font-normal ${!endDate && 'text-muted-foreground'}`}>
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {endDate ? format(new Date(endDate), 'MMM dd, yyyy') : <span>End Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
@@ -1606,36 +1607,36 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                         </div>
                                         <div className="space-y-3">
                                             {paginate(complaintsData, currentPage.complaints).map((complaint) => (
-                                                <div key={complaint.id} className="rounded-lg border bg-card p-4">
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <i className="fas fa-exclamation-circle text-muted-foreground"></i>
-                                                            <span className="text-sm font-medium">{complaint.taskTitle}</span>
+                                                <div key={complaint.id} className="rounded-lg border border-border/70 bg-card p-3 sm:p-4 shadow-sm">
+                                                    <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <AlertCircle className="h-4 w-4 text-rose-500 shrink-0" />
+                                                            <span className="text-xs sm:text-sm font-semibold text-foreground truncate">{complaint.taskTitle}</span>
                                                         </div>
-                                                        <span className="text-xs text-muted-foreground">Due: {new Date(complaint.dueDate).toLocaleDateString()}</span>
+                                                        <span className="text-xs text-muted-foreground shrink-0">Due: {format(new Date(complaint.dueDate), 'MMM dd, yyyy')}</span>
                                                     </div>
-                                                    <p className="text-sm text-foreground mb-3">{complaint.taskDescription}</p>
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="flex items-center gap-2">
+                                                    <p className="text-xs sm:text-sm text-foreground/90 mb-3 whitespace-pre-wrap">{complaint.taskDescription}</p>
+                                                    <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-border/40">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="flex items-center gap-1.5">
                                                                 <span className="text-xs text-muted-foreground">Status:</span>
                                                                 <select
                                                                     onChange={(e) => handleChangeStatus(complaint.id, e.target.value)}
                                                                     value={complaint.status}
-                                                                    className="px-2 py-1 border border-input bg-background rounded text-xs"
+                                                                    className="h-7 px-2 border border-input bg-background rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                                                                 >
                                                                     <option value="Assigned">Assigned</option>
                                                                     <option value="On Going">On Going</option>
                                                                     <option value="Complete">Complete</option>
                                                                 </select>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-1.5">
                                                                 <span className="text-xs text-muted-foreground">Priority:</span>
-                                                                <Badge variant="outline">{complaint.priority}</Badge>
+                                                                <Badge variant="outline" className="text-[11px] font-normal capitalize">{complaint.priority}</Badge>
                                                             </div>
                                                         </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground">
                                                                 {getInitials(complaint.assignedToName)}
                                                             </div>
                                                             <span className="text-xs text-muted-foreground">{complaint.assignedToName}</span>
@@ -1660,7 +1661,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                             </Pagination>
                                         )}
                                         {complaintsData.length > 3 && (
-                                            <Button variant="outline" onClick={() => setShowMore(prev => ({ ...prev, complaints: !prev.complaints }))}>
+                                            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowMore(prev => ({ ...prev, complaints: !prev.complaints }))}>
                                                 {showMore.complaints ? 'Show Less' : 'Show More'}
                                             </Button>
                                         )}
@@ -1669,12 +1670,12 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
                                 {activeActivityTab === 'requirements' && (
                                     <div className="space-y-4">
-                                        <div className="flex items-center gap-4">
+                                        <div className="flex items-center gap-3 flex-wrap">
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-[200px] justify-start text-left font-normal ${!startDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {startDate ? format(new Date(startDate), 'PPP') : <span>Start Date</span>}
+                                                    <Button variant="outline" size="sm" className={`h-8 w-[180px] justify-start text-left text-xs font-normal ${!startDate && 'text-muted-foreground'}`}>
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {startDate ? format(new Date(startDate), 'MMM dd, yyyy') : <span>Start Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
@@ -1691,9 +1692,9 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                             </Popover>
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-[200px] justify-start text-left font-normal ${!endDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {endDate ? format(new Date(endDate), 'PPP') : <span>End Date</span>}
+                                                    <Button variant="outline" size="sm" className={`h-8 w-[180px] justify-start text-left text-xs font-normal ${!endDate && 'text-muted-foreground'}`}>
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {endDate ? format(new Date(endDate), 'MMM dd, yyyy') : <span>End Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
@@ -1708,36 +1709,36 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                         </div>
                                         <div className="space-y-3">
                                             {paginate(requirementsData, currentPage.requirements).map((requirement) => (
-                                                <div key={requirement.id} className="rounded-lg border bg-card p-4">
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <i className="fas fa-tasks text-muted-foreground"></i>
-                                                            <span className="text-sm font-medium">{requirement.taskTitle}</span>
+                                                <div key={requirement.id} className="rounded-lg border border-border/70 bg-card p-3 sm:p-4 shadow-sm">
+                                                    <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <ClipboardList className="h-4 w-4 text-primary shrink-0" />
+                                                            <span className="text-xs sm:text-sm font-semibold text-foreground truncate">{requirement.taskTitle}</span>
                                                         </div>
-                                                        <span className="text-xs text-muted-foreground">Due: {new Date(requirement.dueDate).toLocaleDateString()}</span>
+                                                        <span className="text-xs text-muted-foreground shrink-0">Due: {format(new Date(requirement.dueDate), 'MMM dd, yyyy')}</span>
                                                     </div>
-                                                    <p className="text-sm text-foreground mb-3">{requirement.taskDescription}</p>
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="flex items-center gap-2">
+                                                    <p className="text-xs sm:text-sm text-foreground/90 mb-3 whitespace-pre-wrap">{requirement.taskDescription}</p>
+                                                    <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-border/40">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="flex items-center gap-1.5">
                                                                 <span className="text-xs text-muted-foreground">Status:</span>
                                                                 <select
                                                                     onChange={(e) => handleChangeStatus(requirement.id, e.target.value)}
                                                                     value={requirement.status}
-                                                                    className="px-2 py-1 border border-input bg-background rounded text-xs"
+                                                                    className="h-7 px-2 border border-input bg-background rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                                                                 >
                                                                     <option value="Assigned">Assigned</option>
                                                                     <option value="On Going">On Going</option>
                                                                     <option value="Complete">Complete</option>
                                                                 </select>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-1.5">
                                                                 <span className="text-xs text-muted-foreground">Priority:</span>
-                                                                <Badge variant="outline">{requirement.priority}</Badge>
+                                                                <Badge variant="outline" className="text-[11px] font-normal capitalize">{requirement.priority}</Badge>
                                                             </div>
                                                         </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground">
                                                                 {getInitials(requirement.assignedToName)}
                                                             </div>
                                                             <span className="text-xs text-muted-foreground">{requirement.assignedToName}</span>
@@ -1762,7 +1763,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                             </Pagination>
                                         )}
                                         {requirementsData.length > 3 && (
-                                            <Button variant="outline" onClick={() => setShowMore(prev => ({ ...prev, requirements: !prev.requirements }))}>
+                                            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowMore(prev => ({ ...prev, requirements: !prev.requirements }))}>
                                                 {showMore.requirements ? 'Show Less' : 'Show More'}
                                             </Button>
                                         )}

@@ -1,21 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from "react";
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Phone, Mail, MapPin, Calendar, Building, User, ArrowLeft, ChevronLeft, ChevronRight, Archive, Settings, Plus, Loader2, XCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { ArrowLeft, ChevronLeft, ChevronRight, Archive, Settings, Plus, Loader2, XCircle, Filter, MoreHorizontal } from 'lucide-react';
 import { Button } from "@/components/ui/button";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -26,16 +16,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import AddTeam from "@/components/AddTeam";
+import { Card, CardContent } from "@/components/ui/card";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import AddTeam from "@/components/AddTeam";
 import { API } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { hasAdminSetupPrivileges, isManagerRoleValue, normalizeRoleValue } from "@/lib/auth";
 import { getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
+import { getEmployeeRoleCategory, getEmployeeRoleLabel, isAdminEmployee } from "@/lib/employee-role";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
 interface User {
   id: number;
@@ -93,12 +85,15 @@ interface OfficeManager {
   role?: string;
 }
 
-// Utility function to convert text to sentence case
 const toSentenceCase = (text: string): string => {
   if (!text) return text;
   return text.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
+function Ellipsis({ value }: { value: string | number | null | undefined }) {
+  const displayValue = value === null || value === undefined || value === '' ? '—' : String(value);
+  return <span className="block min-w-0 truncate" title={displayValue}>{displayValue}</span>;
+}
 
 function EmployeeList() {
   const router = useRouter();
@@ -112,10 +107,12 @@ function EmployeeList() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState<'all' | 'regional-manager' | 'field-officer'>('all');
   const STATE_KEY = 'employees.list.state.v1';
   const [isHydrated, setIsHydrated] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [areFiltersVisible, setAreFiltersVisible] = useState(true);
   const [resetPasswordUserId, setResetPasswordUserId] = useState<number | string | null>(null);
   const [selectedColumns, setSelectedColumns] = useState(['name', 'email', 'city', 'state', 'role', 'department', 'userName', 'dateOfJoining', 'primaryContact', 'actions']);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
@@ -132,13 +129,13 @@ function EmployeeList() {
   const [cities, setCities] = useState<string[]>([]);
   const [assignedCities, setAssignedCities] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('tab1');
-const [archivedEmployees, setArchivedEmployees] = useState<User[]>([]);
-const [isArchivedModalOpen, setIsArchivedModalOpen] = useState(false);
-const [archiveSearchQuery, setArchiveSearchQuery] = useState("");
-const [isEditUsernameModalOpen, setIsEditUsernameModalOpen] = useState(false);
-const [editingUsername, setEditingUsername] = useState<{ id: number; username: string } | null>(null);
-const [deleteCandidate, setDeleteCandidate] = useState<User | null>(null);
-const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [archivedEmployees, setArchivedEmployees] = useState<User[]>([]);
+  const [isArchivedModalOpen, setIsArchivedModalOpen] = useState(false);
+  const [archiveSearchQuery, setArchiveSearchQuery] = useState("");
+  const [isEditUsernameModalOpen, setIsEditUsernameModalOpen] = useState(false);
+  const [editingUsername, setEditingUsername] = useState<{ id: number; username: string } | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const { token, userRole, userData, currentUser } = useAuth();
   const canManageTeamSetup = hasAdminSetupPrivileges(userRole, currentUser);
@@ -154,7 +151,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     setError(null);
     try {
       if (isManagerUser) {
-        const response = await fetch(`https://api.gajkesaristeels.in/employee/team/getbyEmployee?id=${employeeId}`, {
+        const response = await fetch(`${API_BASE_URL}/employee/team/getbyEmployee?id=${employeeId}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -164,35 +161,26 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
           throw new Error('Failed to fetch team data');
         }
 
-        const teamData: TeamData[] = await response.json();
-        if (!teamData || teamData.length === 0) {
+        const teamDataResult: TeamData[] = await response.json();
+        if (!teamDataResult || teamDataResult.length === 0) {
           throw new Error('No team data found for the manager');
         }
 
-        setTeamData(teamData);
-        const scopedFieldOfficers = getUniqueFieldOfficersFromTeams(teamData);
-        setUsers(scopedFieldOfficers.map((user: User) => ({ ...user, userName: user.userDto?.username || "" })));
+        setTeamData(teamDataResult);
+        const scopedFieldOfficers = getUniqueFieldOfficersFromTeams(teamDataResult);
+        setUsers(scopedFieldOfficers.filter((user: User) => !isAdminEmployee(user)).map((user: User) => ({ ...user, userName: user.userDto?.username || "" })));
       } else {
-        const response = await fetch('https://api.gajkesaristeels.in/employee/getAll', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch employees');
-        }
-
-        const data: User[] = await response.json();
+        const data = (await API.getAllEmployees()) as unknown as User[];
         if (!data) {
           throw new Error('No data received when fetching all employees');
         }
 
-        setUsers(data.map((user: User) => ({ ...user, userName: user.userDto?.username || "" })));
-        setAssignedCities(data.filter((user: User) => user.city).map((user: User) => user.city));
+        const employees = data.filter((user: User) => !isAdminEmployee(user));
+        setUsers(employees.map((user: User) => ({ ...user, userName: user.userDto?.username || "" })));
+        setAssignedCities(employees.filter((user: User) => user.city).map((user: User) => user.city));
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'An unknown error occurred');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
       setIsLoading(false);
     }
@@ -202,7 +190,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
   useEffect(() => {
     if (isHydrated) return;
 
-    let saved: { searchQuery?: string; currentPage?: number; itemsPerPage?: number } = {};
+    let saved: { searchQuery?: string; selectedRoleFilter?: string; currentPage?: number; itemsPerPage?: number } = {};
     try {
       const raw = sessionStorage.getItem(STATE_KEY);
       if (raw) {
@@ -211,10 +199,13 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     } catch {}
 
     const querySearch = searchParams.get('q');
+    const queryRole = searchParams.get('role');
     const queryPage = Number(searchParams.get('page'));
     const querySize = Number(searchParams.get('size'));
 
     const initialSearch = typeof querySearch === 'string' ? querySearch : saved.searchQuery ?? '';
+    const savedRole = queryRole ?? saved.selectedRoleFilter;
+    const initialRole = savedRole === 'regional-manager' || savedRole === 'field-officer' ? savedRole : 'all';
     const initialPage = !Number.isNaN(queryPage) && queryPage > 0
       ? queryPage
       : typeof saved.currentPage === 'number' && saved.currentPage > 0
@@ -227,6 +218,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
         : 10;
 
     setSearchQuery(initialSearch);
+    setSelectedRoleFilter(initialRole);
     setCurrentPage(initialPage);
     setItemsPerPage(initialSize);
     setIsHydrated(true);
@@ -237,39 +229,13 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     if (!isHydrated) return;
 
     try {
-      sessionStorage.setItem(STATE_KEY, JSON.stringify({ searchQuery, currentPage, itemsPerPage }));
+      sessionStorage.setItem(STATE_KEY, JSON.stringify({ searchQuery, selectedRoleFilter, currentPage, itemsPerPage }));
     } catch {}
-
-    const params = new URLSearchParams(searchParamsString);
-    if (searchQuery.trim()) {
-      params.set('q', searchQuery.trim());
-    } else {
-      params.delete('q');
-    }
-    if (currentPage > 1) {
-      params.set('page', currentPage.toString());
-    } else {
-      params.delete('page');
-    }
-    if (itemsPerPage !== 10) {
-      params.set('size', itemsPerPage.toString());
-    } else {
-      params.delete('size');
-    }
-
-    const nextQuery = params.toString();
-    if (nextQuery === searchParamsString) {
-      return;
-    }
-
-    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
-    router.replace(nextUrl, { scroll: false });
-  }, [searchQuery, currentPage, itemsPerPage, isHydrated, pathname, router, searchParamsString]);
+  }, [searchQuery, selectedRoleFilter, currentPage, itemsPerPage, isHydrated]);
 
   const fetchArchivedEmployees = async () => {
     try {
-      console.log('Fetching archived employees...');
-      const response = await fetch('https://api.gajkesaristeels.in/employee/getAllInactive', {
+      const response = await fetch(`${API_BASE_URL}/employee/getAllInactive`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -280,18 +246,40 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
       }
       
       const data = await response.json();
-      console.log('Archived employees data:', data);
-      console.log('Number of archived employees:', data.length);
       setArchivedEmployees(data);
-    } catch (error) {
-      console.error('Error fetching archived employees:', error);
+    } catch (err) {
+      console.error('Error fetching archived employees:', err);
     }
   };
 
   const deleteUserById = async (userId: number) => {
     try {
+      const employeeTeams = await API.getTeamByEmployee(userId).catch(() => []);
+      const assignedTeams = (employeeTeams as unknown as TeamData[]).filter((team) =>
+        team.fieldOfficers?.some((officer) => officer.id === userId)
+      );
+
+      for (const team of assignedTeams) {
+        const removeResponse = await fetch(
+          `${API_BASE_URL}/employee/team/deleteFieldOfficer?id=${team.id}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ fieldOfficers: [userId] }),
+          }
+        );
+
+        if (!removeResponse.ok) {
+          const message = await removeResponse.text().catch(() => '');
+          throw new Error(message || 'Could not remove the employee from their team.');
+        }
+      }
+
       const response = await fetch(
-        `https://api.gajkesaristeels.in/employee/delete?id=${userId}`,
+        `${API_BASE_URL}/employee/delete?id=${userId}`,
         {
           method: 'PUT',
           headers: {
@@ -303,11 +291,17 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
 
       if (response.ok) {
         setUsers((prevUsers) => prevUsers.filter((user) => user.id !== userId));
+        setTeamData((current) => current?.map((team) => ({
+          ...team,
+          fieldOfficers: team.fieldOfficers.filter((officer) => officer.id !== userId),
+        })) ?? current);
       } else {
-        console.error('Failed to delete employee');
+        const message = await response.text().catch(() => '');
+        throw new Error(message || 'Failed to archive employee');
       }
-    } catch (error) {
-      console.error('Error deleting employee:', error);
+    } catch (err) {
+      console.error('Error deleting employee:', err);
+      throw err;
     }
   };
 
@@ -317,6 +311,8 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     try {
       await deleteUserById(deleteCandidate.id);
       setDeleteCandidate(null);
+    } catch {
+      // Keep open for retry
     } finally {
       setIsDeletingUser(false);
     }
@@ -324,13 +320,13 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const handleResetPasswordSubmit = async () => {
     if (newPassword !== confirmPassword) {
-      console.error('Passwords do not match!');
+      console.error('Passwords do not match');
       return;
     }
 
     try {
       const response = await fetch(
-        "https://api.gajkesaristeels.in/user/manage/update",
+        `${API_BASE_URL}/user/manage/update`,
         {
           method: 'PUT',
           headers: {
@@ -351,16 +347,15 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
       } else {
         console.error('Failed to reset password');
       }
-    } catch (error) {
-      console.error('Error resetting password:', error);
+    } catch (err) {
+      console.error('Error resetting password:', err);
     }
   };
 
-
-  const handleUnarchive = async (employeeId: number) => {
+  const handleUnarchive = async (employeeIdParam: number) => {
     try {
       const response = await fetch(
-        `https://api.gajkesaristeels.in/employee/setActive?id=${employeeId}`,
+        `${API_BASE_URL}/employee/setActive?id=${employeeIdParam}`,
         {
           method: 'PUT',
           headers: {
@@ -373,8 +368,8 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
         fetchArchivedEmployees();
         fetchEmployees();
       }
-    } catch (error) {
-      console.error('Error unarchiving employee:', error);
+    } catch (err) {
+      console.error('Error unarchiving employee:', err);
     }
   };
 
@@ -390,7 +385,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
         
         const encodedUsername = encodeURIComponent(editingUsername.username.trim());
         const response = await fetch(
-          `https://api.gajkesaristeels.in/employee/editUsername?id=${editingUsername.id}&username=${encodedUsername}`,
+          `${API_BASE_URL}/employee/editUsername?id=${editingUsername.id}&username=${encodedUsername}`,
           {
             method: 'PUT',
             headers: {
@@ -399,17 +394,13 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
           }
         );
 
-        const text = await response.text().catch(() => '');
         if (response.ok) {
           setIsEditUsernameModalOpen(false);
           setEditingUsername(null);
           fetchEmployees();
-          if (text) {
-            console.log('Username update response:', text);
-          }
         }
-      } catch (error) {
-        console.error('Error updating username:', error);
+      } catch (err) {
+        console.error('Error updating username:', err);
       } finally {
         setIsLoading(false);
       }
@@ -422,26 +413,18 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     }
   }, [token, employeeId, isHydrated, fetchEmployees]);
 
-  // Helper functions
   const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+    return `${(firstName || '').charAt(0)}${(lastName || '').charAt(0)}`.toUpperCase();
   };
 
-  const transformRole = (role: string) => {
-    return role === 'Manager' ? 'Regional Manager' : 
-           role === 'Office Manager' ? 'Regional Manager' : 
-           role;
-  };
-
-  // Function to generate role tags with pastel colors
   const getRoleTag = (role: string) => {
-    const transformedRole = transformRole(role);
+    const transformedRole = getEmployeeRoleLabel(role);
     
     if (transformedRole === 'Regional Manager') {
       return (
         <Badge 
           variant="secondary" 
-          className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200"
+          className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900"
         >
           {transformedRole}
         </Badge>
@@ -450,7 +433,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
       return (
         <Badge 
           variant="secondary" 
-          className="bg-green-100 text-green-800 border-green-200 hover:bg-green-200"
+          className="bg-green-100 text-green-800 border-green-200 hover:bg-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-900"
         >
           {transformedRole}
         </Badge>
@@ -459,7 +442,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
       return (
         <Badge 
           variant="secondary" 
-          className="bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
+          className="bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
         >
           {transformedRole}
         </Badge>
@@ -476,10 +459,17 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     }
   };
 
-
   const handleResetPassword = (userId: number | string) => {
+    setNewPassword('');
+    setConfirmPassword('');
     setResetPasswordUserId(userId);
     setIsResetPasswordOpen(true);
+  };
+
+  const closeResetPasswordDialog = () => {
+    setIsResetPasswordOpen(false);
+    setNewPassword('');
+    setConfirmPassword('');
   };
 
   const handleEditUsername = (userId: number, currentUsername: string) => {
@@ -498,20 +488,25 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
     router.push(`/dashboard/employees/${userId}/edit`);
   };
 
-
   const closeUsernameDialog = () => {
     setIsEditUsernameModalOpen(false);
     setEditingUsername(null);
   };
 
-  // Filtering and sorting logic
   const filteredUsers = useMemo(() => {
-    return users.filter((user) =>
-      (`${user.firstName} ${user.lastName}`).toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [users, searchQuery]);
+    const query = searchQuery.trim().toLowerCase();
+
+    return users.filter((user) => {
+      if (isAdminEmployee(user)) return false;
+      const matchesRole = selectedRoleFilter === 'all' || getEmployeeRoleCategory(user.role) === selectedRoleFilter;
+      if (!matchesRole) return false;
+      if (!query) return true;
+
+      return (`${user.firstName ?? ''} ${user.lastName ?? ''}`).toLowerCase().includes(query) ||
+        String(user.email ?? '').toLowerCase().includes(query) ||
+        getEmployeeRoleLabel(user.role).toLowerCase().includes(query);
+    });
+  }, [users, searchQuery, selectedRoleFilter]);
 
   const sortedUsers = useMemo(() => {
     return [...filteredUsers].sort((a, b) => {
@@ -525,64 +520,44 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
   const indexOfFirstUser = indexOfLastUser - itemsPerPage;
   const currentUsers = sortedUsers.slice(indexOfFirstUser, indexOfLastUser);
 
-
   const filteredArchivedEmployees = useMemo(() => {
-    console.log('Filtering archived employees:', archivedEmployees.length, 'employees, search query:', archiveSearchQuery);
-    const filtered = archivedEmployees.filter((employee) =>
+    const filtered = archivedEmployees.filter((employee) => !isAdminEmployee(employee)).filter((employee) =>
       `${employee.firstName} ${employee.lastName}`.toLowerCase().includes(archiveSearchQuery.toLowerCase()) ||
       employee.role.toLowerCase().includes(archiveSearchQuery.toLowerCase()) ||
-      employee.departmentName.toLowerCase().includes(archiveSearchQuery.toLowerCase()) ||
-      employee.city.toLowerCase().includes(archiveSearchQuery.toLowerCase())
+      (employee.departmentName || '').toLowerCase().includes(archiveSearchQuery.toLowerCase()) ||
+      (employee.city || '').toLowerCase().includes(archiveSearchQuery.toLowerCase())
     );
-    console.log('Filtered result:', filtered.length, 'employees');
     return filtered;
   }, [archivedEmployees, archiveSearchQuery]);
 
   return (
-    <div className="container-employee mx-auto py-8 px-4 sm:px-6 lg:px-8">
-      {/* Search and Filters Section */}
-      <div className="mb-8 space-y-4">
-        {/* Search Bar */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="flex-1 max-w-md">
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search users..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pr-10"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute inset-y-0 right-2 flex items-center justify-center text-muted-foreground hover:text-foreground"
-                  aria-label="Clear search"
-                >
-                  <XCircle className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-2">
-            <Button 
-              variant="outline"
+    <div className="mx-auto w-full max-w-none py-4">
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {canManageTeamSetup && <AddTeam />}
+            <Button
+              size="sm"
               onClick={() => {
-                setIsArchivedModalOpen(true);
-                fetchArchivedEmployees();
+                if (typeof window !== 'undefined') {
+                  sessionStorage.setItem('addEmployee.navigation', 'fromEmployeesList');
+                }
+                router.push('/dashboard/employees/add');
               }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 text-xs"
             >
-              <Archive className="h-4 w-4" />
-              Archived
+              <Plus className="h-4 w-4" />
+              Add Employee
             </Button>
-            
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setAreFiltersVisible((visible) => !visible)}>
+              <Filter className="mr-2 h-4 w-4" />
+              {areFiltersVisible ? 'Hide Filters' : 'Show Filters'}
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="flex items-center gap-2 text-xs">
                   <Settings className="h-4 w-4" />
                   Columns
                 </Button>
@@ -605,42 +580,66 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            
-            {canManageTeamSetup && <AddTeam />}
-            
             <Button 
+              variant="outline"
+              size="sm"
               onClick={() => {
-                // Set flag to reset form when navigating to add page
-                if (typeof window !== 'undefined') {
-                  sessionStorage.setItem('addEmployee.navigation', 'fromEmployeesList');
-                }
-                router.push('/dashboard/employees/add');
-              }} 
-              className="flex items-center gap-2"
+                setIsArchivedModalOpen(true);
+                fetchArchivedEmployees();
+              }}
+              className="flex items-center gap-2 text-xs"
             >
-              <Plus className="h-4 w-4" />
-              Add Employee
+              <Archive className="h-4 w-4" />
+              Archived
             </Button>
           </div>
-        </div>
       </div>
+
+      {areFiltersVisible && (
+        <div className="mb-4 rounded-xl border border-border/70 bg-muted/20 p-3">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,28rem)_180px]">
+            <div className="relative">
+              <Label htmlFor="employee-search" className="sr-only">Search employees</Label>
+              <Input
+                id="employee-search"
+                type="search"
+                autoComplete="off"
+                placeholder="Search name, email, or role"
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-8 bg-background pr-8 text-xs shadow-none"
+              />
+              {searchQuery && (
+                <button type="button" onClick={() => setSearchQuery('')} className="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground hover:text-foreground" aria-label="Clear search">
+                  <XCircle className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <Select
+              value={selectedRoleFilter}
+              onValueChange={(value: 'all' | 'regional-manager' | 'field-officer') => {
+                setSelectedRoleFilter(value);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="h-8 bg-background text-xs shadow-none" aria-label="Filter by role">
+                <SelectValue placeholder="All roles" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All roles</SelectItem>
+                <SelectItem value="regional-manager">Regional Manager</SelectItem>
+                <SelectItem value="field-officer">Field Officer</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
 
       {isLoading && (
         <div className="space-y-4">
-          {/* Filters skeleton */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-2">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="space-y-2">
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ))}
-            <div className="flex items-end">
-              <Skeleton className="h-10 w-full" />
-            </div>
-          </div>
-
-          {/* Table skeleton */}
           <Card className="w-full">
             <CardContent className="pt-6">
               <div className="rounded-md border overflow-hidden w-full">
@@ -673,97 +672,64 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
           </Card>
         </div>
       )}
-      {error && <div className="text-red-500">Error: {error}</div>}
+      {error && <div className="text-red-500 text-sm">Error: {error}</div>}
 
       {!isLoading && !error && (
         <>
           {/* Mobile view */}
-          <div className="md:hidden space-y-4">
-            {currentUsers.map((user, index) => (
-              <motion.div
-                key={user.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
-              >
-                <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center space-x-4">
-                      <Avatar className="h-12 w-12">
-                        <AvatarFallback className="bg-gray-200 text-gray-700 font-semibold">
-                          {getInitials(user.firstName, user.lastName)}
-                        </AvatarFallback>
+          <div className="space-y-3 md:hidden">
+            {currentUsers.map((user) => (
+              <Card key={user.id} className="overflow-hidden shadow-none">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar className="h-9 w-9 shrink-0">
+                        <AvatarFallback className="bg-muted text-xs font-semibold">{getInitials(user.firstName, user.lastName)}</AvatarFallback>
                       </Avatar>
-                      <div>
-                        <CardTitle className="text-lg font-bold">{`${user.firstName} ${user.lastName}`}</CardTitle>
-                        <div className="text-sm">{getRoleTag(user.role)}</div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold" title={`${user.firstName} ${user.lastName}`}>{`${user.firstName} ${user.lastName}`}</p>
+                        <p className="truncate text-xs text-muted-foreground" title={user.userName}>{user.userName || 'No username'}</p>
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-3">
-                      {selectedColumns.includes('userName') && (
-                        <div className="flex items-center space-x-2">
-                          <User className="h-5 w-5 text-blue-500" />
-                          <span className="text-sm">{user.userName}</span>
-                        </div>
-                      )}
-                      {selectedColumns.includes('primaryContact') && (
-                        <div className="flex items-center space-x-2">
-                          <Phone className="h-5 w-5 text-green-500" />
-                          <span className="text-sm">{user.primaryContact}</span>
-                        </div>
-                      )}
-                      {selectedColumns.includes('email') && (
-                        <div className="flex items-center space-x-2">
-                          <Mail className="h-5 w-5 text-red-500" />
-                          <span className="text-sm">{user.email}</span>
-                        </div>
-                      )}
-                      {selectedColumns.includes('city') && (
-                        <div className="flex items-center space-x-2">
-                          <MapPin className="h-5 w-5 text-yellow-500" />
-                          <span className="text-sm">{toSentenceCase(user.city)}</span>
-                        </div>
-                      )}
-                      {selectedColumns.includes('state') && (
-                        <div className="flex items-center space-x-2">
-                          <Building className="h-5 w-5 text-purple-500" />
-                          <span className="text-sm">{user.state}</span>
-                        </div>
-                      )}
-                      {selectedColumns.includes('dateOfJoining') && (
-                        <div className="flex items-center space-x-2">
-                          <Calendar className="h-5 w-5 text-indigo-500" />
-                          <span className="text-sm">{format(new Date(user.dateOfJoining), 'MMM dd, yyyy')}</span>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                  <div className="px-6 py-3 bg-gray-50 flex justify-end space-x-2">
-                    <Button variant="ghost" size="sm" onClick={() => handleGoToEdit(user.id)}>
-                      Edit
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleViewUser(user.id)}>
-                      View
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setDeleteCandidate(user)}>
-                      Delete
-                    </Button>
+                    <div className="shrink-0">{getRoleTag(user.role)}</div>
                   </div>
-                </Card>
-              </motion.div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-xs">
+                    <div className="min-w-0"><span className="text-muted-foreground">Phone</span><Ellipsis value={user.primaryContact} /></div>
+                    <div className="min-w-0"><span className="text-muted-foreground">Location</span><Ellipsis value={[toSentenceCase(user.city), user.state].filter(Boolean).join(', ')} /></div>
+                  </div>
+                  <div className="mt-3 flex justify-end gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => handleGoToEdit(user.id)}>Edit</Button>
+                    <Button variant="outline" size="sm" className="h-7 px-3 text-xs" onClick={() => handleViewUser(user.id)}>View details</Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More employee actions"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleEditUsername(user.id, user.userName)}>Edit Username</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleResetPassword(user.id)}>Reset Password</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDeleteCandidate(user)} className="text-red-600">Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
 
           {/* Desktop view */}
-          <div className="hidden md:block">
-            <div className="rounded-md border overflow-hidden">
-              <Table className="w-full">
+          <div className="hidden min-w-0 md:block">
+            <Table className="table-fixed text-xs font-poppins">
+              <colgroup>
+                {selectedColumns.includes('name') && <col className="w-[22%]" />}
+                {selectedColumns.includes('role') && <col className="w-[16%]" />}
+                {selectedColumns.includes('userName') && <col className="w-[16%]" />}
+                {selectedColumns.includes('primaryContact') && <col className="w-[14%]" />}
+                {selectedColumns.includes('city') && <col className="w-[12%]" />}
+                {selectedColumns.includes('state') && <col className="w-[14%]" />}
+                {selectedColumns.includes('actions') && <col className="w-[6%]" />}
+              </colgroup>
               <TableHeader>
                 <TableRow>
                   {selectedColumns.includes('name') && (
-                    <TableHead className="cursor-pointer px-6 py-3" onClick={() => handleSort('firstName')}>
+                    <TableHead className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap" onClick={() => handleSort('firstName')}>
                       Name
                       {sortColumn === 'firstName' && (
                         <span className="ml-2">
@@ -773,7 +739,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                     </TableHead>
                   )}
                   {selectedColumns.includes('role') && (
-                    <TableHead className="cursor-pointer px-6 py-3" onClick={() => handleSort('role')}>
+                    <TableHead className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap" onClick={() => handleSort('role')}>
                       Role
                       {sortColumn === 'role' && (
                         <span className="ml-2">
@@ -783,7 +749,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                     </TableHead>
                   )}
                   {selectedColumns.includes('userName') && (
-                    <TableHead className="cursor-pointer px-6 py-3" onClick={() => handleSort('userName')}>
+                    <TableHead className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap" onClick={() => handleSort('userName')}>
                       User Name
                       {sortColumn === 'userName' && (
                         <span className="ml-2">
@@ -793,7 +759,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                     </TableHead>
                   )}
                   {selectedColumns.includes('primaryContact') && (
-                    <TableHead className="cursor-pointer px-6 py-3" onClick={() => handleSort('primaryContact')}>
+                    <TableHead className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap" onClick={() => handleSort('primaryContact')}>
                       Phone
                       {sortColumn === 'primaryContact' && (
                         <span className="ml-2">
@@ -803,7 +769,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                     </TableHead>
                   )}
                   {selectedColumns.includes('city') && (
-                    <TableHead className="cursor-pointer px-6 py-3" onClick={() => handleSort('city')}>
+                    <TableHead className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap" onClick={() => handleSort('city')}>
                       City
                       {sortColumn === 'city' && (
                         <span className="ml-2">
@@ -813,7 +779,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                     </TableHead>
                   )}
                   {selectedColumns.includes('state') && (
-                    <TableHead className="cursor-pointer px-6 py-3" onClick={() => handleSort('state')}>
+                    <TableHead className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap" onClick={() => handleSort('state')}>
                       State
                       {sortColumn === 'state' && (
                         <span className="ml-2">
@@ -823,7 +789,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                     </TableHead>
                   )}
                   {selectedColumns.includes('actions') && (
-                    <TableHead className="text-right px-6 py-3">Actions</TableHead>
+                    <TableHead className="overflow-hidden text-ellipsis text-right whitespace-nowrap">Actions</TableHead>
                   )}
                 </TableRow>
               </TableHeader>
@@ -831,20 +797,20 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                 {currentUsers.map((user) => (
                   <TableRow key={user.id}>
                     {selectedColumns.includes('name') && (
-                      <TableCell className="font-medium px-6 py-3">{`${user.firstName} ${user.lastName}`}</TableCell>
+                      <TableCell className="font-medium"><Ellipsis value={`${user.firstName} ${user.lastName}`} /></TableCell>
                     )}
-                    {selectedColumns.includes('role') && <TableCell className="px-6 py-3">{getRoleTag(user.role)}</TableCell>}
-                    {selectedColumns.includes('userName') && <TableCell className="px-6 py-3">{user.userName}</TableCell>}
-                    {selectedColumns.includes('primaryContact') && <TableCell className="px-6 py-3">{user.primaryContact}</TableCell>}
-                    {selectedColumns.includes('city') && <TableCell className="px-6 py-3">{toSentenceCase(user.city)}</TableCell>}
-                    {selectedColumns.includes('state') && <TableCell className="px-6 py-3">{user.state}</TableCell>}
+                    {selectedColumns.includes('role') && <TableCell className="overflow-hidden">{getRoleTag(user.role)}</TableCell>}
+                    {selectedColumns.includes('userName') && <TableCell><Ellipsis value={user.userName} /></TableCell>}
+                    {selectedColumns.includes('primaryContact') && <TableCell><Ellipsis value={user.primaryContact} /></TableCell>}
+                    {selectedColumns.includes('city') && <TableCell><Ellipsis value={toSentenceCase(user.city)} /></TableCell>}
+                    {selectedColumns.includes('state') && <TableCell><Ellipsis value={user.state} /></TableCell>}
                     {selectedColumns.includes('actions') && (
-                      <TableCell className="text-right px-6 py-3">
+                      <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="h-8 w-8 p-0">
                               <span className="sr-only">Open menu</span>
-                              <span>•••</span>
+                              <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
@@ -860,7 +826,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                             <DropdownMenuItem onClick={() => handleResetPassword(user.id)}>
                               Reset Password
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setDeleteCandidate(user)}>
+                            <DropdownMenuItem onClick={() => setDeleteCandidate(user)} className="text-red-600">
                               Delete
                             </DropdownMenuItem>
                           </DropdownMenuContent>
@@ -871,15 +837,14 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                 ))}
               </TableBody>
             </Table>
-            </div>
           </div>
 
           {/* Pagination Controls */}
-          <div className="flex items-center justify-between mt-4">
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="pageSize">Rows per page:</Label>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="pageSize" className="text-xs">Rows per page:</Label>
               <Select value={itemsPerPage.toString()} onValueChange={(value) => setItemsPerPage(parseInt(value))}>
-                <SelectTrigger className="w-20">
+                <SelectTrigger className="h-8 w-20 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -891,19 +856,20 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
               </Select>
             </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
+                className="h-8 text-xs"
               >
                 <ChevronLeft className="h-4 w-4" />
-                Previous
+                <span className="hidden sm:inline">Previous</span>
               </Button>
               
-              <span className="text-sm text-muted-foreground">
-                Page {currentPage} of {Math.ceil(sortedUsers.length / itemsPerPage)}
+              <span className="text-xs text-muted-foreground">
+                Page {currentPage} of {Math.max(Math.ceil(sortedUsers.length / itemsPerPage), 1)}
               </span>
               
               <Button
@@ -911,8 +877,9 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
                 size="sm"
                 onClick={() => setCurrentPage(Math.min(Math.ceil(sortedUsers.length / itemsPerPage), currentPage + 1))}
                 disabled={currentPage >= Math.ceil(sortedUsers.length / itemsPerPage)}
+                className="h-8 text-xs"
               >
-                Next
+                <span className="hidden sm:inline">Next</span>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -921,7 +888,9 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
       )}
 
       {/* Reset Password Modal */}
-      <Dialog open={isResetPasswordOpen} onOpenChange={setIsResetPasswordOpen}>
+      <Dialog open={isResetPasswordOpen} onOpenChange={(open) => {
+        if (!open) closeResetPasswordDialog();
+      }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Reset Password</DialogTitle>
@@ -935,6 +904,7 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
               <Input
                 id="newPassword"
                 type="password"
+                value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />
             </div>
@@ -943,50 +913,49 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
               <Input
                 id="confirmPassword"
                 type="password"
+                value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsResetPasswordOpen(false)}>
+            <Button variant="outline" onClick={closeResetPasswordDialog}>
               Cancel
             </Button>
-            <Button onClick={handleResetPasswordSubmit}>Save</Button>
+            <Button onClick={handleResetPasswordSubmit}>
+              Save Password
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Delete Employee Confirmation */}
-      <Dialog
-        open={!!deleteCandidate}
-        onOpenChange={(open) => {
-          if (!open && !isDeletingUser) {
-            setDeleteCandidate(null);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-[420px]">
+
+      {/* Edit Username Modal */}
+      <Dialog open={isEditUsernameModalOpen} onOpenChange={(open) => {
+        if (!open) closeUsernameDialog();
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Delete Employee</DialogTitle>
+            <DialogTitle>Edit Username</DialogTitle>
             <DialogDescription>
-              {`Are you sure you want to delete ${deleteCandidate ? `${deleteCandidate.firstName} ${deleteCandidate.lastName}`.trim() || 'this employee' : 'this employee'}? This action cannot be undone.`}
+              Update username for this employee.
             </DialogDescription>
           </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                value={editingUsername?.username || ''}
+                onChange={(e) => setEditingUsername(prev => prev ? { ...prev, username: e.target.value } : null)}
+              />
+            </div>
+          </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteCandidate(null)}
-              disabled={isDeletingUser}
-            >
+            <Button variant="outline" onClick={closeUsernameDialog}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConfirmDeleteUser}
-              disabled={isDeletingUser}
-              className="flex items-center gap-2"
-            >
-              {isDeletingUser && <Loader2 className="h-4 w-4 animate-spin" />}
-              Delete
+            <Button onClick={handleSaveUsername}>
+              Save Username
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -994,84 +963,48 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
 
       {/* Archived Employees Modal */}
       <Dialog open={isArchivedModalOpen} onOpenChange={setIsArchivedModalOpen}>
-        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[700px]">
           <DialogHeader>
             <DialogTitle>Archived Employees</DialogTitle>
             <DialogDescription>
-              View and manage archived employees
+              View and restore inactive employees.
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-4">
-            {/* Search Filter */}
-            <div className="flex items-center space-x-2">
-              <Input
-                placeholder="Search archived employees..."
-                value={archiveSearchQuery}
-                onChange={(e) => setArchiveSearchQuery(e.target.value)}
-                className="max-w-md"
-              />
-              <Badge variant="secondary" className="h-9 px-3">
-                {filteredArchivedEmployees.length} Results
-              </Badge>
-              <Badge variant="outline" className="h-9 px-3">
-                Total: {archivedEmployees.length}
-              </Badge>
-            </div>
-
-            {/* Table */}
-            <div className="rounded-md border">
-              <Table>
+          <div className="space-y-4 py-4">
+            <Input
+              placeholder="Search archived employees..."
+              value={archiveSearchQuery}
+              onChange={(e) => setArchiveSearchQuery(e.target.value)}
+              className="h-9 text-xs"
+            />
+            <div className="max-h-[350px] overflow-y-auto rounded-md border">
+              <Table className="text-xs">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Role</TableHead>
-                    <TableHead>Department</TableHead>
                     <TableHead>City</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredArchivedEmployees.map((employee) => (
-                    <TableRow key={employee.id}>
-                      <TableCell className="font-medium">
-                        {`${employee.firstName} ${employee.lastName}`}
-                      </TableCell>
-                      <TableCell>{employee.role}</TableCell>
-                      <TableCell>{employee.departmentName}</TableCell>
-                      <TableCell>{employee.city}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleUnarchive(employee.id)}
-                          className="flex items-center gap-2"
-                        >
-                          <ArrowLeft className="h-4 w-4" />
-                          Unarchive
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filteredArchivedEmployees.length === 0 && (
+                  {filteredArchivedEmployees.length > 0 ? (
+                    filteredArchivedEmployees.map((emp) => (
+                      <TableRow key={emp.id}>
+                        <TableCell className="font-medium">{`${emp.firstName} ${emp.lastName}`}</TableCell>
+                        <TableCell>{getEmployeeRoleLabel(emp.role)}</TableCell>
+                        <TableCell>{toSentenceCase(emp.city)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleUnarchive(emp.id)}>
+                            Restore
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8">
-                        <div className="flex flex-col items-center gap-2">
-                          <p className="text-sm text-muted-foreground">
-                            {archivedEmployees.length === 0 
-                              ? "No archived employees found" 
-                              : "No results found for your search"}
-                          </p>
-                          {archivedEmployees.length > 0 && archiveSearchQuery && (
-                            <Button 
-                              variant="ghost" 
-                              onClick={() => setArchiveSearchQuery("")}
-                              className="text-sm"
-                            >
-                              Clear search
-                            </Button>
-                          )}
-                        </div>
+                      <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                        No archived employees found.
                       </TableCell>
                     </TableRow>
                   )}
@@ -1082,52 +1015,22 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
         </DialogContent>
       </Dialog>
 
-      {/* Edit Username Modal */}
-      <Dialog open={isEditUsernameModalOpen} onOpenChange={closeUsernameDialog}>
+      {/* Delete Confirmation Modal */}
+      <Dialog open={Boolean(deleteCandidate)} onOpenChange={(open) => { if (!open) setDeleteCandidate(null); }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Edit Username</DialogTitle>
+            <DialogTitle>Archive Employee</DialogTitle>
             <DialogDescription>
-              Enter a new username for the employee. Username must not be empty.
+              Are you sure you want to archive {deleteCandidate ? `${deleteCandidate.firstName} ${deleteCandidate.lastName}` : 'this employee'}?
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="newUsername">New Username</Label>
-              <Input
-                id="newUsername"
-                value={editingUsername?.username || ''}
-                onChange={(e) => setEditingUsername(prev => prev ? { ...prev, username: e.target.value } : null)}
-                placeholder="Enter new username"
-                disabled={isLoading}
-                className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={closeUsernameDialog}
-              disabled={isLoading}
-            >
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteCandidate(null)} disabled={isDeletingUser}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleSaveUsername}
-              disabled={isLoading || !editingUsername?.username.trim()}
-              className="relative"
-            >
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Saving...
-                </span>
-              ) : (
-                'Save Changes'
-              )}
+            <Button variant="destructive" onClick={handleConfirmDeleteUser} disabled={isDeletingUser}>
+              {isDeletingUser && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Archive
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1136,9 +1039,13 @@ const [isDeletingUser, setIsDeletingUser] = useState(false);
   );
 }
 
-export default function EmployeesPage() {
+export default function Page() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+    <Suspense fallback={
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
       <EmployeeList />
     </Suspense>
   );

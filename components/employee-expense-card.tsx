@@ -31,6 +31,7 @@ interface Employee {
 
 interface EmployeeExpenseCardProps {
   employee: Employee;
+  busy?: boolean;
   showExpenses: boolean;
   onToggleExpenses: () => void;
   onApprove?: (employeeName: string, expenseId: number) => void;
@@ -40,42 +41,35 @@ interface EmployeeExpenseCardProps {
   onViewDetails?: (expense: ExpenseViewModel) => void;
 }
 
-export default function EmployeeExpenseCard({ employee, showExpenses, onToggleExpenses, onApprove, onReject, onApproveMultiple, onRejectMultiple, onViewDetails }: EmployeeExpenseCardProps) {
-  const [expenses, setExpenses] = useState(employee.expenses);
+export default function EmployeeExpenseCard({ employee, busy = false, showExpenses, onToggleExpenses, onApprove, onReject, onApproveMultiple, onRejectMultiple, onViewDetails }: EmployeeExpenseCardProps) {
+  const expenses = employee.expenses;
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<number[]>([]);
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case "approved":
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100 text-xs py-0.5"><CheckCircle className="mr-1 h-2.5 w-2.5" />Approved</Badge>;
+        return (
+          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 hover:bg-emerald-100 text-[10px] px-2 py-0.5 font-medium border border-emerald-200/60">
+            <CheckCircle className="mr-1 h-2.5 w-2.5" />Approved
+          </Badge>
+        );
       case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 text-xs py-0.5"><Clock className="mr-1 h-2.5 w-2.5" />Pending</Badge>;
+        return (
+          <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 hover:bg-amber-100 text-[10px] px-2 py-0.5 font-medium border border-amber-200/60">
+            <Clock className="mr-1 h-2.5 w-2.5" />Pending
+          </Badge>
+        );
       case "rejected":
-        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100 text-xs py-0.5"><XCircle className="mr-1 h-2.5 w-2.5" />Rejected</Badge>;
+        return (
+          <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 hover:bg-rose-100 text-[10px] px-2 py-0.5 font-medium border border-rose-200/60">
+            <XCircle className="mr-1 h-2.5 w-2.5" />Rejected
+          </Badge>
+        );
       default:
-        return <Badge className="text-xs py-0.5">{status}</Badge>;
+        return <Badge className="text-[10px] px-2 py-0.5 font-medium">{status}</Badge>;
     }
   };
 
-  const updateExpenseStatus = (id: number | number[], newStatus: "approved" | "rejected") => {
-    setExpenses(prevExpenses => 
-      prevExpenses.map(expense => 
-        Array.isArray(id) 
-          ? (id.includes(expense.id) ? { ...expense, status: newStatus } : expense)
-          : (expense.id === id ? { ...expense, status: newStatus } : expense)
-      )
-    );
-  };
-
-  const updateAllExpensesStatus = (newStatus: "approved" | "rejected") => {
-    setExpenses(prevExpenses => 
-      prevExpenses.map(expense => 
-        expense.status === "pending" ? { ...expense, status: newStatus } : expense
-      )
-    );
-  };
-
-  // Calculate totals and counts
   const calculateTotals = () => {
     return expenses.reduce((acc, expense) => {
       const amount = expense.amount || 0;
@@ -111,74 +105,85 @@ export default function EmployeeExpenseCard({ employee, showExpenses, onToggleEx
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-gray-200 border-2 border-dashed rounded-xl w-10 h-10 flex items-center justify-center">
+            <div className="bg-gray-200 border-2 border-dashed rounded-xl w-10 h-10 flex items-center justify-center shrink-0">
               <span className="text-gray-600 font-medium text-sm">
                 {employee.name.split(' ').map(n => n[0]).join('').toUpperCase()}
               </span>
             </div>
-            <div>
-              <Heading as="h3" size="lg" weight="semibold">
+            <div className="min-w-0 flex flex-col justify-center">
+              <h3 className="m-0 p-0 text-sm font-semibold text-foreground leading-tight truncate">
                 {employee.name}
-              </Heading>
-              <Text size="sm" tone="muted">
+              </h3>
+              <p className="m-0 p-0 text-xs text-muted-foreground leading-tight mt-0.5">
                 {employee.position}
-              </Text>
+              </p>
             </div>
           </div>
-          <div className="text-right">
-            <Heading as="p" size="md" weight="semibold">
+          <div className="text-right flex flex-col justify-center">
+            <p className="m-0 p-0 text-sm font-semibold text-foreground leading-tight">
               ₹{totals.total.toFixed(2)}
-            </Heading>
-            <Text size="xs" tone="muted">
+            </p>
+            <p className="m-0 p-0 text-xs text-muted-foreground leading-tight mt-0.5">
               Total Expenses
-            </Text>
+            </p>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          <div className="bg-green-50 p-2 rounded text-center">
-            <Heading as="p" size="md" weight="semibold" className="text-green-800">
-              ₹{totals.approved.toFixed(2)}
-            </Heading>
-            <Text size="xs" tone="muted" className="text-green-700">
+        <div className="mb-2.5 grid grid-cols-3 gap-1.5">
+          <div className="w-full rounded-md bg-emerald-50/90 py-1 px-1.5 text-center dark:bg-emerald-950/50">
+            <div className="flex items-center justify-center gap-1">
+              <CheckCircle className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 leading-none">
+                ₹{totals.approved.toFixed(2)}
+              </span>
+            </div>
+            <span className="mt-0.5 block text-[10px] font-medium text-emerald-700 dark:text-emerald-400 leading-tight truncate">
               Approved
-            </Text>
+            </span>
           </div>
-          <div className="bg-yellow-50 p-2 rounded text-center">
-            <Heading as="p" size="md" weight="semibold" className="text-yellow-800">
-              ₹{totals.pending.toFixed(2)}
-            </Heading>
-            <Text size="xs" tone="muted" className="text-yellow-700">
+          <div className="w-full rounded-md bg-amber-50/90 py-1 px-1.5 text-center dark:bg-amber-950/50">
+            <div className="flex items-center justify-center gap-1">
+              <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 leading-none">
+                ₹{totals.pending.toFixed(2)}
+              </span>
+            </div>
+            <span className="mt-0.5 block text-[10px] font-medium text-amber-700 dark:text-amber-400 leading-tight truncate">
               Pending
-            </Text>
+            </span>
           </div>
-          <div className="bg-red-50 p-2 rounded text-center">
-            <Heading as="p" size="md" weight="semibold" className="text-red-800">
-              ₹{totals.rejected.toFixed(2)}
-            </Heading>
-            <Text size="xs" tone="muted" className="text-red-700">
+          <div className="w-full rounded-md bg-rose-50/90 py-1 px-1.5 text-center dark:bg-rose-950/50">
+            <div className="flex items-center justify-center gap-1">
+              <XCircle className="h-3 w-3 text-rose-600 dark:text-rose-400 shrink-0" />
+              <span className="text-xs font-bold text-rose-800 dark:text-rose-300 leading-none">
+                ₹{totals.rejected.toFixed(2)}
+              </span>
+            </div>
+            <span className="mt-0.5 block text-[10px] font-medium text-rose-700 dark:text-rose-400 leading-tight truncate">
               Rejected
-            </Text>
+            </span>
           </div>
         </div>
         
         <Button 
           variant="outline" 
-          className="w-full"
+          size="sm"
+          className="w-full h-8 text-xs"
           onClick={onToggleExpenses}
         >
           {showExpenses ? "Hide Expenses" : "Show Expenses"}
         </Button>
         
         {showExpenses && (
-          <div className="space-y-3 mt-4 pt-4">
+          <div className="space-y-2.5 mt-3 pt-2">
             <Separator />
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-0.5">
               {expenses.map((expense) => (
-                <div key={expense.id} className="flex items-center justify-between p-2 hover:bg-muted rounded">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div key={expense.id} className="flex items-center justify-between p-2 rounded-lg border border-border/50 bg-card hover:bg-muted/40 transition-colors text-xs">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <Checkbox
+                      disabled={busy || expense.status !== "pending"}
                       checked={selectedExpenseIds.includes(expense.id)}
                       onCheckedChange={(checked: boolean) => {
                         if (checked) {
@@ -188,57 +193,59 @@ export default function EmployeeExpenseCard({ employee, showExpenses, onToggleEx
                         }
                       }}
                     />
-                    <div>
-                      <Heading as="p" size="sm" weight="medium" className="truncate">
+                    <div className="min-w-0 flex-1">
+                      <p className="m-0 p-0 text-xs font-semibold text-foreground truncate leading-tight">
                         {expense.category}
-                      </Heading>
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3 text-muted-foreground" />
-                        <Text size="xs" tone="muted">
-                          {format(new Date(expense.date), "MMM d, yyyy")}
-                        </Text>
+                      </p>
+                      <div className="flex items-center gap-1 leading-tight mt-0.5 text-[11px] text-muted-foreground">
+                        <Calendar className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span>{format(new Date(expense.date), "MMM dd, yyyy")}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Heading as="p" size="sm" weight="medium" className="mr-2">
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <p className="m-0 p-0 text-xs font-bold text-foreground mr-1 whitespace-nowrap">
                       ₹{(expense.amount || 0).toFixed(2)}
-                    </Heading>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8"
-                      onClick={() => onViewDetails?.(expense)}
-                      title="View expense details"
-                    >
-                      <Eye className="h-4 w-4" />
-                      <span className="sr-only">View expense details</span>
-                    </Button>
+                    </p>
+                    {onViewDetails && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => onViewDetails(expense)}
+                        title="View expense details"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span className="sr-only">View expense details</span>
+                      </Button>
+                    )}
                     {expense.status === "pending" ? (
-                      <>
+                      <div className="flex items-center gap-0.5">
                         <Button
+                          disabled={busy}
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8"
+                          className="h-7 w-7 p-0 hover:bg-emerald-50 text-emerald-600 dark:hover:bg-emerald-950/40"
+                          aria-label="Approve expense"
                           onClick={() => {
-                            updateExpenseStatus(expense.id, "approved");
                             onApprove?.(employee.name, expense.id);
                           }}
                         >
-                          <Check className="h-4 w-4 text-green-600" />
+                          <Check className="h-3.5 w-3.5" />
                         </Button>
                         <Button
+                          disabled={busy}
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8"
+                          className="h-7 w-7 p-0 hover:bg-rose-50 text-rose-600 dark:hover:bg-rose-950/40"
+                          aria-label="Reject expense"
                           onClick={() => {
-                            updateExpenseStatus(expense.id, "rejected");
                             onReject?.(employee.name, expense.id);
                           }}
                         >
-                          <X className="h-4 w-4 text-red-600" />
+                          <X className="h-3.5 w-3.5" />
                         </Button>
-                      </>
+                      </div>
                     ) : (
                       getStatusBadge(expense.status)
                     )}
@@ -250,14 +257,14 @@ export default function EmployeeExpenseCard({ employee, showExpenses, onToggleEx
             {expenses.some(expense => expense.status === "pending") && (
               <div className="flex gap-2 pt-2">
                 <Button
+                  disabled={busy}
                   variant="outline"
                   size="sm"
-                  className="flex-1"
+                  className="flex-1 text-xs"
                   onClick={() => {
                     const pendingExpenseIds = expenses
                       .filter(expense => expense.status === "pending")
                       .map(expense => expense.id);
-                    updateAllExpensesStatus("approved");
                     onApproveMultiple?.(employee.name, pendingExpenseIds);
                     setSelectedExpenseIds([]);
                   }}
@@ -265,14 +272,14 @@ export default function EmployeeExpenseCard({ employee, showExpenses, onToggleEx
                   Approve All
                 </Button>
                 <Button
+                  disabled={busy}
                   variant="outline"
                   size="sm"
-                  className="flex-1"
+                  className="flex-1 text-xs"
                   onClick={() => {
                     const pendingExpenseIds = expenses
                       .filter(expense => expense.status === "pending")
                       .map(expense => expense.id);
-                    updateAllExpensesStatus("rejected");
                     onRejectMultiple?.(employee.name, pendingExpenseIds);
                     setSelectedExpenseIds([]);
                   }}
@@ -285,11 +292,11 @@ export default function EmployeeExpenseCard({ employee, showExpenses, onToggleEx
             {selectedExpenseIds.length > 0 && (
               <div className="flex gap-2 pt-2">
                 <Button
+                  disabled={busy}
                   variant="outline"
                   size="sm"
-                  className="flex-1"
+                  className="flex-1 text-xs"
                   onClick={() => {
-                    updateExpenseStatus(selectedExpenseIds, "approved");
                     onApproveMultiple?.(employee.name, selectedExpenseIds);
                     setSelectedExpenseIds([]);
                   }}
@@ -297,11 +304,11 @@ export default function EmployeeExpenseCard({ employee, showExpenses, onToggleEx
                   Approve Selected ({selectedExpenseIds.length})
                 </Button>
                 <Button
+                  disabled={busy}
                   variant="outline"
                   size="sm"
-                  className="flex-1"
+                  className="flex-1 text-xs"
                   onClick={() => {
-                    updateExpenseStatus(selectedExpenseIds, "rejected");
                     onRejectMultiple?.(employee.name, selectedExpenseIds);
                     setSelectedExpenseIds([]);
                   }}

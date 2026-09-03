@@ -71,7 +71,6 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
     halfDays: employee.halfDays,
     absentDays: employee.absent
   });
-  // Removed Full Days Breakdown modal per requirement
 
   const handleDayClick = useCallback((date: string) => {
     if (onDateClick) {
@@ -88,26 +87,11 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
   const handleSummaryChange = useCallback((newSummary: { fullDays: number; halfDays: number; absentDays: number }) => {
     setSummary(prev => {
       if (prev.fullDays === newSummary.fullDays && prev.halfDays === newSummary.halfDays && prev.absentDays === newSummary.absentDays) {
-        return prev; // avoid unnecessary re-render loops
+        return prev;
       }
       return newSummary;
     });
   }, []);
-
-  // Filter attendance for this specific employee
-  const filteredAttendanceData = useMemo(
-    () => attendanceData.filter((data) => data.employeeId === employee.id),
-    [attendanceData, employee.id]
-  );
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "present": return "bg-green-500 dark:bg-green-600";
-      case "half": return "bg-yellow-500 dark:bg-yellow-600";
-      case "absent": return "bg-red-500 dark:bg-red-600";
-      default: return "bg-gray-100 dark:bg-gray-700";
-    }
-  };
 
   const getInitials = (name: string) => {
     if (!name) return "";
@@ -115,39 +99,14 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
     return parts.map(p => p[0]?.toUpperCase() ?? "").join("");
   };
 
-
-  // Get visits for the selected date
   const selectedDateVisits = selectedDate 
     ? employee.attendance.find(record => record.date === selectedDate)?.visits || []
     : [];
 
-  // Breakdown counts for full days (based on rawStatus coming from parent list)
-  const breakdown = useMemo(() => {
-    const monthStart = new Date(selectedYear, selectedMonth, 1);
-    const monthEnd = new Date(selectedYear, selectedMonth + 1, 0);
-    let sundays = 0;
-    let paidLeaves = 0;
-    let activities = 0;
-    let fullDays = 0;
-
-    for (const r of filteredAttendanceData) {
-      const d = new Date(r.checkinDate);
-      if (d < monthStart || d > monthEnd) continue;
-      const raw = r.rawStatus as string | undefined;
-      const norm = r.attendanceStatus as string | undefined;
-      if (norm === 'full day') fullDays++;
-      if (raw === 'Paid Leave') paidLeaves++;
-      if (raw === 'Activity') activities++;
-      if (d.getDay() === 0 && norm === 'full day') sundays++;
-    }
-
-    return { sundays, paidLeaves, activities, fullDays };
-  }, [filteredAttendanceData, selectedMonth, selectedYear]);
-
   return (
     <>
-      <Card className="w-full hover:shadow-md transition-shadow bg-card">
-        <CardHeader className="pb-3">
+      <Card className="w-full gap-0 overflow-hidden bg-card py-0 transition-shadow hover:shadow-md">
+        <CardHeader className="px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Avatar className="h-10 w-10">
@@ -156,58 +115,59 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
                   {getInitials(employee.name)}
                 </AvatarFallback>
               </Avatar>
-              <div>
-                <Heading as="h3" size="lg" weight="semibold" className="text-foreground dark:text-gray-200">
+              <div className="min-w-0 flex flex-col justify-center">
+                <h3 className="m-0 p-0 text-sm font-semibold text-foreground dark:text-gray-200 leading-tight truncate">
                   {employee.name}
-                </Heading>
-                <Text size="sm" tone="muted" className="dark:text-gray-400">
+                </h3>
+                <Badge variant="secondary" className="mt-0.5 w-fit px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
                   {employee.position}
-                </Text>
+                </Badge>
               </div>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <div className="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg text-center w-full">
-              <div className="flex items-center justify-center mb-1">
-                <Sun className="h-4 w-4 text-green-600 dark:text-green-400" />
+        <CardContent className="px-4 pb-4 pt-0">
+          <div className="mb-2.5 grid grid-cols-3 gap-1.5">
+            <div className="w-full rounded-md bg-emerald-50/90 py-1 px-1.5 text-center dark:bg-emerald-950/50">
+              <div className="flex items-center justify-center gap-1">
+                <Sun className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 leading-none">
+                  {summary.fullDays}
+                </span>
               </div>
-              <Heading as="p" size="lg" weight="semibold" className="text-green-800 dark:text-green-300">
-                {summary.fullDays}
-              </Heading>
-              <Text size="xs" tone="muted" className="text-green-700 dark:text-green-400">
+              <span className="mt-0.5 block text-[10px] font-medium text-emerald-700 dark:text-emerald-400 leading-tight truncate">
                 Full Days
-              </Text>            </div>
-            <div className="bg-yellow-50 dark:bg-yellow-900/30 p-3 rounded-lg text-center">
-              <div className="flex items-center justify-center mb-1">
-                <CloudSun className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-              </div>
-              <Heading as="p" size="lg" weight="semibold" className="text-yellow-800 dark:text-yellow-300">
-                {summary.halfDays}
-              </Heading>
-              <Text size="xs" tone="muted" className="text-yellow-700 dark:text-yellow-400">
-                Half Days
-              </Text>
+              </span>
             </div>
-            <div className="bg-red-50 dark:bg-red-900/30 p-3 rounded-lg text-center">
-              <div className="flex items-center justify-center mb-1">
-                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            <div className="w-full rounded-md bg-amber-50/90 py-1 px-1.5 text-center dark:bg-amber-950/50">
+              <div className="flex items-center justify-center gap-1">
+                <CloudSun className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="text-xs font-bold text-amber-800 dark:text-amber-300 leading-none">
+                  {summary.halfDays}
+                </span>
               </div>
-              <Heading as="p" size="lg" weight="semibold" className="text-red-800 dark:text-red-300">
-                {summary.absentDays}
-              </Heading>
-              <Text size="xs" tone="muted" className="text-red-700 dark:text-red-400">
+              <span className="mt-0.5 block text-[10px] font-medium text-amber-700 dark:text-amber-400 leading-tight truncate">
+                Half Days
+              </span>
+            </div>
+            <div className="w-full rounded-md bg-rose-50/90 py-1 px-1.5 text-center dark:bg-rose-950/50">
+              <div className="flex items-center justify-center gap-1">
+                <XCircle className="h-3 w-3 text-rose-600 dark:text-rose-400 shrink-0" />
+                <span className="text-xs font-bold text-rose-800 dark:text-rose-300 leading-none">
+                  {summary.absentDays}
+                </span>
+              </div>
+              <span className="mt-0.5 block text-[10px] font-medium text-rose-700 dark:text-rose-400 leading-tight truncate">
                 Absent
-              </Text>
+              </span>
             </div>
           </div>
           
-          <div className="mt-4">
+          <div className="mt-3 flex justify-center">
             <CustomCalendar
               month={selectedMonth}
               year={selectedYear}
-              attendanceData={filteredAttendanceData}
+              attendanceData={attendanceData}
               onSummaryChange={handleSummaryChange}
               onDateClick={handleDayClick}
               employeeName={employee.name}
@@ -221,7 +181,7 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5" />
-              Visits on {selectedDate ? format(parseISO(selectedDate), "MMMM d, yyyy") : ""}
+              Visits on {selectedDate ? format(parseISO(selectedDate), "MMM dd, yyyy") : ""}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 max-h-96 overflow-y-auto">

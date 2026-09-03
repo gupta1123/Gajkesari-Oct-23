@@ -221,25 +221,42 @@ const brands = ["Brand A", "Brand B", "Brand C", "Brand D"];
 const products = ["Product X", "Product Y", "Product Z", "Product W"];
 const locations = ["New York", "Los Angeles", "Chicago", "Houston"];
 
+import { useDashboardHeader } from "@/components/dashboard-header-context";
+import { useRouter } from "next/navigation";
+
+const useUnsavedChanges = (_hasUnsaved?: boolean) => {
+  return { markSaved: () => {} };
+};
+
 export default function EmployeeDetailPage({ employee }: { employee: Employee }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("visits");
+
+  useDashboardHeader({
+    heading: "Employee Details",
+    onBack: () => router.back(),
+  });
   const [brand, setBrand] = useState("");
   const [product, setProduct] = useState("");
   const [price, setPrice] = useState("");
   const [competitorPrice, setCompetitorPrice] = useState("");
   const [location, setLocation] = useState("");
   const [pricingDate, setPricingDate] = useState(format(new Date(), "yyyy-MM-dd"));
-
+  const defaultPricingDate = format(new Date(), "yyyy-MM-dd");
+  const hasUnsavedPricing = Boolean(
+    brand || product || price || competitorPrice || location || pricingDate !== defaultPricingDate
+  );
+  const { markSaved } = useUnsavedChanges(hasUnsavedPricing);
 
   const handleAddPricing = () => {
-    // In a real app, this would submit the form data
-    alert(`Pricing added for ${brand} - ${product} on ${pricingDate}`);
-    // Reset form
+    alert(`Pricing added for ${brand} - ${product} on ${format(new Date(pricingDate), "MMM dd, yyyy")}`);
+    markSaved();
     setBrand("");
     setProduct("");
     setPrice("");
     setCompetitorPrice("");
     setLocation("");
+    setPricingDate(defaultPricingDate);
   };
 
   return (
@@ -281,7 +298,7 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                     </Badge>
                   </div>
                   <Text size="xs" tone="muted">
-                    Joined {format(new Date(employee.hireDate), "MMM d, yyyy")}
+                    Joined {employee.hireDate && !isNaN(new Date(employee.hireDate).getTime()) ? format(new Date(employee.hireDate), "MMM dd, yyyy") : employee.hireDate}
                   </Text>
                 </div>
               </div>
@@ -289,6 +306,16 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
               <Separator />
 
               <div className="space-y-2 md:space-y-3">
+                <div className="flex items-center gap-2 md:gap-3">
+                  <div className="bg-muted p-1.5 md:p-2 rounded-lg flex-shrink-0">
+                    <Building className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs md:text-sm font-medium truncate">{employee.department || "Sales"}</p>
+                    <p className="text-xs text-muted-foreground">Department</p>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2 md:gap-3">
                   <div className="bg-muted p-1.5 md:p-2 rounded-lg flex-shrink-0">
                     <Building className="h-3.5 w-3.5 md:h-4 md:w-4" />
@@ -335,19 +362,9 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs md:text-sm font-medium truncate">
-                      {format(new Date(employee.hireDate), "MMM d, yyyy")}
+                      {employee.hireDate && !isNaN(new Date(employee.hireDate).getTime()) ? format(new Date(employee.hireDate), "MMM dd, yyyy") : employee.hireDate}
                     </p>
                     <p className="text-xs text-muted-foreground">Hire Date</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 md:gap-3">
-                  <div className="bg-muted p-1.5 md:p-2 rounded-lg flex-shrink-0">
-                    <User className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs md:text-sm font-medium truncate">{employee.manager}</p>
-                    <p className="text-xs text-muted-foreground">Manager</p>
                   </div>
                 </div>
               </div>
@@ -424,62 +441,70 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
             </div>
 
             <TabsContent value="visits" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-                    <User className="h-4 w-4 md:h-5 md:w-5" />
+              <Card className="border border-border/70 shadow-sm">
+                <CardHeader className="pb-3 border-b border-border/60">
+                  <CardTitle className="flex items-center gap-2 text-base md:text-lg font-semibold">
+                    <User className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                     Visit History
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  {/* Mobile Card View */}
-                  <div className="md:hidden space-y-3">
-                    {mockVisits.map((visit) => (
-                      <Card key={visit.id} className="border-l-4 border-l-primary">
-                        <CardContent className="p-4">
-                          <div className="flex justify-between items-start mb-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1.5">
-                                <h4 className="font-semibold text-sm">{visit.customer}</h4>
-                                <Badge variant="secondary" className="text-xs">{visit.duration}</Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground mb-1">
-                                {visit.purpose} on {format(new Date(visit.date), "MMM d, yyyy")}
-                              </p>
-                              <p className="text-xs">{visit.outcome}</p>
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                <CardContent className="p-4 space-y-3">
+                  {mockVisits.map((visit) => (
+                    <div key={visit.id} className="rounded-lg border border-border/70 bg-card p-4 shadow-sm space-y-3 transition-colors hover:bg-muted/20">
+                      <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-2.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="text-sm font-semibold text-foreground truncate">
+                            Visit for {visit.customer}
+                          </span>
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground shrink-0">
+                          {format(new Date(visit.date), "dd MMM yyyy")}
+                        </span>
+                      </div>
 
-                  {/* Desktop Card View */}
-                  <div className="hidden md:block space-y-3 md:space-y-4">
-                    {mockVisits.map((visit) => (
-                      <div key={visit.id} className="flex items-start gap-2 md:gap-4 p-3 md:p-4 rounded-lg border">
-                        <div className="bg-muted p-1.5 md:p-2 rounded-lg flex-shrink-0">
-                          <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-2">
-                            <h4 className="font-medium text-sm md:text-base truncate">{visit.customer}</h4>
-                            <Badge variant="secondary" className="text-xs w-fit">{visit.duration}</Badge>
+                      <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium">
+                        {visit.outcome || visit.purpose}
+                      </p>
+
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-muted-foreground">Purpose:</span>
+                            <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/15 font-semibold text-[11px] px-2 py-0.5">
+                              {visit.purpose}
+                            </Badge>
                           </div>
-                          <p className="text-xs md:text-sm text-muted-foreground mt-1">
-                            {visit.purpose} on {format(new Date(visit.date), "MMM d, yyyy")}
-                          </p>
-                          <p className="text-xs md:text-sm mt-1 md:mt-2">{visit.outcome}</p>
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-muted-foreground">Duration:</span>
+                            <Badge variant="outline" className="text-[11px] font-medium px-2 py-0.5">
+                              {visit.duration}
+                            </Badge>
+                          </div>
                         </div>
-                        <Button variant="ghost" size="icon" className="flex-shrink-0 h-8 w-8 md:h-10 md:w-10">
-                          <MoreHorizontal className="h-3.5 w-3.5 md:h-4 md:w-4" />
+
+                        <div className="flex items-center gap-2">
+                          <div className="h-6 w-6 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center justify-center text-[10px] font-bold shrink-0">
+                            {visit.customer.slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className="text-xs font-medium text-muted-foreground truncate max-w-[120px]">
+                            {visit.customer}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end border-t border-border/40 pt-2.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => alert(`Opening visit details for ${visit.customer}`)}
+                          className="h-8 text-xs font-semibold px-3"
+                        >
+                          View Visit
                         </Button>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -501,7 +526,7 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                           <div className="flex justify-between items-start mb-3">
                             <div>
                               <p className="font-semibold text-sm">
-                                {format(new Date(record.date), "MMM d, yyyy")}
+                                {format(new Date(record.date), "MMM dd, yyyy")}
                               </p>
                               <Badge variant="outline" className="text-xs mt-1.5 capitalize">
                                 {record.status}
@@ -547,7 +572,7 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                         {mockAttendance.map((record) => (
                           <TableRow key={record.id}>
                             <TableCell className="font-medium text-xs md:text-sm whitespace-nowrap">
-                              {format(new Date(record.date), "MMM d, yyyy")}
+                              {format(new Date(record.date), "MMM dd, yyyy")}
                             </TableCell>
                             <TableCell>
                               <Badge variant="outline" className="text-xs whitespace-nowrap capitalize">
@@ -593,17 +618,17 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                                   className={cn(
                                     "text-xs",
                                     expense.status === "approved" 
-                                      ? "bg-green-100 text-green-800 hover:bg-green-100" 
+                                      ? "bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-950 dark:text-green-300" 
                                       : expense.status === "pending"
-                                      ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
-                                      : "bg-red-100 text-red-800 hover:bg-red-100"
+                                      ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 dark:bg-yellow-950 dark:text-yellow-300"
+                                      : "bg-red-100 text-red-800 hover:bg-red-100 dark:bg-red-950 dark:text-red-300"
                                   )}
                                 >
                                   {expense.status}
                                 </Badge>
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                {format(new Date(expense.date), "MMM d, yyyy")}
+                                {format(new Date(expense.date), "MMM dd, yyyy")}
                               </p>
                             </div>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -617,7 +642,7 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                             </div>
                             <div>
                               <p className="text-muted-foreground mb-0.5">Amount</p>
-                              <p className="font-semibold text-base">${expense.amount.toFixed(2)}</p>
+                              <p className="font-semibold text-base">₹{expense.amount.toFixed(2)}</p>
                             </div>
                           </div>
                         </CardContent>
@@ -642,11 +667,11 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                         {mockExpenses.map((expense) => (
                           <TableRow key={expense.id}>
                             <TableCell className="font-medium text-xs md:text-sm whitespace-nowrap">
-                              {format(new Date(expense.date), "MMM d, yyyy")}
+                              {format(new Date(expense.date), "MMM dd, yyyy")}
                             </TableCell>
                             <TableCell className="text-xs md:text-sm whitespace-nowrap">{expense.category}</TableCell>
                             <TableCell className="text-xs md:text-sm">{expense.description}</TableCell>
-                            <TableCell className="text-xs md:text-sm whitespace-nowrap">${expense.amount.toFixed(2)}</TableCell>
+                            <TableCell className="text-xs md:text-sm whitespace-nowrap">₹{expense.amount.toFixed(2)}</TableCell>
                             <TableCell>
                               <Badge variant="outline" className="text-xs whitespace-nowrap capitalize">
                                 {expense.status}
@@ -732,7 +757,7 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                       </Select>
                     </div>
                     <div className="space-y-1.5 md:space-y-2">
-                      <Label htmlFor="price" className="text-xs md:text-sm">Our Price ($)</Label>
+                      <Label htmlFor="price" className="text-xs md:text-sm">Our Price (₹)</Label>
                       <Input
                         id="price"
                         type="number"
@@ -743,7 +768,7 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                       />
                     </div>
                     <div className="space-y-1.5 md:space-y-2">
-                      <Label htmlFor="competitorPrice" className="text-xs md:text-sm">Competitor Price ($)</Label>
+                      <Label htmlFor="competitorPrice" className="text-xs md:text-sm">Competitor Price (₹)</Label>
                       <Input
                         id="competitorPrice"
                         type="number"
@@ -781,7 +806,7 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                               <p className="font-semibold text-sm mb-1">{pricing.brand}</p>
                               <p className="text-xs text-muted-foreground mb-0.5">{pricing.product}</p>
                               <p className="text-xs text-muted-foreground">
-                                {format(new Date(pricing.date), "MMM d, yyyy")}
+                                {format(new Date(pricing.date), "MMM dd, yyyy")}
                               </p>
                             </div>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -791,11 +816,11 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                           <div className="grid grid-cols-3 gap-3 text-xs">
                             <div>
                               <p className="text-muted-foreground mb-1">Our Price</p>
-                              <p className="font-semibold text-green-600">${pricing.price.toFixed(2)}</p>
+                              <p className="font-semibold text-green-600">₹{pricing.price.toFixed(2)}</p>
                             </div>
                             <div>
                               <p className="text-muted-foreground mb-1">Competitor</p>
-                              <p className="font-semibold text-orange-600">${pricing.competitorPrice.toFixed(2)}</p>
+                              <p className="font-semibold text-orange-600">₹{pricing.competitorPrice.toFixed(2)}</p>
                             </div>
                             <div>
                               <p className="text-muted-foreground mb-1">Location</p>
@@ -825,12 +850,12 @@ export default function EmployeeDetailPage({ employee }: { employee: Employee })
                         {mockPricing.map((pricing) => (
                           <TableRow key={pricing.id}>
                             <TableCell className="font-medium text-xs md:text-sm whitespace-nowrap">
-                              {format(new Date(pricing.date), "MMM d, yyyy")}
+                              {format(new Date(pricing.date), "MMM dd, yyyy")}
                             </TableCell>
                             <TableCell className="text-xs md:text-sm whitespace-nowrap">{pricing.brand}</TableCell>
                             <TableCell className="text-xs md:text-sm whitespace-nowrap">{pricing.product}</TableCell>
-                            <TableCell className="text-xs md:text-sm whitespace-nowrap">${pricing.price.toFixed(2)}</TableCell>
-                            <TableCell className="text-xs md:text-sm whitespace-nowrap">${pricing.competitorPrice.toFixed(2)}</TableCell>
+                            <TableCell className="text-xs md:text-sm whitespace-nowrap">₹{pricing.price.toFixed(2)}</TableCell>
+                            <TableCell className="text-xs md:text-sm whitespace-nowrap">₹{pricing.competitorPrice.toFixed(2)}</TableCell>
                             <TableCell className="text-xs md:text-sm whitespace-nowrap">{pricing.location}</TableCell>
                             <TableCell>
                               <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10">

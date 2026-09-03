@@ -1,45 +1,27 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { 
-  Calendar, 
-  CheckCircle, 
-  Clock, 
-  XCircle,
-  TrendingUp,
   MapPin,
-  User,
+  CheckCircle2,
+  CalendarCheck2,
+  Clock3,
+  UserRoundX,
+  BarChart3,
   ChevronUpIcon,
   ChevronDownIcon,
   ChevronRight,
   ChevronLeft
 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell } from "recharts";
+import { summarizeVisitPurposes } from "@/lib/visit-purpose-summary";
 import { format, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from 'next/navigation';
-import { API, type VisitDto, type EmployeeStatsWithVisits } from "@/lib/api";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
-import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectValue,
-  SelectItem
-} from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
+import { API, type VisitDto, type EmployeeStatsWithVisits, type EmployeeDashboardSummary } from "@/lib/api";
 
 interface Employee {
   id: number;
@@ -65,17 +47,23 @@ interface VisitRow {
 
 interface KPICardProps {
   title: string;
-  value: number;
+  value: React.ReactNode;
+  icon?: React.ReactNode;
 }
 
-const KPICard = ({ title, value }: KPICardProps) => {
+const KPICard = ({ title, value, icon }: KPICardProps) => {
   return (
-    <Card>
-      <CardHeader className="pb-2 md:pb-4">
-        <CardTitle className="text-xs md:text-sm font-medium">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <p className="text-2xl md:text-4xl font-bold">{value}</p>
+    <Card className="rounded-lg shadow-none">
+      <CardContent className="flex min-h-[72px] items-center justify-between gap-3 p-3 sm:min-h-[82px] sm:p-4">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-medium text-muted-foreground">{title}</p>
+          <p className="mt-1 text-2xl font-semibold leading-none tracking-tight text-foreground">{value}</p>
+        </div>
+        {icon && (
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            {icon}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -86,32 +74,63 @@ interface VisitsByPurposeChartProps {
 }
 
 const VisitsByPurposeChart = ({ data }: VisitsByPurposeChartProps) => {
+  const hasData = data.some((item) => item.visits > 0);
+  const total = data.reduce((sum, item) => sum + item.visits, 0);
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base md:text-lg text-white">Visits by Purpose</CardTitle>
+    <Card className="min-w-0 gap-0 rounded-lg py-0 shadow-none">
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold">Visits by purpose</CardTitle>
+        </div>
+        <p className="text-xs text-muted-foreground">{total} visits · selected period</p>
       </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={250} className="md:hidden">
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.2)" />
-            <XAxis dataKey="purpose" tick={{ fontSize: 10, fill: 'white' }} />
-            <YAxis tick={{ fontSize: 10, fill: 'white' }} />
-            <Tooltip contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', border: 'none', fontSize: '12px', color: 'white' }} />
-            <Legend wrapperStyle={{ color: 'white', fontSize: '14px' }} />
-            <Bar dataKey="visits" fill="#1a202c" />
-          </BarChart>
-        </ResponsiveContainer>
-        <ResponsiveContainer width="100%" height={300} className="hidden md:block">
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.2)" />
-            <XAxis dataKey="purpose" tick={{ fill: 'white' }} />
-            <YAxis tick={{ fill: 'white' }} />
-            <Tooltip contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', border: 'none', color: 'white' }} />
-            <Legend wrapperStyle={{ color: 'white', fontSize: '14px' }} />
-            <Bar dataKey="visits" fill="#1a202c" />
-          </BarChart>
-        </ResponsiveContainer>
+      <CardContent className="p-4">
+        {hasData ? (
+          <ResponsiveContainer width="100%" height={Math.max(160, data.length * 42 + 24)}>
+            <BarChart accessibilityLayer layout="vertical" data={data} margin={{ top: 4, right: 28, left: 0, bottom: 0 }}>
+              <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+              <XAxis
+                type="number"
+                domain={[0, 'dataMax']}
+                allowDecimals={false}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              />
+              <YAxis
+                type="category"
+                dataKey="purpose"
+                width={105}
+                interval={0}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 12, fill: "hsl(var(--foreground))" }}
+              />
+              <Tooltip
+                cursor={{ fill: "hsl(var(--muted))" }}
+                contentStyle={{
+                  backgroundColor: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "8px",
+                  color: "hsl(var(--popover-foreground))",
+                  fontSize: "12px",
+                  boxShadow: "0 8px 24px hsl(var(--foreground) / 0.08)",
+                }}
+              />
+              <Bar dataKey="visits" name="Visits" fill="hsl(var(--primary))" radius={[0, 3, 3, 0]} maxBarSize={18}>
+                {data.map(item => <Cell key={item.purpose} fill={item.purpose === 'Others' ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary))'} />)}
+                <LabelList dataKey="visits" position="right" style={{ fill: 'hsl(var(--foreground))', fontSize: 12, fontVariantNumeric: 'tabular-nums' }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex h-[210px] items-center justify-center text-xs text-muted-foreground">
+            No visit-purpose data for this range
+          </div>
+        )}
+        {data.some(item => item.purpose === 'Others') && <p className="mt-3 text-xs text-muted-foreground">Others includes custom and unspecified purposes.</p>}
       </CardContent>
     </Card>
   );
@@ -122,14 +141,14 @@ interface VisitsTableProps {
   onViewDetails: (visitId: number) => void;
   currentPage: number;
   onPageChange: (page: number) => void;
+  totalPages: number;
+  totalElements: number;
 }
 
-const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: VisitsTableProps) => {
+const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange, totalPages, totalElements }: VisitsTableProps) => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [sortColumn, setSortColumn] = useState<keyof VisitRow>('date');
   const [lastClickedColumn, setLastClickedColumn] = useState<keyof VisitRow | null>(null);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const hasAdjustedPageRef = useRef(false);
 
   const getOutcomeStatus = (visit: VisitRow): { emoji: React.ReactNode; status: string } => {
     if (visit.checkinTime && visit.checkoutTime) {
@@ -179,182 +198,148 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
   // Filter to only completed visits for pagination calculation
   const completedVisits = sortedVisits.filter(visit => getOutcomeStatus(visit).status === 'Completed');
   
-  const totalPages = rowsPerPage > 0 ? Math.ceil(completedVisits.length / rowsPerPage) : 0;
   const safeTotalPages = totalPages === 0 ? 1 : totalPages;
-
-  useEffect(() => {
-    if (currentPage > safeTotalPages && safeTotalPages > 0 && !hasAdjustedPageRef.current) {
-      hasAdjustedPageRef.current = true;
-      onPageChange(safeTotalPages);
-    }
-    if (currentPage <= safeTotalPages) {
-      hasAdjustedPageRef.current = false;
-    }
-  }, [currentPage, safeTotalPages, onPageChange]);
-
-  const startIndex = (currentPage - 1) * rowsPerPage;
-  const endIndex = startIndex + rowsPerPage;
-  const visitsToDisplay = completedVisits.slice(startIndex, endIndex);
+  const visitsToDisplay = completedVisits;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base md:text-lg">Recent Completed Visits</CardTitle>
+    <Card className="rounded-lg shadow-none">
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-sm font-semibold">Recent completed visits</CardTitle>
+          <span className="text-xs text-muted-foreground">{totalElements} in range</span>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-0">
         {/* Mobile Card View */}
-        <div className="md:hidden space-y-3">
-          {visitsToDisplay.map((visit) => {
-            const { emoji, status } = getOutcomeStatus(visit);
-            return (
-              <Card key={visit.id} className="border-l-4 border-l-primary">
-                <CardContent className="p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <h4 className="font-semibold text-sm truncate">{visit.customer}</h4>
-                        <Badge variant="outline" className="text-xs">{emoji} {status}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {format(parseISO(visit.date), "dd MMM ''yy")} • {visit.purpose}
-                      </p>
+        <div className="divide-y md:hidden">
+          {visitsToDisplay.length > 0 ? (
+            visitsToDisplay.map((visit) => {
+              const outcome = getOutcomeStatus(visit);
+              return (
+                <div key={visit.id} className="p-3 transition-colors hover:bg-muted/40">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-foreground">{visit.customer}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{visit.purpose}</p>
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onViewDetails(visit.id)}>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
+                    <span className="shrink-0 text-xs font-semibold">{outcome.emoji}</span>
                   </div>
-                  <div className="mt-2 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1 text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5" />
-                      <span className="capitalize truncate max-w-[150px]">{visit.employeeState || 'N/A'}</span>
-                    </div>
-                    <Button variant="link" className="px-0 h-auto text-xs" onClick={() => onViewDetails(visit.id)}>
+                  <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    <span>{visit.date ? format(parseISO(visit.date), "dd MMM yyyy") : '-'}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onViewDetails(visit.id)}
+                      className="h-6 px-2 text-[11px] font-medium"
+                    >
                       View
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-          {visitsToDisplay.length === 0 && (
-            <div className="text-xs text-muted-foreground">No completed visits available</div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="p-6 text-center text-xs text-muted-foreground">No visits match criteria</div>
           )}
         </div>
 
         {/* Desktop Table View */}
-        <div className="hidden md:block overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-          <table className="w-full min-w-[600px]">
-            <thead>
-              <tr>
-                <th className="px-2 md:px-4 py-2 text-xs md:text-sm cursor-pointer" onClick={() => handleSort('customer')}>
-                  Store
-                  {lastClickedColumn === 'customer' && (
-                    sortOrder === 'asc' ? (
-                      <ChevronUpIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    ) : (
-                      <ChevronDownIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    )
-                  )}
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full text-xs font-poppins">
+            <thead className="bg-muted/30">
+              <tr className="border-b text-left">
+                <th
+                  className="cursor-pointer px-4 py-2.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => handleSort('customer')}
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Customer</span>
+                    {lastClickedColumn === 'customer' && (
+                      sortOrder === 'asc' ? <ChevronUpIcon className="h-3 w-3" /> : <ChevronDownIcon className="h-3 w-3" />
+                    )}
+                  </div>
                 </th>
-                <th className="px-2 md:px-4 py-2 text-xs md:text-sm cursor-pointer" onClick={() => handleSort('date')}>
-                  Date
-                  {lastClickedColumn === 'date' && (
-                    sortOrder === 'asc' ? (
-                      <ChevronUpIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    ) : (
-                      <ChevronDownIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    )
-                  )}
+                <th
+                  className="cursor-pointer px-4 py-2.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => handleSort('purpose')}
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Purpose</span>
+                    {lastClickedColumn === 'purpose' && (
+                      sortOrder === 'asc' ? <ChevronUpIcon className="h-3 w-3" /> : <ChevronDownIcon className="h-3 w-3" />
+                    )}
+                  </div>
                 </th>
-                <th className="px-2 md:px-4 py-2 text-xs md:text-sm cursor-pointer" onClick={() => handleSort('purpose')}>
-                  Purpose
-                  {lastClickedColumn === 'purpose' && (
-                    sortOrder === 'asc' ? (
-                      <ChevronUpIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    ) : (
-                      <ChevronDownIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    )
-                  )}
+                <th
+                  className="cursor-pointer px-4 py-2.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => handleSort('date')}
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Date</span>
+                    {lastClickedColumn === 'date' && (
+                      sortOrder === 'asc' ? <ChevronUpIcon className="h-3 w-3" /> : <ChevronDownIcon className="h-3 w-3" />
+                    )}
+                  </div>
                 </th>
-                <th className="px-2 md:px-4 py-2 text-xs md:text-sm cursor-pointer" onClick={() => handleSort('employeeState')}>
-                  City
-                  {lastClickedColumn === 'employeeState' && (
-                    sortOrder === 'asc' ? (
-                      <ChevronUpIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    ) : (
-                      <ChevronDownIcon className="w-3 h-3 md:w-4 md:h-4 inline-block ml-1" />
-                    )
-                  )}
-                </th>
-                <th className="px-2 md:px-4 py-2 text-xs md:text-sm">Status</th>
-                <th className="px-2 md:px-4 py-2 text-xs md:text-sm">Actions</th>
+                <th className="px-4 py-2.5 font-medium text-muted-foreground">Status</th>
+                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Action</th>
               </tr>
             </thead>
-            <tbody>
-              {visitsToDisplay.map((visit) => {
-                const { emoji, status } = getOutcomeStatus(visit);
-                return (
-                  <tr key={visit.id}>
-                    <td className="px-2 md:px-4 py-2 text-xs md:text-sm">{visit.customer}</td>
-                    <td className="px-2 md:px-4 py-2 text-xs md:text-sm whitespace-nowrap">{format(parseISO(visit.date), "dd MMM ''yy")}</td>
-                    <td className="px-2 md:px-4 py-2 text-xs md:text-sm">{visit.purpose}</td>
-                    <td className="px-2 md:px-4 py-2 text-xs md:text-sm capitalize">{visit.employeeState || 'N/A'}</td>
-                    <td className="px-2 md:px-4 py-2 text-xs md:text-sm">
-                      <Badge variant="outline" className="text-xs whitespace-nowrap">{emoji} {status}</Badge>
-                    </td>
-                    <td className="px-2 md:px-4 py-2">
-                      <button
-                        className="text-blue-500 hover:text-blue-700 text-xs md:text-sm"
-                        onClick={() => onViewDetails(visit.id)}
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {visitsToDisplay.length === 0 && (
+            <tbody className="divide-y">
+              {visitsToDisplay.length > 0 ? (
+                visitsToDisplay.map((visit) => {
+                  const outcome = getOutcomeStatus(visit);
+                  return (
+                    <tr key={visit.id} className="transition-colors hover:bg-muted/30">
+                      <td className="px-4 py-2.5 font-semibold text-foreground">{visit.customer}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">{visit.purpose}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {visit.date ? format(parseISO(visit.date), "dd MMM yyyy") : '-'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold">
+                          <span>{outcome.emoji}</span>
+                          <span>{outcome.status}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onViewDetails(visit.id)}
+                          className="h-7 px-2.5 text-xs font-medium"
+                        >
+                          View
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
                 <tr>
-                  <td className="px-2 md:px-4 py-2 text-xs md:text-sm text-center" colSpan={6}>No visits available</td>
+                  <td colSpan={5} className="p-6 text-center text-xs text-muted-foreground">
+                    No visits match criteria
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
       </CardContent>
-      {completedVisits.length > 0 && (
-        <div className="mt-4 border-t pt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2 text-sm">
-            <Label htmlFor="employee-detail-rows" className="text-muted-foreground">Rows per page:</Label>
-            <Select
-              value={rowsPerPage.toString()}
-              onValueChange={(value) => {
-                const parsed = Number(value);
-                setRowsPerPage(parsed);
-                onPageChange(1);
-              }}
-            >
-              <SelectTrigger id="employee-detail-rows" className="w-[90px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-3">
+      {totalElements > 0 && (
+        <div className="flex flex-col gap-2 border-t px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-muted-foreground">{totalElements} visits in this range</div>
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => onPageChange(Math.max(1, currentPage - 1))}
               disabled={currentPage <= 1}
             >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
+              <ChevronLeft className="h-3.5 w-3.5" />
+              <span className="sr-only sm:not-sr-only">Previous</span>
             </Button>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               Page {Math.min(currentPage, safeTotalPages)} of {safeTotalPages}
             </span>
             <Button
@@ -363,7 +348,7 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
               onClick={() => onPageChange(Math.min(safeTotalPages, currentPage + 1))}
               disabled={currentPage >= safeTotalPages}
             >
-              Next
+              <span className="sr-only sm:not-sr-only">Next</span>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -380,6 +365,9 @@ interface EmployeeDetailCardProps {
 
 export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDetailCardProps) {
   const [employeeDetails, setEmployeeDetails] = useState<EmployeeStatsWithVisits | null>(null);
+  const [employeeSummary, setEmployeeSummary] = useState<EmployeeDashboardSummary | null>(null);
+  const [visitTotalPages, setVisitTotalPages] = useState(1);
+  const [visitTotalElements, setVisitTotalElements] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -387,19 +375,6 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
   const DETAIL_STATE_KEY = 'dashboard.employeeDetail.state.v1';
   const VIEW_STATE_KEY = 'dashboard.view.state.v1';
   const hasHydratedRef = useRef(false);
-
-  // Added: filters and extra datasets to match reference
-  const [expenses, setExpenses] = useState<Array<Record<string, unknown>>>([]);
-  const [expenseStartDate, setExpenseStartDate] = useState<Date | undefined>(new Date());
-  const [expenseEndDate, setExpenseEndDate] = useState<Date | undefined>(new Date());
-  const [attendanceStats, setAttendanceStats] = useState<Record<string, unknown> | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
-  const [dailyPricing, setDailyPricing] = useState<Array<Record<string, unknown>>>([]);
-  const [pricingStartDate, setPricingStartDate] = useState<Date | undefined>(new Date());
-  const [pricingEndDate, setPricingEndDate] = useState<Date | undefined>(new Date());
-
-  const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
   // Hydrate filters if returning back from Visit Detail
   useEffect(() => {
@@ -426,13 +401,6 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
         setCurrentPage(savedPage);
       }
 
-      if (saved.expenseStartDate && typeof saved.expenseStartDate === 'string') setExpenseStartDate(new Date(saved.expenseStartDate));
-      if (saved.expenseEndDate && typeof saved.expenseEndDate === 'string') setExpenseEndDate(new Date(saved.expenseEndDate));
-      if (typeof saved.selectedYear === 'number') setSelectedYear(saved.selectedYear);
-      if (typeof saved.selectedMonth === 'number') setSelectedMonth(saved.selectedMonth);
-      if (saved.pricingStartDate && typeof saved.pricingStartDate === 'string') setPricingStartDate(new Date(saved.pricingStartDate));
-      if (saved.pricingEndDate && typeof saved.pricingEndDate === 'string') setPricingEndDate(new Date(saved.pricingEndDate));
-      
       hasHydratedRef.current = true;
     } catch {
       hasHydratedRef.current = true;
@@ -448,15 +416,13 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
         currentPage,
         startKey: format(dateRange.start, 'yyyy-MM-dd'),
         endKey: format(dateRange.end, 'yyyy-MM-dd'),
-        expenseStartDate,
-        expenseEndDate,
-        selectedYear,
-        selectedMonth,
-        pricingStartDate,
-        pricingEndDate,
       }));
     } catch {}
-  }, [employee.id, currentPage, dateRange.start, dateRange.end, expenseStartDate, expenseEndDate, selectedYear, selectedMonth, pricingStartDate, pricingEndDate]);
+  }, [employee.id, currentPage, dateRange.start, dateRange.end]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [employee.id, dateRange.start, dateRange.end]);
 
   // Visits + stats loaded using parent-provided date range
   useEffect(() => {
@@ -466,8 +432,10 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       try {
         const start = format(dateRange.start, 'yyyy-MM-dd');
         const end = format(dateRange.end, 'yyyy-MM-dd');
-        const data = await API.getEmployeeStatsWithVisits(employee.id, start, end);
-        setEmployeeDetails(data);
+        const data = await API.getEmployeeStatsOptimized(employee.id, start, end, currentPage - 1, 10, 'id,desc');
+        setEmployeeDetails({ statsDto: data.statsDto, visitDto: data.visitPage.content || [] });
+        setVisitTotalPages(Math.max(data.visitPage.totalPages || 1, 1));
+        setVisitTotalElements(data.visitPage.totalElements || 0);
       } catch (e) {
         setError((e as Error)?.message || 'Failed to load employee details');
       } finally {
@@ -475,85 +443,24 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
       }
     };
     run();
+  }, [employee.id, dateRange.start, dateRange.end, currentPage]);
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const start = format(dateRange.start, 'yyyy-MM-dd');
+        const end = format(dateRange.end, 'yyyy-MM-dd');
+        setEmployeeSummary(await API.getEmployeeDashboardSummary(employee.id, start, end));
+      } catch (e) {
+        setError((e as Error)?.message || 'Failed to load employee summary');
+      }
+    };
+    run();
   }, [employee.id, dateRange.start, dateRange.end]);
 
-  // Expenses by employee and date range
-  useEffect(() => {
-    const run = async () => {
-      if (!token) return;
-      try {
-        const start = expenseStartDate ? format(expenseStartDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-01');
-        const end = expenseEndDate ? format(expenseEndDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-30');
-        const resp = await fetch(`https://api.gajkesaristeels.in/expense/getByEmployeeAndDate?start=${start}&end=${end}&id=${employee.id}` , {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await resp.json();
-        setExpenses(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error('Error fetching expenses:', err);
-      }
-    };
-    run();
-  }, [token, employee.id, expenseStartDate, expenseEndDate]);
-
-  // Attendance monthly visits stats
-  useEffect(() => {
-    const run = async () => {
-      if (!token) return;
-      try {
-        const selectedDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-        const resp = await fetch(`https://api.gajkesaristeels.in/attendance-log/monthlyVisits?date=${selectedDate}&employeeId=${employee.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await resp.json();
-        setAttendanceStats(data);
-      } catch (err) {
-        console.error('Error fetching attendance stats:', err);
-      }
-    };
-    run();
-  }, [token, employee.id, selectedYear, selectedMonth]);
-
-  // Daily pricing by date range
-  useEffect(() => {
-    const run = async () => {
-      if (!token) return;
-      try {
-        const start = pricingStartDate ? format(pricingStartDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-01');
-        const end = pricingEndDate ? format(pricingEndDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-30');
-        const resp = await fetch(`https://api.gajkesaristeels.in/brand/getByDateRangeForEmployee?start=${start}&end=${end}&id=${employee.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await resp.json();
-        setDailyPricing(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error('Error fetching daily pricing:', err);
-      }
-    };
-    run();
-  }, [token, employee.id, pricingStartDate, pricingEndDate]);
-
   const visitsByPurposeChartData = useMemo(() => {
-    if (!employeeDetails || !employeeDetails.visitDto) return [];
-
-    const completedVisits = employeeDetails.visitDto.filter((visit) =>
-      visit.checkinTime && visit.checkoutTime
-    );
-
-    const visitsByPurpose = completedVisits.reduce((acc: { [key: string]: number }, visit) => {
-      const purpose = visit.purpose ? visit.purpose.trim().toLowerCase() : 'unknown';
-      if (!acc[purpose]) {
-        acc[purpose] = 0;
-      }
-      acc[purpose]++;
-      return acc;
-    }, {});
-
-    return Object.entries(visitsByPurpose).map(([purpose, visits]) => ({
-      purpose: purpose.charAt(0).toUpperCase() + purpose.slice(1),
-      visits: Number(visits),
-    }));
-  }, [employeeDetails]);
+    return summarizeVisitPurposes(employeeSummary?.visitSummary.visitsByPurpose || []);
+  }, [employeeSummary]);
 
   const handleViewDetails = (visitId: number) => {
     // Persist parent view state to ensure return lands back here
@@ -587,52 +494,49 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
 
   if (loading) {
     return (
-      <div className="space-y-4 md:space-y-6">
-        <div>
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-32 mt-2" />
-        </div>
-
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2 md:pb-4">
-                <Skeleton className="h-4 w-28" />
-              </CardHeader>
-              <CardContent className="pt-0">
-                <Skeleton className="h-8 w-16" />
+            <Card key={i} className="rounded-lg shadow-none">
+              <CardContent className="flex min-h-[82px] items-center justify-between p-4">
+                <div>
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="mt-2 h-6 w-12" />
+                </div>
+                <Skeleton className="h-8 w-8 rounded-md" />
               </CardContent>
             </Card>
           ))}
         </div>
 
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-6 w-56" />
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="flex items-center justify-between gap-4 p-3 border rounded">
-                  <div className="flex-1 min-w-0">
-                    <Skeleton className="h-4 w-40" />
-                    <Skeleton className="h-3 w-56 mt-2" />
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.75fr)]">
+          <Card className="rounded-lg shadow-none">
+            <CardHeader className="border-b px-4 py-3">
+              <Skeleton className="h-4 w-44" />
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="space-y-px">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="flex items-center justify-between gap-4 border-b p-3 last:border-0">
+                    <div className="min-w-0 flex-1">
+                      <Skeleton className="h-3.5 w-40" />
+                      <Skeleton className="mt-2 h-3 w-56" />
+                    </div>
+                    <Skeleton className="h-5 w-16" />
                   </div>
-                  <Skeleton className="h-5 w-16" />
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-6 w-40" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-64 w-full" />
-          </CardContent>
-        </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="rounded-lg shadow-none">
+            <CardHeader className="border-b px-4 py-3">
+              <Skeleton className="h-4 w-36" />
+            </CardHeader>
+            <CardContent className="p-4">
+              <Skeleton className="h-[210px] w-full" />
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -649,65 +553,47 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
     employeeState: v.state,
   }));
 
-  // Calculate actual metrics from the visits data
-  const completedVisits = visits.filter(visit => visit.checkinTime && visit.checkoutTime);
-  const totalCompletedVisits = completedVisits.length;
+  const totalCompletedVisits = employeeSummary?.visitSummary.completedVisits || 0;
 
   return (
-    <div className="space-y-4 md:space-y-6 pb-20 md:pb-0">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold capitalize">{employee.name}</h1>
-        <p className="text-sm md:text-base text-muted-foreground">{employee.position}</p>
-      </div>
+    <div className="space-y-4 pb-12 md:pb-0">
+      <section aria-label="Performance snapshot">
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <KPICard
+            title="Completed visits"
+            value={totalCompletedVisits}
+            icon={<CheckCircle2 className="h-4 w-4" />}
+          />
+          <KPICard
+            title="Full days"
+            value={employeeDetails?.statsDto?.fullDays || 0}
+            icon={<CalendarCheck2 className="h-4 w-4" />}
+          />
+          <KPICard
+            title="Half days"
+            value={employeeDetails?.statsDto?.halfDays || 0}
+            icon={<Clock3 className="h-4 w-4" />}
+          />
+          <KPICard
+            title="Absences"
+            value={employeeDetails?.statsDto?.absences || 0}
+            icon={<UserRoundX className="h-4 w-4" />}
+          />
+        </div>
+      </section>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
-        <KPICard title="Total Completed Visits" value={totalCompletedVisits} />
-        <KPICard title="Full Days" value={employeeDetails?.statsDto?.fullDays || 0} />
-        <KPICard title="Half Days" value={employeeDetails?.statsDto?.halfDays || 0} />
-        <KPICard title="Absences" value={employeeDetails?.statsDto?.absences || 0} />
-      </div>
-
-      <VisitsTable
-        visits={visits}
-        onViewDetails={handleViewDetails}
-        currentPage={currentPage}
-        onPageChange={setCurrentPage}
-      />
-      
-      <div className="mt-8">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.75fr)]">
+        <VisitsTable
+          visits={visits}
+          onViewDetails={handleViewDetails}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          totalPages={visitTotalPages}
+          totalElements={visitTotalElements}
+        />
         <VisitsByPurposeChart data={visitsByPurposeChartData} />
       </div>
 
-
-      {/* Expenses */}
-      <div className="mt-6 md:mt-8 space-y-3 md:space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-          {expenses.map((exp, index) => (
-            <Card key={String(exp.id) || index}><CardContent className="pt-4 md:pt-6">
-              <div className="text-xs md:text-sm font-medium">{String(exp.type || 'N/A')}</div>
-              <div className="text-xs md:text-sm text-muted-foreground">{String(exp.employeeName || 'N/A')}</div>
-              <div className="mt-2 text-sm md:text-base">Amount: ₹{Number(exp.amount || 0).toFixed(2)}</div>
-              <div className="text-xs md:text-sm">{String(exp.approvalStatus || 'N/A')}</div>
-              <div className="text-xs text-muted-foreground">{exp.expenseDate && typeof exp.expenseDate === 'string' ? format(new Date(exp.expenseDate), 'MMM d, yyyy') : ''}</div>
-            </CardContent></Card>
-          ))}
-        </div>
-      </div>
-
-      {/* Daily Pricing */}
-      <div className="mt-8 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {dailyPricing.map((p, index) => (
-            <Card key={String(p.id) || index}><CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div className="font-medium">{String(p.brandName || 'N/A')}</div>
-                <div className="text-sm text-muted-foreground">{String(p.city || 'N/A')}</div>
-              </div>
-              <div className="mt-2 text-lg font-semibold">₹{Number(p.price || 0).toFixed(2)}</div>
-            </CardContent></Card>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

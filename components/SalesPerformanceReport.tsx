@@ -20,10 +20,12 @@ import Select, { type InputActionMeta, type StylesConfig } from 'react-select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import axios from 'axios';
 import moment from 'moment';
 import { useAuth } from '@/components/auth-provider';
-import './SalesPerformanceReport.css';
+import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
+import { useTheme } from '@/components/theme-provider';
 
 ChartJS.register(
     CategoryScale,
@@ -58,6 +60,8 @@ type StoreOption = {
     city: string;
 };
 
+const API_BASE_URL = 'https://api.gajkesaristeels.in';
+
 const SalesPerformanceReport: React.FC = () => {
     const [stores, setStores] = useState<StoreOption[]>([]);
     const [selectedStore, setSelectedStore] = useState<StoreOption | null>(null);
@@ -67,20 +71,21 @@ const SalesPerformanceReport: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [startDate, setStartDate] = useState(moment().subtract(3, 'months').format('YYYY-MM-DD'));
     const [endDate, setEndDate] = useState(moment().format('YYYY-MM-DD'));
-    const [storeNameFilter, setStoreNameFilter] = useState('');
+    const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
     const [cityFilter, setCityFilter] = useState('');
     const [storeSearchQuery, setStoreSearchQuery] = useState('');
     const [storeSelectInput, setStoreSelectInput] = useState('');
 
     const { token } = useAuth();
+    const { theme } = useTheme();
 
     const fetchStores = useCallback(async () => {
         try {
             const response = await axios.get<{ content: Store[], totalPages: number }>(
-                'https://api.gajkesaristeels.in/store/filteredValues',
+                `${API_BASE_URL}/store/filteredValues`,
                 {
                     params: {
-                        storeName: storeSearchQuery || storeNameFilter,
+                        storeName: storeSearchQuery,
                         city: cityFilter,
                         page: 0,
                         size: 10,
@@ -103,7 +108,7 @@ const SalesPerformanceReport: React.FC = () => {
             console.error('Error fetching stores:', error);
             setError('Failed to fetch stores');
         }
-    }, [token, storeNameFilter, cityFilter, storeSearchQuery]);
+    }, [token, cityFilter, storeSearchQuery]);
 
     useEffect(() => {
         if (token) {
@@ -113,7 +118,7 @@ const SalesPerformanceReport: React.FC = () => {
 
     const fetchMonthData = useCallback(async (start: string, end: string, storeId: number) => {
         try {
-            const response = await axios.get('https://api.gajkesaristeels.in/report/getAvgValues', {
+            const response = await axios.get(`${API_BASE_URL}/report/getAvgValues`, {
                 params: { startDate: start, endDate: end, storeId },
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -125,6 +130,7 @@ const SalesPerformanceReport: React.FC = () => {
     }, [token]);
 
     const fetchReportData = useCallback(async () => {
+        if (!startDate || !endDate || dateRangeInvalid) return;
         if (!selectedStore) {
             setError('Please select a store');
             return;
@@ -168,7 +174,7 @@ const SalesPerformanceReport: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [selectedStore, startDate, endDate, fetchMonthData]);
+    }, [selectedStore, startDate, endDate, dateRangeInvalid, fetchMonthData]);
 
     const chartData = {
         labels: monthlyData.map(data => data.month),
@@ -219,11 +225,13 @@ const SalesPerformanceReport: React.FC = () => {
                 title: {
                     display: true,
                     text: 'Month',
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     font: {
                         size: 12
                     }
                 },
                 ticks: {
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     font: {
                         size: 10
                     }
@@ -236,11 +244,13 @@ const SalesPerformanceReport: React.FC = () => {
                 title: {
                     display: true,
                     text: 'Average Monthly Sales',
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     font: {
                         size: 12
                     }
                 },
                 ticks: {
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     callback: (value) => Math.round(Number(value)),
                     font: {
                         size: 10
@@ -254,6 +264,7 @@ const SalesPerformanceReport: React.FC = () => {
                 title: {
                     display: true,
                     text: 'Average Intent Level',
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     font: {
                         size: 12
                     }
@@ -262,6 +273,7 @@ const SalesPerformanceReport: React.FC = () => {
                     drawOnChartArea: false,
                 },
                 ticks: {
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     callback: (value) => Math.round(Number(value)),
                     font: {
                         size: 10
@@ -275,6 +287,7 @@ const SalesPerformanceReport: React.FC = () => {
                 title: {
                     display: true,
                     text: 'Total Visit Count',
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     font: {
                         size: 12
                     }
@@ -283,6 +296,7 @@ const SalesPerformanceReport: React.FC = () => {
                     drawOnChartArea: false,
                 },
                 ticks: {
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     font: {
                         size: 10
                     }
@@ -298,6 +312,7 @@ const SalesPerformanceReport: React.FC = () => {
             legend: {
                 position: 'top',
                 labels: {
+                    color: theme === 'dark' ? '#cbd5e1' : '#475569',
                     font: {
                         size: 10
                     },
@@ -311,8 +326,8 @@ const SalesPerformanceReport: React.FC = () => {
     const storeSelectStyles: StylesConfig<StoreOption, false> = {
         control: (base, state) => ({
             ...base,
-            minHeight: 46,
-            borderRadius: 8,
+            minHeight: 36,
+            borderRadius: 6,
             backgroundColor: 'hsl(var(--background))',
             borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--border))',
             boxShadow: state.isFocused ? '0 0 0 1px hsl(var(--ring))' : 'none',
@@ -359,6 +374,7 @@ const SalesPerformanceReport: React.FC = () => {
             ...base,
             paddingTop: 4,
             paddingBottom: 4,
+            maxHeight: 240,
         }),
         option: (base, state) => ({
             ...base,
@@ -398,87 +414,69 @@ const SalesPerformanceReport: React.FC = () => {
         if (name === 'endDate') setEndDate(value);
     };
 
-    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        if (name === 'storeName') setStoreNameFilter(value);
-        if (name === 'city') setCityFilter(value);
-    };
-
     return (
-        <div className="container-salesPerformanceReport space-y-4 p-4 md:space-y-6 md:p-6">
-            <Card className="shadow-md">
-                <CardContent className="p-4 md:p-6">
-                    <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Sales Performance Report</h2>
-                    <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-3 md:gap-4">
-                        <div className="space-y-2">
-                            <label className="block text-sm font-medium">Store Filter</label>
-                            <Input
-                                placeholder="Store Name"
-                                name="storeName"
-                                value={storeNameFilter}
-                                onChange={handleFilterChange}
-                                className="w-full"
-                            />
-                            <Input
-                                placeholder="City"
-                                name="city"
-                                value={cityFilter}
-                                onChange={handleFilterChange}
-                                className="w-full"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="block text-sm font-medium">Store Selection</label>
-                            <Select
-                                options={stores}
-                                value={selectedStore}
-                                onChange={handleStoreSelect}
-                                onInputChange={handleStoreSearchInput}
-                                inputValue={storeSelectInput}
-                                className="basic-single"
-                                classNamePrefix="select"
-                                placeholder="Select Store"
-                                styles={storeSelectStyles}
-                                isSearchable
-                                isClearable
-                                backspaceRemovesValue
-                                noOptionsMessage={() => "No matching stores found"}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="block text-sm font-medium">Date Range</label>
-                            <Input
-                                type="date"
-                                name="startDate"
-                                value={startDate}
-                                onChange={handleDateChange}
-                                className="w-full"
-                            />
-                            <Input
-                                type="date"
-                                name="endDate"
-                                value={endDate}
-                                onChange={handleDateChange}
-                                className="w-full"
-                            />
-                        </div>
+        <div className="space-y-5">
+            <section className="space-y-3 border-b pb-4">
+                <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_minmax(150px,.75fr)_minmax(150px,.8fr)_minmax(150px,.8fr)_minmax(180px,auto)] xl:items-end">
+                    <div className="min-w-0 space-y-1.5">
+                        <Label htmlFor="sales-store" className="text-xs font-medium">Store</Label>
+                        <Select
+                            inputId="sales-store"
+                            options={stores}
+                            value={selectedStore}
+                            onChange={handleStoreSelect}
+                            onInputChange={handleStoreSearchInput}
+                            inputValue={storeSelectInput}
+                            className="basic-single"
+                            classNamePrefix="select"
+                            placeholder="Search and select a store"
+                            styles={storeSelectStyles}
+                            isSearchable
+                            isClearable
+                            backspaceRemovesValue
+                            noOptionsMessage={() => "No matching stores found"}
+                        />
                     </div>
-                    <div className="flex flex-col md:flex-row justify-end space-y-2 md:space-y-0 md:space-x-2 mt-4">
-                        <Button onClick={fetchStores} className="w-full md:w-auto">Apply Filters</Button>
-                        <Button onClick={fetchReportData} disabled={loading || !selectedStore} className="w-full md:w-auto">
-                            Generate Report
-                        </Button>
+                    <div className="min-w-0 space-y-1.5">
+                        <Label htmlFor="sales-city" className="text-xs font-medium">City</Label>
+                        <Input id="sales-city" placeholder="All cities" value={cityFilter} onChange={(event) => setCityFilter(event.target.value)} className="h-9" />
                     </div>
-                </CardContent>
-            </Card>
+                    <div className="min-w-0 space-y-1.5">
+                        <Label htmlFor="sales-start" className="text-xs font-medium">From date</Label>
+                        <Input
+                            id="sales-start"
+                            type="date"
+                            name="startDate"
+                            value={startDate}
+                            onChange={handleDateChange}
+                            className="h-9 w-full"
+                        />
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                        <Label htmlFor="sales-end" className="text-xs font-medium">To date</Label>
+                        <Input
+                            id="sales-end"
+                            type="date"
+                            name="endDate"
+                            value={endDate}
+                            onChange={handleDateChange}
+                            className="h-9 w-full"
+                        />
+                    </div>
+                    <Button onClick={fetchReportData} disabled={loading || !selectedStore || dateRangeInvalid || !startDate || !endDate} className="h-9 w-full min-w-[150px] sm:col-span-2 xl:col-span-1">
+                        {loading ? 'Generating...' : 'Generate report'}
+                    </Button>
+                </div>
+                <DateRangeError fromDate={startDate} toDate={endDate} />
+            </section>
 
-            {loading && <p className="text-center py-4">Loading...</p>}
-            {error && <p className="text-red-500 text-center py-4">{error}</p>}
+            {loading && <div className="rounded-lg border py-12 text-center text-sm text-muted-foreground">Generating sales report...</div>}
+            {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}</div>}
 
             {monthlyData.length > 0 && (
-                <Card className="shadow-md">
-                    <CardContent className="p-4 md:p-6">
-                        <h2 className="text-lg md:text-xl font-bold mb-4">Monthly Report for {selectedStore?.label}</h2>
+                <Card className="border-border/80 shadow-sm">
+                    <CardContent className="p-4 md:p-5">
+                        <h2 className="mb-4 text-sm font-semibold">Monthly performance · {selectedStore?.label}</h2>
                         <div className="h-[300px] md:h-[500px]">
                             <Chart type="bar" data={chartData} options={chartOptions} />
                         </div>

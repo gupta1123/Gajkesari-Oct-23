@@ -2,7 +2,6 @@
 
 import React, { Suspense, useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import ReactSelect, { type SingleValue, type StylesConfig } from 'react-select';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -13,19 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   CalendarIcon, 
   DownloadIcon, 
   Building,
-  MapPin,
-  User,
-  Target,
-  TrendingUp,
   Loader
 } from "lucide-react";
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
-import { DateRange } from "react-day-picker";
 import {
   Popover,
   PopoverContent,
@@ -51,6 +43,11 @@ import { API } from '@/lib/api';
 import { hasManagerPrivileges } from '@/lib/auth';
 import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 import ContractorEngineerVisitReportSection from '@/components/contractor-engineer-visit-report-section';
+import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
+import { SearchableSelect } from '@/components/ui/searchable-select2';
+import { formatCityLabel } from '@/lib/city-options';
+
+const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
 interface AttendanceStats {
     absences: number;
@@ -68,6 +65,12 @@ interface FieldOfficerStatsResponse {
     completedVisits: number;
     visitsByCustomerType: VisitsByCustomerType;
 }
+
+const CUSTOMER_CATEGORIES = ["Shop", "Site Visit", "Architect", "Engineer", "Builder", "Others"] as const;
+
+type ReportSummaryData = FieldOfficerStatsResponse & {
+    categorizedVisits: Record<(typeof CUSTOMER_CATEGORIES)[number], number>;
+};
 
 interface EmployeeUserDto {
     username: string;
@@ -183,6 +186,7 @@ const ReportsPageContent: React.FC = () => {
     
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
+    const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
 
     const [isStartDatePopoverOpen, setIsStartDatePopoverOpen] = useState(false);
     const [isEndDatePopoverOpen, setIsEndDatePopoverOpen] = useState(false);
@@ -191,8 +195,7 @@ const ReportsPageContent: React.FC = () => {
     const [reportError, setReportError] = useState<string | null>(null);
 
     const [showReport, setShowReport] = useState<boolean>(false);
-    const [summaryHeader, setSummaryHeader] = useState<React.ReactNode>(null);
-    const [summaryRow, setSummaryRow] = useState<React.ReactNode>(null);
+    const [reportSummary, setReportSummary] = useState<ReportSummaryData | null>(null);
 
     const [visitDetails, setVisitDetails] = useState<VisitDetail[] | null>(null);
     const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
@@ -219,10 +222,10 @@ const ReportsPageContent: React.FC = () => {
             setEmployeesError(null);
             try {
                 const [allEmployeesResponse, inactiveEmployeesResponse] = await Promise.all([
-                    fetch('https://api.gajkesaristeels.in/employee/getAll', {
+                    fetch(`${API_BASE_URL}/employee/getAll`, {
                         headers: { Authorization: `Bearer ${token}` },
                     }),
-                    fetch('https://api.gajkesaristeels.in/employee/getAllInactive', {
+                    fetch(`${API_BASE_URL}/employee/getAllInactive`, {
                         headers: { Authorization: `Bearer ${token}` },
                     }),
                 ]);
@@ -262,6 +265,7 @@ const ReportsPageContent: React.FC = () => {
             } catch (err) {
                 setEmployeesError((err as Error).message || 'Could not fetch employee data.');
                 setFieldOfficers([]);
+                setSelectedEmployeeId('');
             } finally {
                 setEmployeesLoading(false);
             }
@@ -276,8 +280,8 @@ const ReportsPageContent: React.FC = () => {
             case 'last-7-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 6); break;
             case 'last-15-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 14); break;
             case 'last-30-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 29); break;
-            case 'this-week': { const day = now.getDay(); startDt = new Date(now); startDt.setDate(now.getDate() - day); endDt = new Date(now); break; } // Cap at today
-            case 'this-month': { const y = now.getFullYear(), m = now.getMonth(); startDt = new Date(y, m, 1); endDt = new Date(now); break; } // Cap at today
+            case 'this-week': { const day = now.getDay(); startDt = new Date(now); startDt.setDate(now.getDate() - day); endDt = new Date(now); break; }
+            case 'this-month': { const y = now.getFullYear(), m = now.getMonth(); startDt = new Date(y, m, 1); endDt = new Date(now); break; }
             case 'last-week': { const day = now.getDay(); startDt = new Date(now); startDt.setDate(now.getDate() - (day + 6)); endDt = new Date(startDt); endDt.setDate(startDt.getDate() + 6); break; }
             case 'last-month': { const y = now.getFullYear(), m = now.getMonth(); startDt = new Date(y, m - 1, 1); endDt = new Date(y, m, 0); break; }
             default: return;
@@ -296,7 +300,7 @@ const ReportsPageContent: React.FC = () => {
     };
 
     const fetchCustomerTypeDetails = async (displayCategory: string) => {
-        if (!selectedEmployeeId || !startDate || !endDate) {
+        if (!selectedEmployeeId || !startDate || !endDate || dateRangeInvalid) {
             setDetailsError("Please generate the main report first.");
             return;
         }
@@ -308,7 +312,7 @@ const ReportsPageContent: React.FC = () => {
         const apiCustomerType = displayCategoryToApiTypeMap[displayCategory] || displayCategory.toLowerCase();
 
         try {
-            const url = `https://api.gajkesaristeels.in/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${apiCustomerType}`;
+            const url = `${API_BASE_URL}/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${apiCustomerType}`;
             const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
             const data: VisitDetail[] = await response.json();
             setVisitDetails(data);
@@ -325,20 +329,22 @@ const ReportsPageContent: React.FC = () => {
             setDateRangeError('Please select a Date Range.');
             return;
         }
+        if (dateRangeInvalid) {
+            return;
+        }
         if (!selectedEmployeeId || !startDate || !endDate) {
             setDateRangeError(null);
             alert('Select an officer and both dates.');
-        return;
-    }
+            return;
+        }
         setDateRangeError(null);
         setReportLoading(true); setReportError(null); setShowReport(false);
         try {
-            const url = `https://api.gajkesaristeels.in/visit/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
+            const url = `${API_BASE_URL}/visit/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
             const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
             const data: FieldOfficerStatsResponse = await response.json();
 
-            const displayCategories = ["Shop", "Site Visit", "Architect", "Engineer", "Builder", "Others"];
-            const apiTypeToDisplayCategoryMap: { [apiTypeLowercase: string]: string } = {
+            const apiTypeToDisplayCategoryMap: Record<string, (typeof CUSTOMER_CATEGORIES)[number]> = {
                 "shop": "Shop",
                 "site visit": "Site Visit",
                 "architect": "Architect", 
@@ -346,8 +352,9 @@ const ReportsPageContent: React.FC = () => {
                 "builder": "Builder"
             };
 
-            const categorizedVisits: { [key: string]: number } = {};
-            displayCategories.forEach(cat => categorizedVisits[cat] = 0); 
+            const categorizedVisits = Object.fromEntries(
+                CUSTOMER_CATEGORIES.map((category) => [category, 0])
+            ) as ReportSummaryData["categorizedVisits"];
 
             for (const apiType in data.visitsByCustomerType) {
                 const count = data.visitsByCustomerType[apiType];
@@ -360,36 +367,7 @@ const ReportsPageContent: React.FC = () => {
                 }
             }
 
-            setSummaryHeader(
-                <>
-                    <tr>
-                        <th rowSpan={2}>Total Visits</th><th rowSpan={2}>Completed Visits</th>
-                        <th colSpan={3}>Attendance</th><th colSpan={displayCategories.length}>Visits by Customer Type</th>
-                    </tr>
-                    <tr>
-                        <th>Full Days</th><th>Half Days</th><th>Absences</th>
-                        {displayCategories.map(displayCat => (
-                            <th key={displayCat}>
-                                <button
-                                    onClick={() => fetchCustomerTypeDetails(displayCat)}
-                                    className="text-blue-600 underline hover:text-blue-800 bg-transparent border-none p-0 m-0 cursor-pointer disabled:text-gray-400"
-                                    disabled={reportLoading || detailsLoading}
-                                    type="button"
-                                >
-                                    {displayCat}
-                                </button>
-                            </th>
-                        ))}
-                    </tr>
-                </>
-            );
-            setSummaryRow(
-                <>
-                    <td className="text-center">{data.totalVisits}</td><td className="text-center">{data.completedVisits}</td>
-                    <td className="text-center">{data.attendanceStats.fullDays}</td><td className="text-center">{data.attendanceStats.halfDays}</td><td className="text-center">{data.attendanceStats.absences}</td>
-                    {displayCategories.map(type => (<td key={type} className="text-center">{categorizedVisits[type]}</td>))}
-                </>
-            );
+            setReportSummary({ ...data, categorizedVisits });
             setShowReport(true);
             setVisitDetails(null);
             setDetailsError(null);
@@ -432,381 +410,356 @@ const ReportsPageContent: React.FC = () => {
 
     const selectedEmployeeName = selectedFieldOfficerOption?.label || "Select Field Officer";
 
-    const fieldOfficerSelectStyles: StylesConfig<FieldOfficerOption, false> = {
-        control: (base, state) => ({
-            ...base,
-            minHeight: 40,
-            borderRadius: 6,
-            backgroundColor: 'hsl(var(--background))',
-            borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--input))',
-            boxShadow: state.isFocused ? '0 0 0 1px hsl(var(--ring))' : 'none',
-            '&:hover': {
-                borderColor: state.isFocused ? 'hsl(var(--ring))' : 'hsl(var(--input))',
-            },
-        }),
-        valueContainer: (base) => ({ ...base, paddingLeft: 12, paddingRight: 8 }),
-        singleValue: (base) => ({ ...base, color: 'hsl(var(--foreground))' }),
-        placeholder: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
-        input: (base) => ({ ...base, color: 'hsl(var(--foreground))' }),
-        indicatorSeparator: (base) => ({ ...base, backgroundColor: 'hsl(var(--border))' }),
-        dropdownIndicator: (base) => ({
-            ...base,
-            color: 'hsl(var(--muted-foreground))',
-            '&:hover': { color: 'hsl(var(--foreground))' },
-        }),
-        clearIndicator: (base) => ({
-            ...base,
-            color: 'hsl(var(--muted-foreground))',
-            '&:hover': { color: 'hsl(var(--foreground))' },
-        }),
-        menu: (base) => ({
-            ...base,
-            backgroundColor: 'hsl(var(--popover))',
-            border: '1px solid hsl(var(--border))',
-            borderRadius: 6,
-            boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
-            overflow: 'hidden',
-            zIndex: 60,
-        }),
-        menuPortal: (base) => ({ ...base, zIndex: 100 }),
-        menuList: (base) => ({ ...base, paddingTop: 4, paddingBottom: 4, maxHeight: 240 }),
-        option: (base, state) => ({
-            ...base,
-            backgroundColor: state.isSelected
-                ? 'hsl(var(--accent))'
-                : state.isFocused
-                    ? 'hsl(var(--muted))'
-                    : 'transparent',
-            color: 'hsl(var(--foreground))',
-            cursor: 'pointer',
-            fontSize: 14,
-        }),
-        noOptionsMessage: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
-        loadingMessage: (base) => ({ ...base, color: 'hsl(var(--muted-foreground))' }),
-    };
-
-  const formatDateRange = () => {
-        if (!startDate) return "Select date range";
-        if (!endDate) return dayjs(startDate).format('MMM D, YYYY');
-        return `${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`;
-  };
-
-  return (
-    <div className="min-w-0 space-y-6 overflow-hidden">
-      <Tabs value={activeReportsTab} onValueChange={setActiveReportsTab} className="w-full min-w-0">
-        <div className="mb-6 overflow-x-auto">
-          <TabsList className="flex h-auto w-max min-w-full justify-start gap-2 p-1">
-            <TabsTrigger value="fieldOfficerReport">Field Officer Visit Report</TabsTrigger>
-            <TabsTrigger value="contractorEngineerVisitReport">Contractor / Engineer Report</TabsTrigger>
-            <TabsTrigger value="newCustomers">New Customers Report</TabsTrigger>
-            <TabsTrigger value="salesPerformance">Sales Performance Report</TabsTrigger>
-          </TabsList>
-        </div>
-        
-        <TabsContent value="fieldOfficerReport" className="space-y-6">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-semibold text-foreground">Field Officer Visit Report</CardTitle>
-              <p className="text-sm text-muted-foreground">Select a field officer and date range to generate detailed visit reports</p>
-            </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-4 bg-muted/30 rounded-lg">
-                        <div className="space-y-2">
-                            <Label htmlFor="employeeSelectTrigger" className="text-sm font-medium text-foreground">Field Officer</Label>
-                            {employeesLoading ? (
-                                <div className="flex items-center justify-center h-10 w-full">
-                                    <Loader className="w-4 h-4 animate-spin text-muted-foreground"/>
-                                </div>
-                            ) : employeesError ? (
-                                <div className="text-destructive text-sm">Error loading officers</div>
-                            ) : (
-                                <ReactSelect
-                                    inputId="employeeSelectTrigger"
-                                    className="w-full"
-                                    classNamePrefix="field-officer-select"
-                                    placeholder="Select Field Officer"
-                                    options={fieldOfficerOptions}
-                                    value={selectedFieldOfficerOption}
-                                    onChange={(option: SingleValue<FieldOfficerOption>) => {
-                                        setSelectedEmployeeId(option?.value ?? '');
-                                    }}
-                                    styles={fieldOfficerSelectStyles}
-                                    isSearchable
-                                    isClearable
-                                    isDisabled={fieldOfficerOptions.length === 0}
-                                    noOptionsMessage={() => "No matching officers"}
-                                    menuPlacement="auto"
-                                    menuPosition="fixed"
-                                    menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
-                                    menuShouldScrollIntoView={false}
-                                />
-                            )}
-            </div>
-            
-            <div className="space-y-2">
-                            <Label htmlFor="rangeSelectTrigger" className="text-sm font-medium text-foreground">Date Range</Label>
-                            <Select value={rangeSelect} onValueChange={(value) => { 
-                                setRangeSelect(value); 
-                                setDateRangeError(null);
-                                if (value === 'custom') {
-                                    setStartDate('');
-                                    setEndDate('');
-                                }
-                            }}>
-                                <SelectTrigger id="rangeSelectTrigger" className="w-full">
-                                    <SelectValue placeholder="Select Range" />
-                </SelectTrigger>
-                <SelectContent>
-                                    <SelectItem value="custom">Custom</SelectItem>
-                                    <SelectItem value="last-7-days">Last 7 Days</SelectItem>
-                                    <SelectItem value="last-15-days">Last 15 Days</SelectItem>
-                                    <SelectItem value="last-30-days">Last 30 Days</SelectItem>
-                                    <SelectItem value="this-week">This Week</SelectItem>
-                                    <SelectItem value="this-month">This Month</SelectItem>
-                                    <SelectItem value="last-week">Last Week</SelectItem>
-                                    <SelectItem value="last-month">Last Month</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-                            <Label htmlFor="startDateTrigger" className="text-sm font-medium text-foreground">From Date</Label>
-                            <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                                        id="startDateTrigger"
-                    variant="outline"
-                                        className={cn("w-full justify-start text-left font-normal", !startDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
-                                        disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {startDate ? dayjs(startDate).format('MMM D, YYYY') : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <SpacedCalendar
-                                        mode="single"
-                                        selected={startDate ? dayjs(startDate).toDate() : undefined}
-                                        onSelect={handleStartDateSelect}
-                    initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-            
-                        <div className="space-y-2">
-                            <Label htmlFor="endDateTrigger" className="text-sm font-medium text-foreground">To Date</Label>
-                            <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        id="endDateTrigger"
-                                        variant="outline"
-                                        className={cn("w-full justify-start text-left font-normal", !endDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
-                                        disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {endDate ? dayjs(endDate).format('MMM D, YYYY') : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <SpacedCalendar
-                                        mode="single"
-                                        selected={endDate ? dayjs(endDate).toDate() : undefined}
-                                        onSelect={handleEndDateSelect}
-                                        disabled={startDate ? { before: dayjs(startDate).toDate() } : undefined}
-                                        initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-            
-            <div className="flex items-end">
-                            <Button
-                                onClick={handleGenerateReport}
-                                className="w-full sm:w-auto min-w-[180px] whitespace-nowrap"
-                                disabled={reportLoading || fieldOfficers.length === 0 || !selectedEmployeeId || !startDate || !endDate}
-                            >
-                                {reportLoading ? (
-                                    <>
-                                        <Loader className="mr-2 h-4 w-4 animate-spin" />
-                                        Generating...
-                                    </>
+    return (
+        <div className="min-w-0 space-y-5 overflow-visible px-4 sm:px-6 py-4">
+            <Tabs value={activeReportsTab} onValueChange={setActiveReportsTab} className="w-full min-w-0">
+                <div className="mb-4 overflow-x-auto rounded-lg border bg-card p-1 shadow-sm">
+                    <TabsList className="flex h-9 w-max min-w-full justify-start gap-1 bg-transparent p-0">
+                        <TabsTrigger value="fieldOfficerReport" className="text-xs">Field Officer Visit Report</TabsTrigger>
+                        <TabsTrigger value="contractorEngineerVisitReport" className="text-xs">Contractor / Engineer Report</TabsTrigger>
+                        <TabsTrigger value="newCustomers" className="text-xs">New Customers Report</TabsTrigger>
+                        <TabsTrigger value="salesPerformance" className="text-xs">Sales Performance Report</TabsTrigger>
+                    </TabsList>
+                </div>
+                
+                <TabsContent value="fieldOfficerReport" className="space-y-5">
+                    <div className="space-y-5">
+                        <div className="grid grid-cols-1 gap-x-4 gap-y-3 border-b pb-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.3fr)_minmax(145px,.8fr)_minmax(155px,.9fr)_minmax(155px,.9fr)_minmax(180px,auto)] xl:items-end">
+                            <div className="min-w-0 space-y-1.5">
+                                <Label htmlFor="employeeSelectTrigger" className="text-xs font-medium text-foreground">Field officer</Label>
+                                {employeesLoading ? (
+                                    <div className="flex items-center justify-center h-9 w-full">
+                                        <Loader className="w-4 h-4 animate-spin text-muted-foreground"/>
+                                    </div>
+                                ) : employeesError ? (
+                                    <div className="text-destructive text-xs">Error loading officers</div>
                                 ) : (
-                                    <>
-                <DownloadIcon className="mr-2 h-4 w-4" />
-                Generate Report
-                                    </>
+                                    <SearchableSelect
+                                        placeholder="Select Field Officer"
+                                        options={fieldOfficerOptions}
+                                        value={selectedEmployeeId || undefined}
+                                        onSelect={(option) => setSelectedEmployeeId(option?.value ?? '')}
+                                        searchPlaceholder="Search officers..."
+                                        emptyMessage="No matching officers"
+                                        allowClear
+                                        loading={employeesLoading}
+                                        disabled={fieldOfficerOptions.length === 0}
+                                        triggerClassName="h-9 w-full bg-background text-xs shadow-none"
+                                        contentClassName="w-[min(360px,calc(100vw-2rem))]"
+                                    />
                                 )}
-              </Button>
-            </div>
-          </div>
-
-                    {dateRangeError && (
-                        <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                            {dateRangeError}
-                        </div>
-                    )}
-
-                    {reportLoading && (
-                        <div className="flex justify-center items-center py-12">
-                            <div className="flex flex-col items-center gap-3">
-                                <Loader className="w-8 h-8 animate-spin text-primary" />
-                                <p className="text-sm text-muted-foreground">Generating report...</p>
                             </div>
-                        </div>
-                    )}
-                    
-                    {reportError && (
-                        <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                            <div className="flex items-center justify-between">
-                                <p><strong>Error:</strong> {reportError}</p>
+                            
+                            <div className="min-w-0 space-y-1.5">
+                                <Label htmlFor="rangeSelectTrigger" className="text-xs font-medium text-foreground">Date range</Label>
+                                <Select value={rangeSelect} onValueChange={(value) => { 
+                                    setRangeSelect(value); 
+                                    setDateRangeError(null);
+                                    if (value === 'custom') {
+                                        setStartDate('');
+                                        setEndDate('');
+                                    }
+                                }}>
+                                    <SelectTrigger id="rangeSelectTrigger" className="h-9 w-full bg-background text-xs shadow-none">
+                                        <SelectValue placeholder="Select Range" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="custom">Custom</SelectItem>
+                                        <SelectItem value="last-7-days">Last 7 Days</SelectItem>
+                                        <SelectItem value="last-15-days">Last 15 Days</SelectItem>
+                                        <SelectItem value="last-30-days">Last 30 Days</SelectItem>
+                                        <SelectItem value="this-week">This Week</SelectItem>
+                                        <SelectItem value="this-month">This Month</SelectItem>
+                                        <SelectItem value="last-week">Last Week</SelectItem>
+                                        <SelectItem value="last-month">Last Month</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            
+                            <div className="min-w-0 space-y-1.5">
+                                <Label htmlFor="startDateTrigger" className="text-xs font-medium text-foreground">From date</Label>
+                                <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            id="startDateTrigger"
+                                            variant="outline"
+                                            className={cn("h-9 w-full justify-start text-left text-xs font-normal bg-background shadow-none", !startDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
+                                            disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {startDate ? dayjs(startDate).format('MMM DD, YYYY') : <span>Pick a date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                        <SpacedCalendar
+                                            mode="single"
+                                            selected={startDate ? dayjs(startDate).toDate() : undefined}
+                                            onSelect={handleStartDateSelect}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                
+                            <div className="min-w-0 space-y-1.5">
+                                <Label htmlFor="endDateTrigger" className="text-xs font-medium text-foreground">To date</Label>
+                                <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            id="endDateTrigger"
+                                            variant="outline"
+                                            className={cn("h-9 w-full justify-start text-left text-xs font-normal bg-background shadow-none", !endDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
+                                            disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {endDate ? dayjs(endDate).format('MMM DD, YYYY') : <span>Pick a date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                        <SpacedCalendar
+                                            mode="single"
+                                            selected={endDate ? dayjs(endDate).toDate() : undefined}
+                                            onSelect={handleEndDateSelect}
+                                            disabled={startDate ? { before: dayjs(startDate).toDate() } : undefined}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            
+                            <div className="flex flex-col justify-end gap-2 sm:col-span-2 xl:col-span-1">
+                                <DateRangeError fromDate={startDate} toDate={endDate} />
                                 <Button
-                                    variant="outline"
-                                    size="sm"
                                     onClick={handleGenerateReport}
-                                    disabled={reportLoading}
+                                    className="h-9 w-full min-w-[160px] text-xs whitespace-nowrap"
+                                    disabled={reportLoading || fieldOfficers.length === 0 || !selectedEmployeeId || !startDate || !endDate || dateRangeInvalid}
                                 >
-                                    Try Again
+                                    {reportLoading ? (
+                                        <>
+                                            <Loader className="mr-2 h-4 w-4 animate-spin" />
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <DownloadIcon className="mr-2 h-4 w-4" />
+                                            Generate report
+                                        </>
+                                    )}
                                 </Button>
                             </div>
                         </div>
-                    )}
-                    {showReport && !reportLoading && !reportError && (
-                        <div className="space-y-6">
-                            <div className="rounded-lg border bg-card">
-                                <div className="p-4 border-b">
-                                    <h3 className="text-lg font-semibold text-foreground">Report Summary</h3>
-                                    <p className="text-sm text-muted-foreground">Overview of visits, attendance, and customer types</p>
-                                </div>
-                                <div className="overflow-x-auto">
-                <Table>
-                                        <TableHeader>{summaryHeader}</TableHeader>
-                                        <TableBody><TableRow>{summaryRow}</TableRow></TableBody>
-                </Table>
+
+                        {dateRangeError && (
+                            <div className="p-3 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                                {dateRangeError}
+                            </div>
+                        )}
+
+                        {reportLoading && (
+                            <div className="flex justify-center items-center py-12">
+                                <div className="flex flex-col items-center gap-3">
+                                    <Loader className="w-8 h-8 animate-spin text-primary" />
+                                    <p className="text-xs text-muted-foreground">Generating report...</p>
                                 </div>
                             </div>
-                        </div>
-                    )}
-
-                    {selectedCustomerTypeForDetails && (
-                        <div className="rounded-lg border bg-card">
-                            <div className="p-4 border-b">
-                                <h3 className="text-lg font-semibold text-foreground">
-                                    Visit Details for {selectedCustomerTypeForDetails}
-                                </h3>
-                                <p className="text-sm text-muted-foreground">
-                                    {selectedEmployeeName !== "Select Field Officer" && `Officer: ${selectedEmployeeName} • ${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`}
-                                </p>
+                        )}
+                        
+                        {reportError && (
+                            <div className="p-4 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                                <div className="flex items-center justify-between">
+                                    <p><strong>Error:</strong> {reportError}</p>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleGenerateReport}
+                                        disabled={reportLoading}
+                                        className="h-8 text-xs"
+                                    >
+                                        Try Again
+                                    </Button>
+                                </div>
                             </div>
-                            
-                            {detailsLoading && (
-                                <div className="flex justify-center items-center py-12">
-                                    <div className="flex flex-col items-center gap-3">
-                                        <Loader className="w-8 h-8 animate-spin text-primary" />
-                                        <p className="text-sm text-muted-foreground">Loading visit details...</p>
+                        )}
+                        {showReport && reportSummary && !reportLoading && !reportError && (
+                            <section className="border-y bg-card/30 rounded-lg p-4">
+                                <div className="border-b pb-3 mb-3">
+                                    <h3 className="text-sm font-semibold text-foreground">Report summary</h3>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">Visits and attendance for the selected period. Choose a customer type to inspect its visits.</p>
+                                </div>
+                                <div className="grid lg:grid-cols-[.8fr_1.15fr_2.1fr]">
+                                    <div className="py-2 pr-5 lg:border-r">
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Visits</p>
+                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                            <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center">
+                                                <p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.totalVisits}</p>
+                                                <p className="mt-1.5 text-xs leading-none text-muted-foreground">Total</p>
+                                            </div>
+                                            <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center">
+                                                <p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.completedVisits}</p>
+                                                <p className="mt-1.5 text-xs leading-none text-muted-foreground">Completed</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="border-t py-2 lg:border-r lg:border-t-0 lg:px-5">
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Attendance</p>
+                                        <div className="mt-2 grid grid-cols-3 gap-2">
+                                            <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center">
+                                                <p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.attendanceStats.fullDays}</p>
+                                                <p className="mt-1.5 text-xs leading-none text-muted-foreground">Full days</p>
+                                            </div>
+                                            <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center">
+                                                <p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.attendanceStats.halfDays}</p>
+                                                <p className="mt-1.5 text-xs leading-none text-muted-foreground">Half days</p>
+                                            </div>
+                                            <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center">
+                                                <p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.attendanceStats.absences}</p>
+                                                <p className="mt-1.5 text-xs leading-none text-muted-foreground">Absent</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="border-t py-2 lg:border-t-0 lg:pl-5">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Customer types</p>
+                                            <p className="text-[11px] text-muted-foreground">Select to view visits</p>
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+                                            {CUSTOMER_CATEGORIES.map((category) => (
+                                                <button
+                                                    key={category}
+                                                    type="button"
+                                                    disabled={reportLoading || detailsLoading}
+                                                    onClick={() => fetchCustomerTypeDetails(category)}
+                                                    className={cn(
+                                                        "group flex min-h-16 cursor-pointer flex-col items-center justify-center rounded-md border bg-background px-2 py-2 text-center transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary/[0.04] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60",
+                                                        selectedCustomerTypeForDetails === category && "border-primary bg-primary/10 text-primary shadow-sm"
+                                                    )}
+                                                >
+                                                    <span className="block text-xl font-semibold leading-none tabular-nums">{reportSummary.categorizedVisits[category]}</span>
+                                                    <span className={cn("mt-1.5 block max-w-full truncate text-xs leading-none text-muted-foreground group-hover:text-foreground", selectedCustomerTypeForDetails === category && "text-primary")}>{category}</span>
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
-                            )}
-                            
-                            {detailsError && (
-                                <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md m-4">
-                                    <p><strong>Error:</strong> {detailsError}</p>
+                            </section>
+                        )}
+
+                        {selectedCustomerTypeForDetails && (
+                            <section className="border-t bg-card/20 rounded-lg p-4 mt-4">
+                                <div className="border-b pb-3 mb-3">
+                                    <h3 className="text-sm font-semibold text-foreground">
+                                        {selectedCustomerTypeForDetails} visits
+                                    </h3>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                        {selectedEmployeeName !== "Select Field Officer" && `${selectedEmployeeName} · ${dayjs(startDate).format('MMM DD, YYYY')} – ${dayjs(endDate).format('MMM DD, YYYY')}`}
+                                    </p>
                                 </div>
-                            )}
-                            
-                            {!detailsLoading && !detailsError && visitDetails && (
-                                visitDetails.length > 0 ? (
-                                    <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Customer Name</TableHead>
-                        <TableHead>City</TableHead>
-                        <TableHead>Taluka</TableHead>
-                        <TableHead>State</TableHead>
-                        <TableHead>Last Visited</TableHead>
-                        <TableHead>Visit Count</TableHead>
-                        <TableHead>Avg Monthly Sales</TableHead>
-                        <TableHead>Avg Intent Level</TableHead>
-                        <TableHead>Customer Type</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                                                {visitDetails
-                                                    .slice()
-                                                    .sort((a, b) => {
-                                                        const dateA = new Date(a.lastVisited).getTime();
-                                                        const dateB = new Date(b.lastVisited).getTime();
-                                                        return dateB - dateA;
-                                                    })
-                                                    .map((detail, index) => (
-                                                        <TableRow key={index}>
-                                                            <TableCell className="font-medium">
-                                                                <Link href={`/CustomerDetailPage/${detail.storeId}`} className="text-primary hover:text-primary/80 hover:underline">
-                                                                    {detail.customerName}
-                                                                </Link>
-                                                            </TableCell>
-                                                            <TableCell>{detail.city}</TableCell>
-                                                            <TableCell>{detail.taluka}</TableCell>
-                                                            <TableCell>{detail.state}</TableCell>
-                                                            <TableCell>{dayjs(detail.lastVisited).format('MMM D, YYYY')}</TableCell>
-                                                            <TableCell>{detail.visitCount}</TableCell>
-                                                            <TableCell>
-                                                                {(() => {
-                                                                    const val = detail.avgMonthlySales;
-                                                                    if (val % 1 === 0) return formatSalesNumber(val);
-                                                                    const rounded = Math.round(val * 10) / 10;
-                                                                    return formatSalesNumber(rounded);
-                                                                })()}
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <Badge variant="secondary">
-                                                                    {Number.isInteger(detail.avgIntentLevel) ? detail.avgIntentLevel : detail.avgIntentLevel.toFixed(1)}
-                                                                </Badge>
-                                                            </TableCell>
-                            <TableCell>
-                                                                <Badge variant="outline">
-                                                                    {detail.customerType}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                                ) : (
-                                    <div className="p-8 text-center">
-                                        <Building className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                                        <p className="text-muted-foreground">No visit details found for {selectedCustomerTypeForDetails}</p>
+                                
+                                {detailsLoading && (
+                                    <div className="flex justify-center items-center py-12">
+                                        <div className="flex flex-col items-center gap-3">
+                                            <Loader className="w-8 h-8 animate-spin text-primary" />
+                                            <p className="text-xs text-muted-foreground">Loading visit details...</p>
+                                        </div>
                                     </div>
-                                )
-                            )}
-                        </div>
-                    )}
-              </CardContent>
-            </Card>
-        </TabsContent>
+                                )}
+                                
+                                {detailsError && (
+                                    <div className="p-4 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                                        <p><strong>Error:</strong> {detailsError}</p>
+                                    </div>
+                                )}
+                                
+                                {!detailsLoading && !detailsError && visitDetails && (
+                                    visitDetails.length > 0 ? (
+                                        <div className="overflow-x-auto rounded-md border">
+                                            <Table>
+                                                <TableHeader className="bg-muted/30">
+                                                    <TableRow>
+                                                        <TableHead className="text-xs">Customer</TableHead>
+                                                        <TableHead className="text-xs">City</TableHead>
+                                                        <TableHead className="text-xs">Taluka</TableHead>
+                                                        <TableHead className="text-xs">State</TableHead>
+                                                        <TableHead className="text-xs">Last visited</TableHead>
+                                                        <TableHead className="text-xs">Visits</TableHead>
+                                                        <TableHead className="text-xs">Monthly sales</TableHead>
+                                                        <TableHead className="text-xs">Intent</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {visitDetails
+                                                        .slice()
+                                                        .sort((a, b) => {
+                                                            const dateA = new Date(a.lastVisited).getTime();
+                                                            const dateB = new Date(b.lastVisited).getTime();
+                                                            return dateB - dateA;
+                                                        })
+                                                        .map((detail, index) => (
+                                                            <TableRow key={index}>
+                                                                <TableCell className="font-medium text-xs">
+                                                                    <Link href={`/CustomerDetailPage/${detail.storeId}`} className="text-primary hover:text-primary/80 hover:underline">
+                                                                        {detail.customerName}
+                                                                    </Link>
+                                                                </TableCell>
+                                                                <TableCell className="text-xs">{formatCityLabel(detail.city)}</TableCell>
+                                                                <TableCell className="text-xs">{detail.taluka}</TableCell>
+                                                                <TableCell className="text-xs">{detail.state}</TableCell>
+                                                                <TableCell className="text-xs">{dayjs(detail.lastVisited).format('MMM DD, YYYY')}</TableCell>
+                                                                <TableCell className="text-xs">{detail.visitCount}</TableCell>
+                                                                <TableCell className="text-xs">
+                                                                    {(() => {
+                                                                        const val = detail.avgMonthlySales;
+                                                                        if (val % 1 === 0) return formatSalesNumber(val);
+                                                                        const rounded = Math.round(val * 10) / 10;
+                                                                        return formatSalesNumber(rounded);
+                                                                    })()}
+                                                                </TableCell>
+                                                                <TableCell className="text-xs">
+                                                                    <Badge variant="secondary" className="text-xs">
+                                                                        {Number.isInteger(detail.avgIntentLevel) ? detail.avgIntentLevel : detail.avgIntentLevel.toFixed(1)}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    ) : (
+                                        <div className="p-8 text-center">
+                                            <Building className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                                            <p className="text-xs text-muted-foreground">No visit details found for {selectedCustomerTypeForDetails}</p>
+                                        </div>
+                                    )
+                                )}
+                            </section>
+                        )}
+                    </div>
+                </TabsContent>
 
-        <TabsContent value="contractorEngineerVisitReport" className="space-y-6">
-          <ContractorEngineerVisitReportSection initialTab={requestedContractorReportTab || undefined} />
-        </TabsContent>
-        
-        <TabsContent value="newCustomers" className="space-y-6">
-          <NewCustomersReport />
-        </TabsContent>
+                <TabsContent value="contractorEngineerVisitReport" className="space-y-6">
+                    <ContractorEngineerVisitReportSection />
+                </TabsContent>
+                
+                <TabsContent value="newCustomers" className="space-y-6">
+                    <NewCustomersReport />
+                </TabsContent>
 
-        <TabsContent value="salesPerformance" className="space-y-6">
-          <SalesPerformanceReport />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+                <TabsContent value="salesPerformance" className="space-y-6">
+                    <SalesPerformanceReport />
+                </TabsContent>
+            </Tabs>
+        </div>
+    );
 };
 
 export default function ReportsPage() {
-  return (
-    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading reports...</div>}>
-      <ReportsPageContent />
-    </Suspense>
-  );
+    return (
+        <Suspense fallback={
+            <div className="flex justify-center items-center min-h-[400px]">
+                <Loader className="w-8 h-8 animate-spin text-primary" />
+            </div>
+        }>
+            <ReportsPageContent />
+        </Suspense>
+    );
 }

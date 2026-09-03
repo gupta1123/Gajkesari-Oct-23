@@ -8,12 +8,15 @@ import {
   ChevronRight,
   Download,
   FileDown,
+  Filter,
   Loader2,
   RefreshCw,
   RotateCcw,
   Search,
 } from "lucide-react";
 import { format } from "date-fns";
+
+import { Badge } from "@/components/ui/badge";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -190,13 +193,14 @@ type TextFieldProps = {
 
 function TextField({ id, label, value, type = "text", onChange }: TextFieldProps) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs font-medium text-foreground">{label}</Label>
       <Input
         id={id}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        className="h-9 text-xs bg-background shadow-none"
       />
     </div>
   );
@@ -215,15 +219,15 @@ function DateField({ id, label, value, placeholder = "Pick a date", onChange }: 
   const selectedDate = parseLocalIsoDate(value);
 
   return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs font-medium text-foreground">{label}</Label>
       <Popover modal={false} open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
           <Button
             id={id}
             type="button"
             variant="outline"
-            className={`w-full justify-start text-left font-normal ${
+            className={`h-9 w-full justify-start text-left text-xs font-normal bg-background shadow-none ${
               !value ? "text-muted-foreground" : ""
             }`}
           >
@@ -263,13 +267,13 @@ type FilterSelectProps = {
 
 function FilterSelect({ id, label, value, options, onChange }: FilterSelectProps) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs font-medium text-foreground">{label}</Label>
       <select
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="border-input bg-background text-foreground h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="border-input bg-background text-foreground h-9 w-full rounded-md border px-3 py-1 text-xs shadow-none outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       >
         <option value="all">All</option>
         {options.map((option) => (
@@ -406,6 +410,16 @@ export default function ContractorEngineerVisitReportSection({
   const [submittedCategory, setSubmittedCategory] = useState("all");
   const [submittedProjectType, setSubmittedProjectType] = useState("all");
   const [submittedPotential, setSubmittedPotential] = useState("all");
+  const [isFiltersOpen, setIsFiltersOpen] = useState(true);
+
+  const activeFilterCount = useMemo(() => {
+    return [
+      submittedSearch.trim(),
+      submittedCategory !== "all" && submittedCategory,
+      submittedProjectType !== "all" && submittedProjectType,
+      submittedPotential !== "all" && submittedPotential,
+    ].filter(Boolean).length;
+  }, [submittedCategory, submittedPotential, submittedProjectType, submittedSearch]);
 
   const setField = useCallback(
     <K extends keyof ContractorEngineerVisitReportFormData>(
@@ -585,61 +599,70 @@ export default function ContractorEngineerVisitReportSection({
       </div>
 
       <TabsContent value="fillReport" className="space-y-4">
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <Card className="mx-auto max-w-4xl overflow-hidden border border-border/70 bg-card p-6 md:p-8 shadow-sm rounded-xl">
+          {/* Header Block */}
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-border/60">
             <div>
-              <CardTitle className="text-xl font-semibold text-foreground">
-                Contractor / Engineer Visit Report
-              </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Page {activeFormStep + 1} of {FORM_STEPS.length}: {FORM_STEPS[activeFormStep]}
+              <h1 className="text-xl font-bold text-foreground">
+                {activeFormStep === 0 && "Contractor / Engineer Visit Report"}
+                {activeFormStep === 1 && "Project & Requirement Details"}
+                {activeFormStep === 2 && "Visit Discussion Parameters"}
+                {activeFormStep === 3 && "Follow-up & Verification"}
+              </h1>
+              <p className="mt-1 text-xs font-medium text-muted-foreground">
+                Step {activeFormStep + 1} of {FORM_STEPS.length}: {FORM_STEPS[activeFormStep]}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={resetForm}>
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reset
-              </Button>
-            </div>
+            <Button type="button" variant="outline" size="sm" onClick={resetForm} className="h-8 text-xs">
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              Reset
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {FORM_STEPS.map((step, index) => {
-              const isActive = index === activeFormStep;
-              const isComplete = index < activeFormStep;
-              return (
-                <button
-                  key={step}
-                  type="button"
-                  onClick={() => setActiveFormStep(index)}
-                  className={`flex min-h-12 items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                    isActive
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : isComplete
-                        ? "border-primary/30 bg-primary/5 text-foreground hover:bg-primary/10"
-                        : "border-border bg-background text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  }`}
-                >
-                  <span
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
-                      isActive
-                        ? "border-primary-foreground text-primary-foreground"
-                        : "border-current"
-                    }`}
+
+          {/* Stepper Progress Track */}
+          <div className="py-6 border-b border-border/60">
+            <div className="relative flex items-center justify-between">
+              {/* Background Connecting Bar */}
+              <div className="absolute top-1/2 left-0 right-0 h-0.5 -translate-y-1/2 bg-border z-0" />
+              {/* Active Progress Fill Line */}
+              <div
+                className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 bg-primary z-0 transition-all duration-300 ease-in-out"
+                style={{ width: `${(activeFormStep / (FORM_STEPS.length - 1)) * 100}%` }}
+              />
+
+              {FORM_STEPS.map((step, index) => {
+                const isActive = index === activeFormStep;
+                const isComplete = index < activeFormStep;
+                return (
+                  <button
+                    key={step}
+                    type="button"
+                    onClick={() => setActiveFormStep(index)}
+                    className="relative z-10 flex flex-col items-center gap-1.5 group focus:outline-none"
                   >
-                    {index + 1}
-                  </span>
-                  <span className="break-words font-medium">{step}</span>
-                </button>
-              );
-            })}
+                    <div
+                      className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all duration-200 ${
+                        isActive
+                          ? "bg-primary text-primary-foreground scale-110 shadow-md shadow-primary/20 ring-2 ring-primary/20"
+                          : isComplete
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground border border-border group-hover:border-muted-foreground"
+                      }`}
+                    >
+                      {index + 1}
+                    </div>
+                    <span className={`text-[11px] font-medium hidden sm:inline-block ${isActive ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
+                      {step}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {(formError || formMessage) && (
             <div
-              className={`mb-5 rounded-md border p-3 text-sm ${
+              className={`my-5 rounded-md border p-3 text-sm ${
                 formError
                   ? "border-destructive/30 bg-destructive/5 text-destructive"
                   : "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -649,71 +672,73 @@ export default function ContractorEngineerVisitReportSection({
             </div>
           )}
 
-          <form className="space-y-6" onSubmit={(event) => event.preventDefault()}>
+          <form className="mt-6 space-y-6" onSubmit={(event) => event.preventDefault()}>
             {activeFormStep === 0 && (
               <div className="space-y-6">
                 <FormSection title="Officer Details">
-              <div className="grid gap-4 md:grid-cols-2">
-                <DateField
-                  id="contractor-report-visit-date"
-                  label="Visit Date"
-                  value={form.visitDate}
-                  onChange={(value) => setField("visitDate", value)}
-                />
-                <TextField
-                  id="contractor-report-officer-name"
-                  label="Officer Name"
-                  value={form.officerName}
-                  onChange={(value) => setField("officerName", value)}
-                />
-                <TextField
-                  id="contractor-report-region"
-                  label="Region"
-                  value={form.region}
-                  onChange={(value) => setField("region", value)}
-                />
-                <TextField
-                  id="contractor-report-district-area"
-                  label="District / Area"
-                  value={form.districtArea}
-                  onChange={(value) => setField("districtArea", value)}
-                />
-              </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <DateField
+                      id="contractor-report-visit-date"
+                      label="Visit Date"
+                      value={form.visitDate}
+                      onChange={(value) => setField("visitDate", value)}
+                    />
+                    <TextField
+                      id="contractor-report-officer-name"
+                      label="Officer Name"
+                      value={form.officerName}
+                      onChange={(value) => setField("officerName", value)}
+                    />
+                    <TextField
+                      id="contractor-report-region"
+                      label="Region"
+                      value={form.region}
+                      onChange={(value) => setField("region", value)}
+                    />
+                    <TextField
+                      id="contractor-report-district-area"
+                      label="District / Area"
+                      value={form.districtArea}
+                      onChange={(value) => setField("districtArea", value)}
+                    />
+                  </div>
                 </FormSection>
 
+                <div className="border-t border-border/60 my-6" />
+
                 <FormSection title="Customer Details">
-              <ChoiceGroup
-                label="Category"
-                options={CATEGORY_OPTIONS}
-                value={form.category}
-                onChange={(value) => setField("category", value as string)}
-              />
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  id="contractor-report-customer-name"
-                  label="Name"
-                  value={form.customerName}
-                  onChange={(value) => setField("customerName", value)}
-                />
-                <TextField
-                  id="contractor-report-firm-name"
-                  label="Firm Name"
-                  value={form.firmName}
-                  onChange={(value) => setField("firmName", value)}
-                />
-                <TextField
-                  id="contractor-report-mobile"
-                  label="Mobile No."
-                  value={form.mobileNo}
-                  onChange={(value) => setField("mobileNo", value)}
-                />
-                <TextField
-                  id="contractor-report-address"
-                  label="Address"
-                  value={form.address}
-                  onChange={(value) => setField("address", value)}
-                />
-              </div>
+                  <ChoiceGroup
+                    label="Category"
+                    options={CATEGORY_OPTIONS}
+                    value={form.category}
+                    onChange={(value) => setField("category", value as string)}
+                  />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <TextField
+                      id="contractor-report-customer-name"
+                      label="Name"
+                      value={form.customerName}
+                      onChange={(value) => setField("customerName", value)}
+                    />
+                    <TextField
+                      id="contractor-report-firm-name"
+                      label="Firm Name"
+                      value={form.firmName}
+                      onChange={(value) => setField("firmName", value)}
+                    />
+                    <TextField
+                      id="contractor-report-mobile"
+                      label="Mobile No."
+                      value={form.mobileNo}
+                      onChange={(value) => setField("mobileNo", value)}
+                    />
+                    <TextField
+                      id="contractor-report-address"
+                      label="Address"
+                      value={form.address}
+                      onChange={(value) => setField("address", value)}
+                    />
+                  </div>
                 </FormSection>
               </div>
             )}
@@ -721,59 +746,61 @@ export default function ContractorEngineerVisitReportSection({
             {activeFormStep === 1 && (
               <div className="space-y-6">
                 <FormSection title="Project Details">
-              <TextField
-                id="contractor-report-project-name"
-                label="Project Name"
-                value={form.projectName}
-                onChange={(value) => setField("projectName", value)}
-              />
-              <ChoiceGroup
-                label="Project Type"
-                options={PROJECT_TYPE_OPTIONS}
-                value={form.projectType}
-                onChange={(value) => setField("projectType", value as string)}
-              />
-              <ChoiceGroup
-                label="Project Stage"
-                options={PROJECT_STAGE_OPTIONS}
-                value={form.projectStage}
-                onChange={(value) => setField("projectStage", value as string)}
-              />
+                  <TextField
+                    id="contractor-report-project-name"
+                    label="Project Name"
+                    value={form.projectName}
+                    onChange={(value) => setField("projectName", value)}
+                  />
+                  <ChoiceGroup
+                    label="Project Type"
+                    options={PROJECT_TYPE_OPTIONS}
+                    value={form.projectType}
+                    onChange={(value) => setField("projectType", value as string)}
+                  />
+                  <ChoiceGroup
+                    label="Project Stage"
+                    options={PROJECT_STAGE_OPTIONS}
+                    value={form.projectStage}
+                    onChange={(value) => setField("projectStage", value as string)}
+                  />
                 </FormSection>
 
+                <div className="border-t border-border/60 my-6" />
+
                 <FormSection title="Steel Requirement">
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  id="contractor-report-approx-requirement"
-                  label="Approx. Req. (MT)"
-                  value={form.approxRequirementMt}
-                  onChange={(value) => setField("approxRequirementMt", value)}
-                />
-                <TextField
-                  id="contractor-report-monthly-consumption"
-                  label="Monthly Cons. (MT)"
-                  value={form.monthlyConsumptionMt}
-                  onChange={(value) => setField("monthlyConsumptionMt", value)}
-                />
-                <TextField
-                  id="contractor-report-current-brand"
-                  label="Current Brand Used"
-                  value={form.currentBrandUsed}
-                  onChange={(value) => setField("currentBrandUsed", value)}
-                />
-                <TextField
-                  id="contractor-report-current-dealer"
-                  label="Current Dealer"
-                  value={form.currentDealer}
-                  onChange={(value) => setField("currentDealer", value)}
-                />
-                <TextField
-                  id="contractor-report-next-purchase"
-                  label="Next Purchase Expected"
-                  value={form.nextPurchaseExpected}
-                  onChange={(value) => setField("nextPurchaseExpected", value)}
-                />
-              </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <TextField
+                      id="contractor-report-approx-requirement"
+                      label="Approx. Req. (MT)"
+                      value={form.approxRequirementMt}
+                      onChange={(value) => setField("approxRequirementMt", value)}
+                    />
+                    <TextField
+                      id="contractor-report-monthly-consumption"
+                      label="Monthly Cons. (MT)"
+                      value={form.monthlyConsumptionMt}
+                      onChange={(value) => setField("monthlyConsumptionMt", value)}
+                    />
+                    <TextField
+                      id="contractor-report-current-brand"
+                      label="Current Brand Used"
+                      value={form.currentBrandUsed}
+                      onChange={(value) => setField("currentBrandUsed", value)}
+                    />
+                    <TextField
+                      id="contractor-report-current-dealer"
+                      label="Current Dealer"
+                      value={form.currentDealer}
+                      onChange={(value) => setField("currentDealer", value)}
+                    />
+                    <TextField
+                      id="contractor-report-next-purchase"
+                      label="Next Purchase Expected"
+                      value={form.nextPurchaseExpected}
+                      onChange={(value) => setField("nextPurchaseExpected", value)}
+                    />
+                  </div>
                 </FormSection>
               </div>
             )}
@@ -781,54 +808,59 @@ export default function ContractorEngineerVisitReportSection({
             {activeFormStep === 2 && (
               <div className="space-y-6">
                 <FormSection title="Purpose And Materials">
-              <ChoiceGroup
-                label="Purpose of Visit"
-                options={PURPOSE_OPTIONS}
-                value={form.purposeOfVisit}
-                onChange={(value) => setField("purposeOfVisit", value as string)}
-              />
-              <ChoiceGroup
-                label="Materials Provided"
-                options={MATERIAL_OPTIONS}
-                value={form.materialsProvided}
-                multiple
-                onChange={(value) => setField("materialsProvided", value as string[])}
-              />
+                  <ChoiceGroup
+                    label="Purpose of Visit"
+                    options={PURPOSE_OPTIONS}
+                    value={form.purposeOfVisit}
+                    onChange={(value) => setField("purposeOfVisit", value as string)}
+                  />
+                  <ChoiceGroup
+                    label="Materials Provided"
+                    options={MATERIAL_OPTIONS}
+                    value={form.materialsProvided}
+                    multiple
+                    onChange={(value) => setField("materialsProvided", value as string[])}
+                  />
                 </FormSection>
+
+                <div className="border-t border-border/60 my-6" />
 
                 <FormSection title="Customer Feedback / Discussion">
-              <Textarea
-                value={form.customerFeedbackDiscussion}
-                onChange={(event) => setField("customerFeedbackDiscussion", event.target.value)}
-                className="min-h-28"
-              />
+                  <Textarea
+                    value={form.customerFeedbackDiscussion}
+                    onChange={(event) => setField("customerFeedbackDiscussion", event.target.value)}
+                    className="min-h-28 text-xs bg-background"
+                    placeholder="Type customer feedback or discussion details here..."
+                  />
                 </FormSection>
 
+                <div className="border-t border-border/60 my-6" />
+
                 <FormSection title="Competitor Information">
-              <div className="space-y-3">
-                {form.competitorRows.map((row, index) => (
-                  <div key={index} className="grid gap-3 rounded-md border p-3 md:grid-cols-[1fr_160px_1.4fr]">
-                    <TextField
-                      id={`contractor-report-competitor-brand-${index}`}
-                      label="Brand"
-                      value={row.brand}
-                      onChange={(value) => updateCompetitorRow(index, "brand", value)}
-                    />
-                    <TextField
-                      id={`contractor-report-competitor-rate-${index}`}
-                      label="Approx. Rate"
-                      value={row.approxRate}
-                      onChange={(value) => updateCompetitorRow(index, "approxRate", value)}
-                    />
-                    <TextField
-                      id={`contractor-report-competitor-remarks-${index}`}
-                      label="Remarks"
-                      value={row.remarks}
-                      onChange={(value) => updateCompetitorRow(index, "remarks", value)}
-                    />
+                  <div className="space-y-3">
+                    {form.competitorRows.map((row, index) => (
+                      <div key={index} className="grid gap-3 rounded-md border border-border/60 bg-muted/20 p-3 md:grid-cols-[1fr_160px_1.4fr]">
+                        <TextField
+                          id={`contractor-report-competitor-brand-${index}`}
+                          label="Brand"
+                          value={row.brand}
+                          onChange={(value) => updateCompetitorRow(index, "brand", value)}
+                        />
+                        <TextField
+                          id={`contractor-report-competitor-rate-${index}`}
+                          label="Approx. Rate"
+                          value={row.approxRate}
+                          onChange={(value) => updateCompetitorRow(index, "approxRate", value)}
+                        />
+                        <TextField
+                          id={`contractor-report-competitor-remarks-${index}`}
+                          label="Remarks"
+                          value={row.remarks}
+                          onChange={(value) => updateCompetitorRow(index, "remarks", value)}
+                        />
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
                 </FormSection>
               </div>
             )}
@@ -836,71 +868,84 @@ export default function ContractorEngineerVisitReportSection({
             {activeFormStep === 3 && (
               <div className="space-y-6">
                 <FormSection title="Business Potential And Follow-up">
-              <ChoiceGroup
-                label="Potential"
-                options={POTENTIAL_OPTIONS}
-                value={form.potential}
-                onChange={(value) => setField("potential", value as string)}
-              />
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  id="contractor-report-expected-qty"
-                  label="Expected Qty (MT)"
-                  value={form.expectedQtyMt}
-                  onChange={(value) => setField("expectedQtyMt", value)}
-                />
-                <DateField
-                  id="contractor-report-next-follow-up"
-                  label="Next Follow-up Date"
-                  value={form.nextFollowUpDate}
-                  onChange={(value) => setField("nextFollowUpDate", value)}
-                />
-              </div>
-              <ChoiceGroup
-                label="Follow-up Mode"
-                options={FOLLOW_UP_OPTIONS}
-                value={form.followUpMode}
-                onChange={(value) => setField("followUpMode", value as string)}
-              />
+                  <ChoiceGroup
+                    label="Potential"
+                    options={POTENTIAL_OPTIONS}
+                    value={form.potential}
+                    onChange={(value) => setField("potential", value as string)}
+                  />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <TextField
+                      id="contractor-report-expected-qty"
+                      label="Expected Qty (MT)"
+                      value={form.expectedQtyMt}
+                      onChange={(value) => setField("expectedQtyMt", value)}
+                    />
+                    <DateField
+                      id="contractor-report-next-follow-up"
+                      label="Next Follow-up Date"
+                      value={form.nextFollowUpDate}
+                      onChange={(value) => setField("nextFollowUpDate", value)}
+                    />
+                  </div>
+                  <ChoiceGroup
+                    label="Follow-up Mode"
+                    options={FOLLOW_UP_OPTIONS}
+                    value={form.followUpMode}
+                    onChange={(value) => setField("followUpMode", value as string)}
+                  />
                 </FormSection>
 
+                <div className="border-t border-border/60 my-6" />
+
                 <FormSection title="Remarks And Signatures">
-              <Textarea
-                value={form.remarks}
-                onChange={(event) => setField("remarks", event.target.value)}
-                className="min-h-24"
-              />
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  id="contractor-report-customer-signature"
-                  label="Customer Signature"
-                  value={form.customerSignature}
-                  onChange={(value) => setField("customerSignature", value)}
-                />
-                <TextField
-                  id="contractor-report-officer-signature"
-                  label="Officer Signature"
-                  value={form.officerSignature}
-                  onChange={(value) => setField("officerSignature", value)}
-                />
-              </div>
+                  <div className="space-y-1.5 mb-4">
+                    <Label className="text-xs font-medium text-foreground">Remarks</Label>
+                    <Textarea
+                      value={form.remarks}
+                      onChange={(event) => setField("remarks", event.target.value)}
+                      className="min-h-24 text-xs bg-background"
+                      placeholder="Remarks details..."
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <TextField
+                      id="contractor-report-customer-signature"
+                      label="Customer Signature"
+                      value={form.customerSignature}
+                      onChange={(value) => setField("customerSignature", value)}
+                    />
+                    <TextField
+                      id="contractor-report-officer-signature"
+                      label="Officer Signature"
+                      value={form.officerSignature}
+                      onChange={(value) => setField("officerSignature", value)}
+                    />
+                  </div>
                 </FormSection>
               </div>
             )}
 
-            <div className="flex flex-col-reverse gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
+            {/* Actions Footer */}
+            <div className="flex flex-col-reverse gap-3 border-t border-border/60 pt-6 mt-6 sm:flex-row sm:items-center sm:justify-between">
               <Button
                 type="button"
                 variant="outline"
                 onClick={goToPreviousStep}
                 disabled={isFirstStep}
+                className="h-10 px-5 text-xs font-semibold"
               >
-                <ChevronLeft className="mr-2 h-4 w-4" />
+                <ChevronLeft className="mr-1.5 h-4 w-4" />
                 Back
               </Button>
 
               {isFinalStep ? (
-                <Button type="button" onClick={downloadPdf} disabled={isSavingReport}>
+                <Button
+                  type="button"
+                  onClick={downloadPdf}
+                  disabled={isSavingReport}
+                  className="h-10 px-5 text-xs font-semibold"
+                >
                   {isSavingReport ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
@@ -909,115 +954,129 @@ export default function ContractorEngineerVisitReportSection({
                   {isSavingReport ? "Saving..." : "Save & Download PDF"}
                 </Button>
               ) : (
-                <Button type="button" onClick={goToNextStep}>
-                  Next
-                  <ChevronRight className="ml-2 h-4 w-4" />
+                <Button
+                  type="button"
+                  onClick={goToNextStep}
+                  className="h-10 px-5 text-xs font-semibold"
+                >
+                  Next Step
+                  <ChevronRight className="ml-1.5 h-4 w-4" />
                 </Button>
               )}
             </div>
           </form>
-        </CardContent>
-      </Card>
-
+        </Card>
       </TabsContent>
 
       <TabsContent value="submittedReports" className="space-y-4">
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold text-foreground">Submitted Reports</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <DateField
-                id="contractor-submitted-start"
-                label="From Date"
-                value={reportStartDate}
-                onChange={setReportStartDate}
-              />
-              <DateField
-                id="contractor-submitted-end"
-                label="To Date"
-                value={reportEndDate}
-                onChange={setReportEndDate}
-              />
-            </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsFiltersOpen((prev) => !prev)}
+            className="h-9 text-xs flex items-center gap-2"
+          >
+            <Filter className="h-3.5 w-3.5" />
+            {isFiltersOpen ? "Hide filters" : "Show filters"}
+            {activeFilterCount > 0 && (
+              <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px] font-semibold">
+                {activeFilterCount}
+              </Badge>
+            )}
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={downloadSubmittedReports}
+              disabled={isReportsExporting || !validatedDateRange}
+              className="h-9 text-xs flex items-center gap-2"
+            >
+              {isReportsExporting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              Download Excel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={loadSubmittedReports}
+              disabled={isReportsLoading}
+              className="h-9 text-xs flex items-center gap-2"
+            >
+              {isReportsLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Refresh
+            </Button>
+          </div>
+        </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <TextField
-                id="contractor-submitted-search"
-                label="Search"
-                value={submittedSearch}
-                onChange={setSubmittedSearch}
-              />
-              <FilterSelect
-                id="contractor-submitted-category"
-                label="Category"
-                value={submittedCategory}
-                options={CATEGORY_OPTIONS}
-                onChange={setSubmittedCategory}
-              />
-              <FilterSelect
-                id="contractor-submitted-project-type"
-                label="Project Type"
-                value={submittedProjectType}
-                options={PROJECT_TYPE_OPTIONS}
-                onChange={setSubmittedProjectType}
-              />
-              <FilterSelect
-                id="contractor-submitted-potential"
-                label="Potential"
-                value={submittedPotential}
-                options={POTENTIAL_OPTIONS}
-                onChange={setSubmittedPotential}
-              />
-            </div>
+        {isFiltersOpen && (
+          <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
+            <CardContent className="p-4 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <DateField
+                  id="contractor-submitted-start"
+                  label="From Date"
+                  value={reportStartDate}
+                  onChange={setReportStartDate}
+                />
+                <DateField
+                  id="contractor-submitted-end"
+                  label="To Date"
+                  value={reportEndDate}
+                  onChange={setReportEndDate}
+                />
+              </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={loadSubmittedReports}
-                disabled={isReportsLoading}
-              >
-                {isReportsLoading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="mr-2 h-4 w-4" />
-                )}
-                Load Reports
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={downloadSubmittedReports}
-                disabled={isReportsExporting || !validatedDateRange}
-              >
-                {isReportsExporting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Download Excel
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={loadSubmittedReports}
-                disabled={isReportsLoading}
-                aria-label="Refresh submitted reports"
-              >
-                <RefreshCw className={isReportsLoading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              </Button>
-              <Button type="button" variant="ghost" onClick={clearSubmittedFilters}>
-                Clear Filters
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Showing {filteredReports.length} of {reports.length} submitted reports.
-            </p>
-          </CardContent>
-        </Card>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <TextField
+                  id="contractor-submitted-search"
+                  label="Search"
+                  value={submittedSearch}
+                  onChange={setSubmittedSearch}
+                />
+                <FilterSelect
+                  id="contractor-submitted-category"
+                  label="Category"
+                  value={submittedCategory}
+                  options={CATEGORY_OPTIONS}
+                  onChange={setSubmittedCategory}
+                />
+                <FilterSelect
+                  id="contractor-submitted-project-type"
+                  label="Project Type"
+                  value={submittedProjectType}
+                  options={PROJECT_TYPE_OPTIONS}
+                  onChange={setSubmittedProjectType}
+                />
+                <FilterSelect
+                  id="contractor-submitted-potential"
+                  label="Potential"
+                  value={submittedPotential}
+                  options={POTENTIAL_OPTIONS}
+                  onChange={setSubmittedPotential}
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t">
+                <Button type="button" variant="ghost" size="sm" onClick={clearSubmittedFilters} className="h-8 text-xs text-muted-foreground">
+                  Clear Filters
+                </Button>
+                <span className="text-xs text-muted-foreground font-medium">
+                  Showing {filteredReports.length} of {reports.length} reports
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <VisitReportsPanel
           reports={filteredReports}

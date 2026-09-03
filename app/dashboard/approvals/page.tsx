@@ -12,27 +12,25 @@ import {
     RefreshCw,
     CheckCircle2,
     XCircle,
-    MessageSquareText, // Icon for description
-    Filter
+    MessageSquareText
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { isManagerRoleValue, normalizeRoleValue } from '@/lib/auth';
 import { API, type TeamDataDto } from '@/lib/api';
 import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
+import { isAdminEmployeeRole } from '@/lib/employee-role';
 
 // UI Components
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import { Label } from '@/components/ui/label';
+import { SearchableSelect, type SearchableOption } from '@/components/ui/searchable-select2';
 
-// Animations
-import { motion, AnimatePresence } from 'framer-motion';
+const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
 // Types
 interface ApprovalRequest {
@@ -44,11 +42,20 @@ interface ApprovalRequest {
     logDate: string;
     actionDate: string | null;
     status: string;
-    // Added description field to interface
     description?: string; 
+    reason?: string;
     isDuplicate?: boolean;
     duplicateCount?: number;
     duplicateIndex?: number;
+}
+
+interface EmployeeDirectoryEntry {
+    id: number;
+    firstName: string;
+    lastName: string;
+    role?: string;
+    userName?: string;
+    email?: string;
 }
 
 type ApprovalTypeValue = 'full day' | 'half day';
@@ -61,12 +68,15 @@ export default function ApprovalsPage() {
     const [requests, setRequests] = useState<ApprovalRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [actionFeedback, setActionFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
     
     // UI State
-    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+    const [eligibleEmployees, setEligibleEmployees] = useState<EmployeeDirectoryEntry[]>([]);
     const [activeTab, setActiveTab] = useState('pending');
     const [approvalType, setApprovalType] = useState<ApprovalTypeState>({});
+    const [savingIds, setSavingIds] = useState<number[]>([]);
     
     // Role State
     const [isManager, setIsManager] = useState(false);
@@ -79,7 +89,7 @@ export default function ApprovalsPage() {
         const fetchCurrentUser = async () => {
             if (!token) return;
             try {
-                const response = await fetch('https://api.gajkesaristeels.in/user/manage/current-user', {
+                const response = await fetch(`${API_BASE_URL}/user/manage/current-user`, {
                     headers: { 'Authorization': `Bearer ${token}` },
                 });
                 
@@ -117,6 +127,32 @@ export default function ApprovalsPage() {
         if (token) fetchRequests();
     }, [token, teamId, teamMemberIds, isManager, isFieldOfficer, userData?.employeeId]);
 
+    useEffect(() => {
+        if (!token) return;
+
+        let isMounted = true;
+        API.getAllEmployees()
+            .then((data) => {
+                if (!isMounted) return;
+                setEligibleEmployees(
+                    data
+                        .filter((employee) => !isAdminEmployeeRole(employee.role))
+                        .sort((a, b) => {
+                            const aName = `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim();
+                            const bName = `${b.firstName ?? ''} ${b.lastName ?? ''}`.trim();
+                            return aName.localeCompare(bName);
+                        })
+                );
+            })
+            .catch(() => {
+                if (isMounted) setEligibleEmployees([]);
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [token]);
+
     // --- 2. API Logic ---
     const fetchRequests = async () => {
         if (!token) return;
@@ -126,22 +162,16 @@ export default function ApprovalsPage() {
             if (requests.length === 0) setLoading(true);
             else setIsRefreshing(true);
 
-            const url = 'https://api.gajkesaristeels.in/request/getByStatus?status=pending';
-            const response = await fetch(url, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            const data: ApprovalRequest[] = await response.json();
-
-            // --- MOCK DESCRIPTION LOGIC (Remove this block when API has real descriptions) ---
-            // Uncomment the lines below to see how descriptions look in the UI right now
-            /* 
-            const dataWithMockDesc = data.map((req, i) => ({
-                ...req,
-                description: i % 3 === 0 ? "Feeling unwell since morning." : i % 4 === 0 ? "Family emergency, need to leave early." : undefined
+            const results = await Promise.all(['pending', 'approved', 'rejected'].map(async (status) => {
+                const response = await fetch(`${API_BASE_URL}/request/getByStatus?status=${status}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!response.ok) throw new Error('Unable to load attendance requests.');
+                const records = await response.json();
+                if (!Array.isArray(records)) throw new Error('Invalid attendance response.');
+                return records as ApprovalRequest[];
             }));
-            setRequests(dataWithMockDesc);
-            */
-            // --------------------------------------------------------------------------------
+            const data = Array.from(new Map(results.flat().map(request => [request.id, request])).values());
 
             const scopedData = isManager || isFieldOfficer
                 ? data.filter((request) => teamMemberIds.includes(request.employeeId) || request.employeeId === userData?.employeeId)
@@ -157,18 +187,17 @@ export default function ApprovalsPage() {
     };
 
     const handleAction = async (id: number, action: 'approved' | 'rejected') => {
-        if (!token) return;
+        if (!token || savingIds.includes(id)) return;
         
         const currentReq = requests.find(r => r.id === id);
         const type = approvalType[id] || (currentReq?.requestedStatus || 'full day');
         
-        // Optimistic Update
-        const originalRequests = [...requests];
-        setRequests(prev => prev.filter(r => r.id !== id));
+        setSavingIds(prev => [...prev, id]);
+        setActionFeedback(null);
 
         try {
-            await fetch(
-                `https://api.gajkesaristeels.in/request/updateStatus?id=${id}&status=${action}&attendance=${encodeURIComponent(type)}`,
+            const response = await fetch(
+                `${API_BASE_URL}/request/updateStatus?id=${id}&status=${action}&attendance=${encodeURIComponent(type)}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -177,16 +206,38 @@ export default function ApprovalsPage() {
                     }
                 }
             );
+            if (!response.ok) {
+                const failure = await response.json().catch(() => null);
+                const detail = typeof failure?.message === 'string' ? failure.message : '';
+                if (response.status === 404 && /log not found/i.test(detail)) {
+                    throw new Error('No attendance log exists for this date. An administrator needs to resolve the missing log before approval.');
+                }
+                throw new Error(`Unable to update attendance request (HTTP ${response.status}).${detail ? ` ${detail}` : ' Please try again.'}`);
+            }
+            setRequests(prev => prev.map(request => request.id === id ? { ...request, status: action, requestedStatus: type } : request));
+            setError(null);
+            setActionFeedback({ message: `Attendance request ${action}.`, type: 'success' });
         } catch (err) {
-            setRequests(originalRequests); // Revert on error
-            setError('Action failed. Please try again.');
+            const message = err instanceof Error ? err.message : 'Unable to update attendance request. Please try again.';
+            setError(message);
+            setActionFeedback({ message, type: 'error' });
+        } finally {
+            setSavingIds(prev => prev.filter(value => value !== id));
         }
     };
 
     // --- 3. Data Processing ---
     const processedRequests = useMemo(() => {
+        const getCleanDate = (req: ApprovalRequest) => {
+            const raw = req.logDate || req.requestDate || '';
+            if (!raw) return '';
+            return raw.split('T')[0].trim();
+        };
+
         const grouped = requests.reduce((acc, req) => {
-            const key = `${req.employeeId}-${req.requestDate}`;
+            const empKey = req.employeeId ? String(req.employeeId) : (req.employeeName || '').toLowerCase().trim();
+            const dateKey = getCleanDate(req);
+            const key = `${empKey}-${dateKey}`;
             if (!acc[key]) acc[key] = [];
             acc[key].push(req);
             return acc;
@@ -205,16 +256,24 @@ export default function ApprovalsPage() {
         });
 
         return flat.filter(req => {
-            const matchesSearch = req.employeeName.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesEmployee = !selectedEmployeeId || req.employeeId === Number(selectedEmployeeId);
             const status = req.status?.toLowerCase() || 'pending';
             
             if (activeTab === 'pending') {
-                return matchesSearch && status === 'pending';
+                return matchesEmployee && status === 'pending';
             } else {
-                return matchesSearch && status !== 'pending';
+                return matchesEmployee && status !== 'pending';
             }
         }).sort((a, b) => new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime());
-    }, [requests, searchTerm, activeTab]);
+    }, [requests, selectedEmployeeId, activeTab]);
+
+    const employeeOptions = useMemo<SearchableOption[]>(() => eligibleEmployees.map((employee) => {
+        const name = `${employee.firstName ?? ''} ${employee.lastName ?? ''}`.trim();
+        return {
+            value: String(employee.id),
+            label: name || employee.userName || employee.email || `Employee ${employee.id}`,
+        };
+    }), [eligibleEmployees]);
 
     const stats = useMemo(() => {
         const pending = requests.filter(r => r.status?.toLowerCase() === 'pending').length;
@@ -223,103 +282,90 @@ export default function ApprovalsPage() {
 
     // --- Helpers ---
     const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-    const formatDate = (date: string) => new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const formatDate = (date: string) => new Date(date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
 
     if (loading) return <LoadingSkeleton />;
 
     return (
-        <div className="min-h-screen bg-background p-4 md:p-6 w-full animate-in fade-in duration-500">
-            {/* Full width container */}
-            <div className="w-full space-y-6">
-                
-                {/* Header Section */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 pb-4 border-b">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-foreground">Approvals</h1>
-                        <p className="text-muted-foreground mt-1">Review and manage team attendance requests.</p>
-                    </div>
+        <div className="mx-auto w-full max-w-none py-4 px-4 sm:px-6">
+            <Tabs defaultValue="pending" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+                <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+                    <TabsList className="grid h-9 w-full grid-cols-2 p-1 sm:w-[320px]">
+                        <TabsTrigger value="pending" className="text-xs">Pending requests</TabsTrigger>
+                        <TabsTrigger value="history" className="text-xs">Request history</TabsTrigger>
+                    </TabsList>
                     
-                    <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="px-4 py-2 text-sm font-normal bg-card shadow-sm border-border">
-                            <Clock className="w-4 h-4 mr-2 text-orange-500" />
-                            Pending: <span className="font-bold ml-1 text-foreground">{stats.pending}</span>
-                        </Badge>
-                        <Badge variant="outline" className="px-4 py-2 text-sm font-normal bg-card shadow-sm border-border">
-                            <Briefcase className="w-4 h-4 mr-2 text-blue-500" />
-                            Total: <span className="font-bold ml-1 text-foreground">{stats.total}</span>
-                        </Badge>
+                    <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+                        <div className="min-w-[220px] flex-1 sm:max-w-[300px]">
+                            <Label className="sr-only">Employee</Label>
+                            <SearchableSelect
+                                options={employeeOptions}
+                                value={selectedEmployeeId || undefined}
+                                onSelect={(option) => setSelectedEmployeeId(option?.value ?? '')}
+                                placeholder="All employees"
+                                searchPlaceholder="Search employees..."
+                                emptyMessage="No employees found"
+                                allowClear
+                                triggerClassName="h-9 w-full bg-background text-xs shadow-none"
+                            />
+                        </div>
+                        <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5 text-amber-600" />
+                            <span><span className="font-semibold text-foreground">{stats.pending}</span> pending</span>
+                            <span className="text-border">•</span>
+                            <span><span className="font-semibold text-foreground">{stats.total}</span> total</span>
+                        </div>
+                        <Button 
+                            variant="outline" 
+                            size="icon" 
+                            onClick={fetchRequests} 
+                            disabled={isRefreshing}
+                            className="h-9 w-9 shrink-0"
+                            aria-label="Refresh approval requests"
+                        >
+                            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                        </Button>
                     </div>
                 </div>
 
-                {/* Main Controls & List */}
-                <Tabs defaultValue="pending" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    
-                    {/* Filter Toolbar */}
-                    <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-card p-4 rounded-xl border shadow-sm">
-                        <TabsList className="grid w-full lg:w-[400px] grid-cols-2">
-                            <TabsTrigger value="pending">Pending Actions</TabsTrigger>
-                            <TabsTrigger value="history">History Log</TabsTrigger>
-                        </TabsList>
-                        
-                        <div className="flex items-center gap-3 w-full lg:w-auto">
-                            <div className="relative flex-1 lg:w-[400px]">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input 
-                                    placeholder="Search by employee name..." 
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="pl-9 bg-background" 
-                                />
-                            </div>
-                            <Button 
-                                variant="outline" 
-                                size="icon" 
-                                onClick={fetchRequests} 
-                                disabled={isRefreshing}
-                                className={isRefreshing ? "animate-spin" : ""}
-                            >
-                                <RefreshCw className="h-4 w-4" />
-                            </Button>
+                {actionFeedback && (
+                    <div className={`p-3 rounded-md text-xs border ${actionFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' : 'bg-destructive/10 text-destructive border-destructive/20'}`}>
+                        {actionFeedback.message}
+                    </div>
+                )}
+
+                {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+                <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
+                    <div className="w-full align-middle">
+                        <div className="hidden lg:grid grid-cols-12 gap-4 border-b bg-muted/30 px-5 py-2.5 text-[11px] font-medium text-muted-foreground">
+                            <div className="col-span-4">Employee</div>
+                            <div className="col-span-3">Request dates</div>
+                            <div className="col-span-2">Attendance</div>
+                            <div className="col-span-3 text-right">Actions</div>
+                        </div>
+
+                        <div className="divide-y divide-border">
+                            {processedRequests.length === 0 ? (
+                                <EmptyState activeTab={activeTab} />
+                            ) : (
+                                processedRequests.map((req) => (
+                                    <RequestRow
+                                        key={req.id}
+                                        req={req}
+                                        saving={savingIds.includes(req.id)}
+                                        activeTab={activeTab}
+                                        approvalType={approvalType}
+                                        setApprovalType={setApprovalType}
+                                        handleAction={handleAction}
+                                        formatDate={formatDate}
+                                        getInitials={getInitials}
+                                    />
+                                ))
+                            )}
                         </div>
                     </div>
-
-                    {/* Content Table/List */}
-                    <Card className="border shadow-sm bg-card overflow-hidden">
-                        <ScrollArea className="h-[calc(100vh-300px)] min-h-[500px]">
-                            <div className="w-full inline-block align-middle">
-                                {/* Desktop Header */}
-                                <div className="hidden lg:grid grid-cols-12 gap-6 px-6 py-4 border-b bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
-                                    <div className="col-span-4">Employee & Description</div>
-                                    <div className="col-span-3">Date Information</div>
-                                    <div className="col-span-2">Attendance Type</div>
-                                    <div className="col-span-3 text-right">Actions</div>
-                                </div>
-
-                                <div className="divide-y divide-border">
-                                    <AnimatePresence mode="popLayout">
-                                        {processedRequests.length === 0 ? (
-                                            <EmptyState activeTab={activeTab} />
-                                        ) : (
-                                            processedRequests.map((req) => (
-                                                <RequestRow 
-                                                    key={req.id} 
-                                                    req={req} 
-                                                    activeTab={activeTab}
-                                                    approvalType={approvalType}
-                                                    setApprovalType={setApprovalType}
-                                                    handleAction={handleAction}
-                                                    formatDate={formatDate}
-                                                    getInitials={getInitials}
-                                                />
-                                            ))
-                                        )}
-                                    </AnimatePresence>
-                                </div>
-                            </div>
-                        </ScrollArea>
-                    </Card>
-                </Tabs>
-            </div>
+                </Card>
+            </Tabs>
         </div>
     );
 }
@@ -327,6 +373,7 @@ export default function ApprovalsPage() {
 // --- Sub Components ---
 
 interface RequestRowProps {
+    saving: boolean;
     req: ApprovalRequest;
     activeTab: string;
     approvalType: ApprovalTypeState;
@@ -337,6 +384,7 @@ interface RequestRowProps {
 }
 
 function RequestRow({ 
+    saving,
     req, 
     activeTab, 
     approvalType, 
@@ -348,92 +396,80 @@ function RequestRow({
     const isPending = activeTab === 'pending';
     const currentType = approvalType[req.id] || req.requestedStatus || 'full day';
 
-    // Duplicate logic styles
     const rowClass = req.isDuplicate 
-        ? "bg-orange-50/40 dark:bg-orange-950/20 hover:bg-orange-50 dark:hover:bg-orange-950/30" 
+        ? "bg-amber-500/10 dark:bg-amber-950/30 hover:bg-amber-500/15 dark:hover:bg-amber-950/40" 
         : "bg-card hover:bg-muted/30";
 
     return (
-        <motion.div
-            layout
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className={`group flex flex-col lg:grid lg:grid-cols-12 gap-6 p-6 transition-all border-l-4 ${req.isDuplicate ? 'border-l-orange-500' : 'border-l-transparent'} ${rowClass}`}
+        <div
+            className={`group flex flex-col gap-4 border-l-4 px-4 py-4 transition-colors lg:grid lg:grid-cols-12 lg:px-5 ${req.isDuplicate ? 'border-l-amber-500' : 'border-l-transparent'} ${rowClass}`}
         >
             {/* 1. Employee Info & Description */}
             <div className="col-span-4 w-full">
-                <div className="flex items-start gap-4">
-                    <Avatar className="h-12 w-12 border-2 border-background shadow-sm mt-1">
-                        <AvatarFallback className="bg-primary/10 text-primary font-bold text-sm">
+                <div className="flex items-start gap-3">
+                    <Avatar className="mt-0.5 h-10 w-10 border border-border">
+                        <AvatarFallback className="bg-muted text-xs font-semibold text-foreground">
                             {getInitials(req.employeeName)}
                         </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <h3 className="font-semibold text-base text-foreground truncate">{req.employeeName}</h3>
+                        <div className="mb-0.5 flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-sm font-semibold text-foreground m-0 p-0 leading-tight">{req.employeeName}</h3>
                             {req.isDuplicate && (
-                                <Badge variant="outline" className="h-5 px-1.5 text-[10px] border-orange-500/50 text-orange-600 dark:text-orange-400 bg-orange-100/50">
-                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                <Badge className="h-5 px-2 text-[10px] font-bold border-amber-500 bg-amber-500 text-amber-950 dark:bg-amber-400 dark:text-black dark:border-amber-400 shadow-sm flex items-center gap-1">
+                                    <AlertTriangle className="h-3 w-3 shrink-0 stroke-[2.5]" />
                                     Duplicate #{req.duplicateIndex}
                                 </Badge>
                             )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                        <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                             <Briefcase className="h-3 w-3" />
                             <span>ID: {req.employeeId}</span>
                         </div>
                         
-                        {/* DESCRIPTION FIELD UI */}
-                        {/* This will render if description exists, or handle if it's undefined gracefully */}
-                        {req.description ? (
-                            <div className="relative bg-muted/50 dark:bg-muted/20 p-3 rounded-lg border border-border/50">
+                        {req.reason && <p className="mb-1 text-xs text-muted-foreground">{req.reason}</p>}
+                        {req.description && (
+                            <div className="relative rounded-md border border-border/50 bg-muted/40 p-2">
                                 <div className="flex gap-2 items-start">
-                                    <MessageSquareText className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                                    <p className="text-sm text-foreground italic leading-relaxed">
+                                    <MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <p className="line-clamp-2 text-xs italic leading-relaxed text-foreground">
                                         <span aria-hidden="true">&ldquo;</span>
                                         {req.description}
                                         <span aria-hidden="true">&rdquo;</span>
                                     </p>
                                 </div>
                             </div>
-                        ) : (
-                             // Optional: Placeholder if you want to indicate no description, 
-                             // otherwise keep it empty for cleaner look.
-                            null
                         )}
                     </div>
                 </div>
             </div>
 
             {/* 2. Date Info */}
-            <div className="col-span-3 w-full flex lg:flex-col justify-between lg:justify-center gap-1 border-t lg:border-t-0 border-dashed pt-4 lg:pt-0">
+            <div className="col-span-3 flex w-full justify-between gap-1 border-t border-dashed pt-3 lg:flex-col lg:justify-center lg:border-t-0 lg:pt-0">
                 <div>
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-1 lg:hidden">Request Date</span>
-                    <div className="flex items-center gap-2 text-sm font-medium text-foreground bg-background/50 w-fit lg:w-full lg:bg-transparent rounded px-2 lg:px-0 py-1 lg:py-0">
-                        <Calendar className="h-4 w-4 text-primary/70" />
-                        {formatDate(req.requestDate)}
+                    <div className="flex w-fit items-center gap-2 rounded py-1 text-xs font-medium text-foreground lg:w-full lg:py-0">
+                        <Calendar className="h-3.5 w-3.5 text-primary/70" />
+                        Attendance: {formatDate(req.logDate)}
                     </div>
                 </div>
                 <div>
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-1 lg:hidden mt-2">Log Date</span>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground px-2 lg:px-0">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Clock className="h-3.5 w-3.5" />
-                        Logged: {formatDate(req.logDate)}
+                        Submitted: {formatDate(req.requestDate)}
                     </div>
                 </div>
             </div>
 
             {/* 3. Type Selector */}
-            <div className="col-span-2 w-full flex items-center pt-2 lg:pt-0">
+            <div className="col-span-2 flex w-full items-center">
                 {isPending ? (
                     <div className="w-full">
                         <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-2 lg:hidden">Attendance Type</span>
-                        <div className="bg-muted/60 p-1 rounded-lg flex w-full lg:w-auto">
+                        <div className="flex w-full rounded-md bg-muted/60 p-1 lg:w-auto">
                             <button
                                 onClick={() => setApprovalType((prev) => ({ ...prev, [req.id]: 'full day' }))}
-                                className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                                disabled={saving}
+                                className={`flex-1 rounded px-3 py-1 text-xs font-medium transition-all ${
                                     currentType === 'full day' 
                                     ? 'bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10' 
                                     : 'text-muted-foreground hover:text-foreground'
@@ -443,7 +479,8 @@ function RequestRow({
                             </button>
                             <button
                                 onClick={() => setApprovalType((prev) => ({ ...prev, [req.id]: 'half day' }))}
-                                className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                                disabled={saving}
+                                className={`flex-1 rounded px-3 py-1 text-xs font-medium transition-all ${
                                     currentType === 'half day' 
                                     ? 'bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10' 
                                     : 'text-muted-foreground hover:text-foreground'
@@ -455,8 +492,8 @@ function RequestRow({
                     </div>
                 ) : (
                     <div className="flex items-center">
-                         <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mr-2 lg:hidden">Type:</span>
-                        <Badge variant="secondary" className="capitalize px-3 py-1">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mr-2 lg:hidden">Type:</span>
+                        <Badge variant="secondary" className="capitalize px-3 py-1 text-xs">
                             {req.requestedStatus}
                         </Badge>
                     </div>
@@ -464,22 +501,26 @@ function RequestRow({
             </div>
 
             {/* 4. Actions */}
-            <div className="col-span-3 w-full flex items-center lg:justify-end pt-2 lg:pt-0">
+            <div className="col-span-3 flex w-full items-center lg:justify-end">
                 {isPending ? (
-                    <div className="flex flex-col sm:flex-row w-full lg:w-auto gap-3">
+                    <div className="flex w-full gap-2 lg:w-auto">
                         <Button 
                             onClick={() => handleAction(req.id, 'approved')}
-                            className="flex-1 lg:flex-none bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow"
+                            disabled={saving}
+                            size="sm"
+                            className="h-8 flex-1 bg-emerald-600 text-xs text-white shadow-none hover:bg-emerald-700 lg:flex-none"
                         >
-                            <Check className="h-4 w-4 mr-2" />
+                            <Check className="h-4 w-4 mr-1.5" />
                             Approve
                         </Button>
                         <Button 
                             variant="outline"
                             onClick={() => handleAction(req.id, 'rejected')}
-                            className="flex-1 lg:flex-none text-destructive border-destructive/20 hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive"
+                            disabled={saving}
+                            size="sm"
+                            className="h-8 flex-1 border-destructive/25 text-xs text-destructive hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive lg:flex-none"
                         >
-                            <X className="h-4 w-4 mr-2" />
+                            <X className="h-4 w-4 mr-1.5" />
                             Reject
                         </Button>
                     </div>
@@ -489,7 +530,7 @@ function RequestRow({
                     </div>
                 )}
             </div>
-        </motion.div>
+        </div>
     );
 }
 
@@ -511,63 +552,51 @@ function StatusBadge({ status }: { status: string }) {
         );
     }
     return (
-        <Badge variant="outline" className="capitalize">{status}</Badge>
+        <Badge variant="outline" className="capitalize text-xs">{status}</Badge>
     );
 }
 
 function EmptyState({ activeTab }: { activeTab: string }) {
     return (
-        <motion.div 
-            initial={{ opacity: 0, y: 10 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            className="flex flex-col items-center justify-center py-24 text-center px-4 w-full"
-        >
-            <div className="h-20 w-20 bg-muted/50 rounded-full flex items-center justify-center mb-6">
+        <div className="flex w-full flex-col items-center justify-center px-4 py-16 text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
                 {activeTab === 'pending' 
-                    ? <Check className="h-10 w-10 text-muted-foreground/50" /> 
-                    : <Search className="h-10 w-10 text-muted-foreground/50" />
+                    ? <Check className="h-6 w-6 text-muted-foreground/50" />
+                    : <Search className="h-6 w-6 text-muted-foreground/50" />
                 }
             </div>
-            <h3 className="text-xl font-semibold text-foreground">
+            <h3 className="text-base font-semibold text-foreground">
                 {activeTab === 'pending' ? "All caught up!" : "No records found"}
             </h3>
-            <p className="text-muted-foreground max-w-sm mt-2 text-base">
+            <p className="mt-1 max-w-sm text-xs text-muted-foreground">
                 {activeTab === 'pending' 
                     ? "There are no pending requests requiring your attention right now." 
                     : "Try adjusting your search filters to find past requests."}
             </p>
-        </motion.div>
+        </div>
     );
 }
 
 function LoadingSkeleton() {
     return (
-        <div className="p-6 space-y-8 w-full">
-            <div className="flex justify-between items-end">
-                <div className="space-y-3">
-                    <Skeleton className="h-10 w-48" />
-                    <Skeleton className="h-5 w-64" />
-                </div>
+        <div className="w-full space-y-4 py-4 px-4 sm:px-6">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <Skeleton className="h-9 w-full sm:w-80" />
                 <div className="flex gap-2">
-                    <Skeleton className="h-10 w-24" />
-                    <Skeleton className="h-10 w-24" />
+                    <Skeleton className="h-9 w-64" />
+                    <Skeleton className="h-9 w-9" />
                 </div>
             </div>
             <div className="border rounded-xl bg-card overflow-hidden">
-                <div className="p-4 border-b">
-                    <div className="flex justify-between gap-4">
-                        <Skeleton className="h-12 w-full lg:w-96" />
-                    </div>
-                </div>
                 <div className="divide-y p-0">
-                    {[1, 2, 3, 4, 5, 6].map((i) => (
-                        <div key={i} className="flex flex-col lg:flex-row items-center gap-6 p-6">
-                            <Skeleton className="h-12 w-12 rounded-full" />
-                            <div className="space-y-3 flex-1 w-full">
-                                <Skeleton className="h-5 w-1/3" />
-                                <Skeleton className="h-4 w-2/3" />
+                    {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="flex items-center gap-4 p-4">
+                            <Skeleton className="h-10 w-10 rounded-full" />
+                            <div className="w-full flex-1 space-y-2">
+                                <Skeleton className="h-4 w-1/3" />
+                                <Skeleton className="h-3 w-2/3" />
                             </div>
-                            <Skeleton className="h-10 w-32" />
+                            <Skeleton className="h-8 w-28" />
                         </div>
                     ))}
                 </div>

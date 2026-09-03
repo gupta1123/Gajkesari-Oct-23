@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Loader2, Search, X } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Loader2, Search, UsersRound, X } from "lucide-react";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,9 @@ import { useAuth } from "@/components/auth-provider";
 import { hasAdminSetupPrivileges } from "@/lib/auth";
 import { buildCityOptions, mergeCityOptions, normalizeCityKey } from "@/lib/city-options";
 import { getTeamManagers } from "@/lib/team-access";
+import { API } from "@/lib/api";
+
+const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
 interface Employee {
     id: number;
@@ -25,6 +28,8 @@ interface Employee {
     role: string;
     teamId: number | null;
     status?: string;
+    assignedCity?: string[] | null;
+    eligibleCities?: string[];
 }
 
 interface OfficeManager {
@@ -64,7 +69,6 @@ interface TeamSummary {
     }> | null;
 }
 
-// Using SearchableSelectOption from the imported component
 const createCityOption = (city: string): CityOption => ({ value: city, label: city, assignedTo: [] });
 
 type TeamSummaryManager = NonNullable<TeamSummary["officeManager"]>;
@@ -81,7 +85,11 @@ const getTeamManagersFromSummaries = (teams: TeamSummary[]) => {
     return Array.from(byId.values());
 };
 
-const AddTeam = () => {
+interface AddTeamProps {
+    onCreated?: () => void | Promise<void>;
+}
+
+const AddTeam = ({ onCreated }: AddTeamProps) => {
     const { token: authToken, userRole, currentUser } = useAuth();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedOfficeManager, setSelectedOfficeManager] = useState<string[]>([]);
@@ -95,10 +103,11 @@ const AddTeam = () => {
     const [isCityPopoverOpen, setIsCityPopoverOpen] = useState(false);
     const [citySearchTerm, setCitySearchTerm] = useState("");
     const [cityAssignments, setCityAssignments] = useState<Record<string, string[]>>({});
+    const [assigningEmployeeCities, setAssigningEmployeeCities] = useState<string[]>([]);
+    const [modalError, setModalError] = useState<string | null>(null);
 
     const canManageTeamSetup = hasAdminSetupPrivileges(userRole, currentUser);
     const token = authToken ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') : null);
-
 
     const toSentenceCase = (value: string | null | undefined) => {
         if (!value) return '';
@@ -122,25 +131,19 @@ const AddTeam = () => {
         setSelectedEmployees([]);
         setEmployees([]);
         setCitySearchTerm("");
+        setAssigningEmployeeCities([]);
+        setModalError(null);
+    };
+
+    const requestCloseModal = () => {
+        setIsModalOpen(false);
     };
 
     const fetchOfficeManagers = useCallback(async () => {
         try {
-            console.log('=== FETCHING OFFICE MANAGERS ===');
-            console.log('Token present:', !!token);
-            
-            console.log('=== STARTING API CALLS ===');
-            const allEmployeesResponse = await fetch(
-                "https://api.gajkesaristeels.in/employee/getAll",
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                }
-            );
-
+            const allEmployeesData = (await API.getAllEmployees()) as unknown as OfficeManager[];
             const teamsResponse = await fetch(
-                "https://api.gajkesaristeels.in/employee/team/getAll",
+                `${API_BASE_URL}/employee/team/getAll`,
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -148,20 +151,13 @@ const AddTeam = () => {
                 }
             );
 
-            console.log('=== API RESPONSES RECEIVED ===');
-            console.log('Employees response status:', allEmployeesResponse.status);
-            console.log('Teams response status:', teamsResponse.status);
-
-            const allEmployeesData = await allEmployeesResponse.json();
+            if (!teamsResponse.ok) {
+                throw new Error('Failed to fetch team assignments');
+            }
             const teamsData = await teamsResponse.json();
-            
-            console.log('=== API DATA PARSED ===');
-            console.log('All employees data:', allEmployeesData);
-            console.log('Teams data:', teamsData);
 
             const teams = teamsData as TeamSummary[];
             const assignedManagerIds = getTeamManagersFromSummaries(teams).map((manager) => manager.id);
-            console.log('Assigned manager IDs:', assignedManagerIds);
 
             const assignments: Record<string, string[]> = {};
             teams.forEach((team) => {
@@ -190,7 +186,6 @@ const AddTeam = () => {
             const deletedManagerIds = allEmployeesData
                 .filter((employee: OfficeManager) => employee.isOfficeManager === true && employee.deleted)
                 .map((employee: OfficeManager) => employee.id);
-            console.log('Deleted manager IDs:', deletedManagerIds);
             
             const availableManagers = allEmployeesData
                 .filter((employee: OfficeManager) =>
@@ -206,22 +201,16 @@ const AddTeam = () => {
                     label: `${manager.firstName} ${manager.lastName}`
                 }));
 
-            console.log('Available managers:', availableManagers);
-            console.log('Available managers count:', availableManagers.length);
-            console.log('First manager example:', availableManagers[0]);
             setOfficeManagers(availableManagers);
         } catch (error) {
             console.error("Error fetching managers:", error);
         }
     }, [token]);
-   
-    // Office manager selection is now handled by SearchableSelect component
 
     const fetchCities = useCallback(async () => {
         try {
-            console.log('=== FETCHING CITIES ===');
             const response = await fetch(
-                "https://api.gajkesaristeels.in/employee/getCities",
+                `${API_BASE_URL}/employee/getCities`,
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -229,11 +218,7 @@ const AddTeam = () => {
                 }
             );
             const data = await response.json();
-            console.log('Cities data:', data);
-            
             const sortedCities = buildCityOptions<CityOption>(data, createCityOption);
-            
-            console.log('Sorted cities:', sortedCities);
             setCities((prev) => mergeCityOptions(prev, sortedCities));
         } catch (error) {
             console.error("Error fetching cities:", error);
@@ -244,7 +229,6 @@ const AddTeam = () => {
         const query = citySearchTerm.trim().toLowerCase();
         let filtered = cities;
         
-        // Filter by search query
         if (query) {
             filtered = filtered.filter((city) => city.label.toLowerCase().includes(query));
         }
@@ -260,42 +244,22 @@ const AddTeam = () => {
 
     useEffect(() => {
         if (isModalOpen && token) {
-            console.log('=== MODAL OPENED ===');
-            console.log('Modal open:', isModalOpen);
-            console.log('Token present:', !!token);
             fetchOfficeManagers();
             fetchCities();
         }
     }, [isModalOpen, token, fetchOfficeManagers, fetchCities]);
 
-    // Debug effect to track SearchableSelect data
-    useEffect(() => {
-        if (isModalOpen) {
-            console.log('=== SEARCHABLE SELECT DATA DEBUG ===');
-            console.log('Office managers for select:', {
-                count: officeManagers.length,
-                data: officeManagers,
-                selected: selectedOfficeManager
-            });
-            console.log('Cities for select:', {
-                count: cities.length,
-                data: cities,
-                selected: selectedCities
-            });
-        }
-    }, [isModalOpen, officeManagers, cities, selectedOfficeManager, selectedCities]);
-
-    const fetchEmployeesByCities = useCallback(async (cities: string[]) => {
-        if (cities.length === 0) {
+    const fetchEmployeesByCities = useCallback(async (citiesList: string[]) => {
+        if (citiesList.length === 0) {
             setEmployees([]);
             return;
         }
 
         try {
             setIsLoadingEmployees(true);
-            const promises = cities.map(city =>
+            const promises = citiesList.map(city =>
                 fetch(
-                    `https://api.gajkesaristeels.in/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
+                    `${API_BASE_URL}/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
                     {
                         headers: {
                             Authorization: `Bearer ${token}`,
@@ -305,11 +269,23 @@ const AddTeam = () => {
             );
 
             const responses = await Promise.all(promises);
+            const failedResponse = responses.find((response) => !response.ok);
+            if (failedResponse) {
+                throw new Error(await failedResponse.text() || 'Failed to load field officers');
+            }
             const allEmployeesData = await Promise.all(responses.map(r => r.json()));
-            // Flatten and de-duplicate employees by id across cities
             const merged: Record<number, Employee> = {};
-            allEmployeesData.flat().forEach((employee: Employee) => {
-                if (!merged[employee.id]) merged[employee.id] = employee;
+            allEmployeesData.forEach((cityEmployees: Employee[], index: number) => {
+                const sourceCity = citiesList[index];
+                cityEmployees.forEach((employee: Employee) => {
+                    if (!merged[employee.id]) {
+                        merged[employee.id] = { ...employee, eligibleCities: [sourceCity] };
+                    } else {
+                        merged[employee.id].eligibleCities = Array.from(
+                            new Set([...(merged[employee.id].eligibleCities ?? []), sourceCity])
+                        );
+                    }
+                });
             });
 
             const allEmployees = Object.values(merged)
@@ -317,9 +293,8 @@ const AddTeam = () => {
 
             setEmployees(allEmployees);
         } catch (error) {
-            console.error(`Error fetching employees for cities ${cities.join(", ")}:`, error);
-        }
-        finally {
+            console.error(`Error fetching employees for cities ${citiesList.join(", ")}:`, error);
+        } finally {
             setIsLoadingEmployees(false);
         }
     }, [token]);
@@ -332,7 +307,7 @@ const AddTeam = () => {
     const assignCitiesToManagers = async (managerIds: number[]) => {
         await Promise.all(managerIds.flatMap((managerId) => selectedCities.map(async (city) => {
             const response = await fetch(
-                `https://api.gajkesaristeels.in/employee/assignCity?id=${managerId}&city=${encodeURIComponent(city)}`,
+                `${API_BASE_URL}/employee/assignCity?id=${managerId}&city=${encodeURIComponent(city)}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -347,28 +322,33 @@ const AddTeam = () => {
         })));
     };
 
+    const isEmployeeAssignedToAnEligibleCity = (employee: Employee) => {
+        const assignedKeys = new Set((employee.assignedCity ?? []).map(normalizeCityKey));
+        return (employee.eligibleCities ?? []).some((city) => assignedKeys.has(normalizeCityKey(city)));
+    };
+
+    const assignCityToEmployee = async (employeeId: number, city: string) => {
+        if (!token) return;
+        const assignmentKey = `${employeeId}:${normalizeCityKey(city)}`;
+        setAssigningEmployeeCities((current) => [...current, assignmentKey]);
+        setModalError(null);
+
+        try {
+            await API.assignEmployeeCity(employeeId, city);
+            setEmployees((current) => current.map((employee) => {
+                if (employee.id !== employeeId) return employee;
+                const assignedCity = Array.from(new Set([...(employee.assignedCity ?? []), city]));
+                return { ...employee, assignedCity };
+            }));
+        } catch (error) {
+            setModalError(error instanceof Error ? error.message : `Failed to assign ${city}`);
+        } finally {
+            setAssigningEmployeeCities((current) => current.filter((key) => key !== assignmentKey));
+        }
+    };
+
     const handleCreateTeam = async () => {
-        console.log('=== CREATING TEAM ===');
-        console.log('Selected office manager:', selectedOfficeManager);
-        console.log('Selected employees:', selectedEmployees);
-        
-        if (selectedOfficeManager.length === 0) {
-            console.log('No office manager selected');
-            return;
-        }
-
-        if (selectedCities.length === 0) {
-            console.log('No cities selected');
-            return;
-        }
-
-        if (!token) {
-            console.log('No auth token found');
-            return;
-        }
-
-        if (selectedEmployees.length === 0) {
-            console.log('No employees selected');
+        if (selectedOfficeManager.length === 0 || selectedCities.length === 0 || !token || selectedEmployees.length === 0) {
             return;
         }
 
@@ -378,33 +358,28 @@ const AddTeam = () => {
                 employees.some(e =>
                     e.id === id &&
                     String(e.status || '').toLowerCase() === 'active' &&
-                    e.teamId === null
+                    e.teamId === null &&
+                    isEmployeeAssignedToAnEligibleCity(e)
                 )
             );
-            if (activeSelected.length === 0) {
-                console.log('No unassigned active employees selected');
-                return;
-            }
+            if (activeSelected.length === 0) return;
 
             const managerIds = selectedOfficeManager
                 .map((id) => parseInt(id, 10))
                 .filter((id) => Number.isFinite(id));
 
-            if (managerIds.length === 0) {
-                console.log('No valid office managers selected');
-                return;
-            }
+            if (managerIds.length === 0) return;
+
+            await assignCitiesToManagers(managerIds);
 
             const requestBody = {
                 officeManager: managerIds[0],
                 officeManagers: managerIds,
                 fieldOfficers: activeSelected,
             };
-            
-            console.log('Team creation request body:', requestBody);
-            
+
             const response = await fetch(
-                "https://api.gajkesaristeels.in/employee/team/create",
+                `${API_BASE_URL}/employee/team/create`,
                 {
                     method: 'POST',
                     headers: {
@@ -415,24 +390,22 @@ const AddTeam = () => {
                 }
             );
 
-            console.log('Team creation response status:', response.status);
-            
-            if (response.status === 200) {
-                await assignCitiesToManagers(managerIds);
-                console.log('Team created successfully');
+            if (response.ok) {
+                await onCreated?.();
                 setIsModalOpen(false);
                 resetForm();
             } else {
-                console.log('Team creation failed with status:', response.status);
+                const errorText = await response.text();
+                throw new Error(errorText || `Team creation failed (${response.status})`);
             }
         } catch (error) {
             console.error("Error creating team:", error);
+            const message = error instanceof Error ? error.message : 'Failed to create team';
+            setModalError(message);
         } finally {
             setIsCreatingTeam(false);
         }
     };
-
-    // City selection is now handled by SearchableSelect component
 
     const handleToggleCity = (cityValue: string) => {
         setSelectedCities((prev) =>
@@ -440,19 +413,18 @@ const AddTeam = () => {
                 ? prev.filter((value) => value !== cityValue)
                 : [...prev, cityValue]
         );
-        // Close the popover after selection/deselection for better UX
-        setIsCityPopoverOpen(false);
     };
 
     const handleEmployeeToggle = (employeeId: number) => {
         const employee = employees.find(e => e.id === employeeId);
         const isActive = String(employee?.status || '').toLowerCase() === 'active';
         const isUnassigned = employee?.teamId === null;
-        if (!isActive) return; // guard
-        if (!isUnassigned) return;
-        setSelectedEmployees(prev => 
-            prev.includes(employeeId) 
-                ? prev.filter(id => id !== employeeId)
+        const hasCityAssignment = employee ? isEmployeeAssignedToAnEligibleCity(employee) : false;
+        if (!isActive || !isUnassigned || !hasCityAssignment) return;
+
+        setSelectedEmployees((prev) =>
+            prev.includes(employeeId)
+                ? prev.filter((id) => id !== employeeId)
                 : [...prev, employeeId]
         );
     };
@@ -463,312 +435,201 @@ const AddTeam = () => {
 
     return (
         <>
-            <Button onClick={() => {
-                console.log('=== ADD TEAM BUTTON CLICKED ===');
-                console.log('Current state:', {
-                    selectedOfficeManager,
-                    selectedCities,
-                    officeManagersCount: officeManagers.length,
-                    citiesCount: cities.length
-                });
-                setIsModalOpen(true);
-            }}>Add Team</Button>
-            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[1100px]">
-                    <DialogHeader>
-                        <DialogTitle>Add New Team</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-6 md:grid-cols-2">
-                        {/* Left Pane: Manager and Cities */}
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 text-xs"
+            >
+                <UsersRound className="h-4 w-4" />
+                Add Team
+            </Button>
+
+            <Sheet open={isModalOpen} onOpenChange={(open) => {
+                if (!open) {
+                    requestCloseModal();
+                } else {
+                    setIsModalOpen(true);
+                }
+            }}>
+                <SheetContent side="right" className="w-full sm:max-w-xl flex flex-col h-full p-0">
+                    <SheetHeader className="p-6 pb-4 border-b">
+                        <SheetTitle className="text-lg font-semibold flex items-center gap-2">
+                            <UsersRound className="h-5 w-5 text-primary" />
+                            Create New Team
+                        </SheetTitle>
+                        <SheetDescription className="text-xs">
+                            Select office managers, assign team cities, and choose field officers.
+                        </SheetDescription>
+                    </SheetHeader>
+
+                    <ScrollArea className="flex-1 px-6 py-4">
                         <div className="space-y-6">
-                            <div>
-                                <Label htmlFor="officeManager">Managers</Label>
-                                <div className="mt-2 rounded-md border">
-                                    <ScrollArea className="h-44">
-                                        {officeManagers.length === 0 ? (
-                                            <div className="p-4 text-sm text-muted-foreground">
-                                                No available managers
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-1 p-2">
-                                                {officeManagers.map((manager) => {
-                                                    const checked = selectedOfficeManager.includes(manager.value);
-                                                    return (
-                                                        <label
-                                                            key={manager.value}
-                                                            htmlFor={`office-manager-${manager.value}`}
-                                                            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50"
-                                                        >
-                                                            <Checkbox
-                                                                id={`office-manager-${manager.value}`}
-                                                                checked={checked}
-                                                                onCheckedChange={(isChecked) => {
-                                                                    setSelectedOfficeManager((prev) =>
-                                                                        isChecked
-                                                                            ? Array.from(new Set([...prev, manager.value]))
-                                                                            : prev.filter((id) => id !== manager.value)
-                                                                    );
-                                                                }}
-                                                            />
-                                                            <span className="text-sm">{manager.label}</span>
-                                                        </label>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </ScrollArea>
+                            {modalError && (
+                                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-xs text-destructive flex items-center gap-2">
+                                    <X className="h-4 w-4 shrink-0" />
+                                    <span>{modalError}</span>
                                 </div>
-                                {selectedOfficeManager.length > 0 && (
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                        {selectedOfficeManager.map((managerId) => {
-                                            const manager = officeManagers.find((item) => item.value === managerId);
+                            )}
+
+                            {/* Regional Managers / Office Managers */}
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold">Regional Manager</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="w-full justify-between h-9 text-xs shadow-none">
+                                            {selectedOfficeManager.length > 0
+                                                ? officeManagers.find(m => m.value === selectedOfficeManager[0])?.label || "Select manager"
+                                                : "Select manager"}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-full p-2" align="start">
+                                        <div className="space-y-1">
+                                            {officeManagers.map((manager) => (
+                                                <div
+                                                    key={manager.value}
+                                                    onClick={() => setSelectedOfficeManager([manager.value])}
+                                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent rounded-sm cursor-pointer text-xs"
+                                                >
+                                                    <Checkbox checked={selectedOfficeManager.includes(manager.value)} />
+                                                    <span>{manager.label}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+
+                            {/* Select Cities */}
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold">Cities</Label>
+                                <Popover open={isCityPopoverOpen} onOpenChange={setIsCityPopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="w-full justify-between h-9 text-xs shadow-none">
+                                            {cityTriggerLabel}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[320px] p-2" align="start">
+                                        <div className="space-y-2">
+                                            <Input
+                                                placeholder="Search cities..."
+                                                value={citySearchTerm}
+                                                onChange={(e) => setCitySearchTerm(e.target.value)}
+                                                className="h-8 text-xs"
+                                            />
+                                            <div className="max-h-48 overflow-y-auto space-y-1">
+                                                {filteredCities.map((city) => (
+                                                    <div
+                                                        key={city.value}
+                                                        onClick={() => handleToggleCity(city.value)}
+                                                        className="flex items-center justify-between px-2 py-1.5 hover:bg-accent rounded-sm cursor-pointer text-xs"
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <Checkbox checked={selectedCities.includes(city.value)} />
+                                                            <span>{toSentenceCase(city.label)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+
+                                {selectedCities.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 pt-1">
+                                        {selectedCities.map((city) => (
+                                            <Badge key={city} variant="secondary" className="text-[11px] gap-1 py-0.5">
+                                                {toSentenceCase(city)}
+                                                <X
+                                                    className="h-3 w-3 cursor-pointer text-muted-foreground hover:text-foreground"
+                                                    onClick={() => handleToggleCity(city)}
+                                                />
+                                            </Badge>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Field Officers List */}
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold">Field Officers</Label>
+                                {isLoadingEmployees ? (
+                                    <div className="space-y-2">
+                                        {[...Array(3)].map((_, i) => (
+                                            <Skeleton key={i} className="h-10 w-full" />
+                                        ))}
+                                    </div>
+                                ) : employees.length === 0 ? (
+                                    <div className="text-xs text-muted-foreground p-4 text-center border rounded-md">
+                                        {selectedCities.length === 0
+                                            ? "Select cities above to view available field officers."
+                                            : "No field officers found for selected cities."}
+                                    </div>
+                                ) : (
+                                    <div className="border rounded-md divide-y max-h-64 overflow-y-auto">
+                                        {employees.map((emp) => {
+                                            const isActive = String(emp.status || '').toLowerCase() === 'active';
+                                            const isUnassigned = emp.teamId === null;
+                                            const hasCityAssignment = isEmployeeAssignedToAnEligibleCity(emp);
+                                            const canSelect = isActive && isUnassigned && hasCityAssignment;
+
                                             return (
-                                                <Badge key={managerId} variant="secondary" className="text-xs">
-                                                    {manager?.label ?? `Manager ${managerId}`}
-                                                </Badge>
+                                                <div
+                                                    key={emp.id}
+                                                    onClick={() => canSelect && handleEmployeeToggle(emp.id)}
+                                                    className={`p-3 flex items-center justify-between transition-colors ${
+                                                        canSelect ? 'hover:bg-accent/50 cursor-pointer' : 'opacity-60 cursor-not-allowed bg-muted/20'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <Checkbox
+                                                            checked={selectedEmployees.includes(emp.id)}
+                                                            disabled={!canSelect}
+                                                        />
+                                                        <div className="min-w-0">
+                                                            <p className="text-xs font-medium truncate">{emp.firstName} {emp.lastName}</p>
+                                                            <p className="text-[11px] text-muted-foreground">{toSentenceCase(emp.city)}</p>
+                                                        </div>
+                                                    </div>
+                                                    {!hasCityAssignment && canSelect && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 text-[11px] px-2"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (emp.eligibleCities?.[0]) {
+                                                                    assignCityToEmployee(emp.id, emp.eligibleCities[0]);
+                                                                }
+                                                            }}
+                                                        >
+                                                            Assign City
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             );
                                         })}
                                     </div>
                                 )}
                             </div>
-
-                            <div>
-                                <Label htmlFor="city">Cities</Label>
-                                {selectedCities.length > 0 && (
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                        {selectedCities.map((city) => (
-                                            <Badge key={city} variant="secondary" className="text-xs">
-                                                {toSentenceCase(city)}
-                                            </Badge>
-                                        ))}
-                                    </div>
-                                )}
-                                <Popover open={isCityPopoverOpen} onOpenChange={setIsCityPopoverOpen}>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            className="mt-2 w-full justify-between text-left font-normal"
-                                        >
-                                            <span className={selectedCities.length === 0 ? "text-muted-foreground" : ""}>
-                                                {cityTriggerLabel}
-                                            </span>
-                                            <Search className="h-4 w-4 text-muted-foreground" />
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-[calc(100vw-3rem)] p-0 sm:w-[620px] lg:w-[720px]" align="start">
-                                        <div className="border-b p-3 space-y-2">
-                                            <div className="relative">
-                                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                                <Input
-                                                    placeholder="Search city..."
-                                                    value={citySearchTerm}
-                                                    onChange={(event) => setCitySearchTerm(event.target.value)}
-                                                    className="pl-9"
-                                                />
-                                            </div>
-                                            {selectedCities.length > 0 && (
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="w-full justify-start text-primary"
-                                                    onClick={() => setSelectedCities([])}
-                                                >
-                                                    <X className="h-4 w-4 mr-2" />
-                                                    Clear selection
-                                                </Button>
-                                            )}
-                                        </div>
-                                        <div className="max-h-64 overflow-y-auto overscroll-contain">
-                                            {cities.length === 0 ? (
-                                                <div className="p-4 text-sm text-muted-foreground">
-                                                    No cities available
-                                                </div>
-                                            ) : filteredCities.length === 0 ? (
-                                                <div className="p-4 text-sm text-muted-foreground">
-                                                    No matches found
-                                                </div>
-                                            ) : (
-                                                <div className="p-1 space-y-1">
-                                                    {filteredCities.map((city) => {
-                                                        const assignedNames = cityAssignments[normalizeCityKey(city.value)] ?? [];
-
-                                                        return (
-                                                            <div
-                                                                key={city.value}
-                                                                className="grid grid-cols-[auto_minmax(120px,1fr)] items-center gap-x-3 gap-y-2 rounded-md px-3 py-2 hover:bg-muted/40 sm:grid-cols-[auto_minmax(160px,1fr)_minmax(260px,auto)]"
-                                                            >
-                                                                <Checkbox
-                                                                    id={`city-${city.value}`}
-                                                                    checked={selectedCities.includes(city.value)}
-                                                                    onCheckedChange={() => handleToggleCity(city.value)}
-                                                                />
-                                                                <label
-                                                                    htmlFor={`city-${city.value}`}
-                                                                    className="min-w-0 cursor-pointer text-sm"
-                                                                >
-                                                                    {toSentenceCase(city.label)}
-                                                                </label>
-                                                                {assignedNames.length > 0 && (
-                                                                    <Badge variant="outline" className="col-start-2 h-auto min-h-6 w-fit max-w-full whitespace-normal break-words px-2 py-1 text-left text-[10px] font-normal leading-snug sm:col-start-auto sm:max-w-[360px]">
-                                                                        Assigned to {assignedNames.join(', ')}
-                                                                    </Badge>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </PopoverContent>
-                                </Popover>
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                    City assignment is saved only when you create the team.
-                                </p>
-                            </div>
                         </div>
+                    </ScrollArea>
 
-                        {/* Right Pane: Employees (Shown after selecting cities) */}
-                        <div className="space-y-3">
-                            <label>Team Members</label>
-                            {selectedCities.length === 0 ? (
-                                <div className="h-60 border rounded-md flex items-center justify-center text-sm text-muted-foreground">
-                                    Select one or more cities to view eligible field officers
-                                </div>
-                            ) : isLoadingEmployees ? (
-                                <div className="max-h-[420px] overflow-y-auto space-y-3">
-                                    {Array.from({ length: 6 }).map((_, i) => (
-                                        <div key={i} className="flex items-center justify-between p-2 rounded-md">
-                                            <div className="flex items-center gap-2">
-                                                <Skeleton className="h-4 w-4 rounded" />
-                                                <Skeleton className="h-4 w-48" />
-                                            </div>
-                                            <Skeleton className="h-5 w-16" />
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="max-h-[420px] overflow-y-auto space-y-4">
-                                    {(() => {
-                                        const fullName = (e: Employee) => `${e.firstName} ${e.lastName}`.trim().toLowerCase();
-                                        const activeAvailable = employees
-                                            .filter(e => String(e.status || '').toLowerCase() === 'active' && e.teamId === null)
-                                            .sort((a, b) => fullName(a).localeCompare(fullName(b)));
-                                        const activeAssigned = employees
-                                            .filter(e => String(e.status || '').toLowerCase() === 'active' && e.teamId !== null)
-                                            .sort((a, b) => fullName(a).localeCompare(fullName(b)));
-                                        const inactive = employees
-                                            .filter(e => String(e.status || '').toLowerCase() !== 'active')
-                                            .sort((a, b) => fullName(a).localeCompare(fullName(b)));
-                                        return (
-                                            <>
-                                                <div>
-                                                    <div className="text-xs font-medium text-muted-foreground mb-2">Available Active Officers</div>
-                                                    {activeAvailable.length === 0 ? (
-                                                        <div className="text-xs text-muted-foreground">No unassigned active officers found</div>
-                                                    ) : (
-                                                        <div className="space-y-2">
-                                                            {activeAvailable.map((employee) => (
-                                                                <div key={employee.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
-                                                                    <div className="flex items-center min-w-0">
-                                                                        <Checkbox
-                                                                            id={`employee-${employee.id}`}
-                                                                            checked={selectedEmployees.includes(employee.id)}
-                                                                            onCheckedChange={() => handleEmployeeToggle(employee.id)}
-                                                                        />
-                                                                        <label htmlFor={`employee-${employee.id}`} className="ml-2 text-sm truncate">
-                                                                            {toSentenceCase(`${employee.firstName} ${employee.lastName}`)}
-                                                                        </label>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="pt-2 border-t">
-                                                    <div className="text-xs font-medium text-muted-foreground mb-2">Already Assigned</div>
-                                                    {activeAssigned.length === 0 ? (
-                                                        <div className="text-xs text-muted-foreground">No assigned active officers in selected cities</div>
-                                                    ) : (
-                                                        <div className="space-y-2">
-                                                            {activeAssigned.map((employee) => (
-                                                                <div key={employee.id} className="flex items-center justify-between gap-2 p-2 rounded-md opacity-80">
-                                                                    <div className="flex min-w-0 items-center">
-                                                                        <Checkbox
-                                                                            id={`employee-assigned-${employee.id}`}
-                                                                            checked={false}
-                                                                            disabled
-                                                                        />
-                                                                        <label htmlFor={`employee-assigned-${employee.id}`} className="ml-2 text-sm truncate">
-                                                                            {toSentenceCase(`${employee.firstName} ${employee.lastName}`)}
-                                                                        </label>
-                                                                    </div>
-                                                                    <Badge variant="outline" className="shrink-0 text-xs">
-                                                                        Team {employee.teamId}
-                                                                    </Badge>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="pt-2 border-t">
-                                                    <div className="text-xs font-medium text-muted-foreground mb-2">Inactive</div>
-                                                    {inactive.length === 0 ? (
-                                                        <div className="text-xs text-muted-foreground">No inactive officers</div>
-                                                    ) : (
-                                                        <div className="space-y-2">
-                                                            {inactive.map((employee) => (
-                                                                <div key={employee.id} className="flex items-center justify-between p-2 rounded-md">
-                                                                    <div className="flex items-center min-w-0">
-                                                                        <div className="w-4 h-4 mr-2" />
-                                                                        <span className="ml-2 text-sm truncate">
-                                                                            {toSentenceCase(`${employee.firstName} ${employee.lastName}`)}
-                                                                        </span>
-                                                                    </div>
-                                                                    <Badge variant="destructive" className="text-xs">Inactive</Badge>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </>
-                                        );
-                                    })()}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    <div className="flex justify-end space-x-2 mt-4">
-                        <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+                    <div className="p-6 border-t mt-auto flex items-center justify-end gap-2 bg-muted/10">
+                        <Button variant="outline" size="sm" onClick={requestCloseModal} disabled={isCreatingTeam}>
                             Cancel
                         </Button>
                         <Button
+                            size="sm"
                             onClick={handleCreateTeam}
-                            disabled={
-                                isCreatingTeam ||
-                                selectedOfficeManager.length === 0 ||
-                                selectedCities.length === 0 ||
-                                selectedEmployees.filter(id =>
-                                    employees.some(e =>
-                                        e.id === id &&
-                                        String(e.status || '').toLowerCase() === 'active' &&
-                                        e.teamId === null
-                                    )
-                                ).length === 0
-                            }
+                            disabled={isCreatingTeam || selectedOfficeManager.length === 0 || selectedCities.length === 0 || selectedEmployees.length === 0}
                         >
-                            {isCreatingTeam ? (
-                                <span className="inline-flex items-center">
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Creating...
-                                </span>
-                            ) : (
-                                "Create Team"
-                            )}
+                            {isCreatingTeam && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Create Team
                         </Button>
                     </div>
-                </DialogContent>
-            </Dialog>
+                </SheetContent>
+            </Sheet>
         </>
     );
 };
