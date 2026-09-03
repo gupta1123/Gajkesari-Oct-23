@@ -628,7 +628,7 @@ const EmployeeSummary: React.FC = () => {
 
                     {/* Filters Section */}
                     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-end lg:gap-2">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:gap-2">
                             <div className="min-w-0 space-y-1.5 lg:w-[220px] lg:shrink-0">
                                 <div className="flex items-center justify-between">
                                     <Label className="text-xs font-medium text-foreground">Employee</Label>
@@ -797,8 +797,8 @@ const EmployeeSummary: React.FC = () => {
                                     </PopoverContent>
                                 </Popover>
                             </div>
-                            <div className="flex min-w-0 flex-1 flex-col justify-end gap-1.5 lg:ml-auto lg:flex-none">
-                                <div className="flex flex-nowrap items-end gap-2 lg:justify-end">
+                            <div className="flex w-full min-w-0 flex-col justify-end gap-1.5 lg:ml-auto lg:w-auto lg:max-w-full">
+                                <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap lg:justify-end">
                                     <Button
                                         type="button"
                                         variant="outline"
