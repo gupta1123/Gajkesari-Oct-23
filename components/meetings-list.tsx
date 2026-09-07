@@ -766,21 +766,22 @@ export default function MeetingsList() {
   const dateRangeInvalid = isDateRangeInvalid(filters.start, filters.end);
   const isAdmin = hasAdminSetupPrivileges(userRole, currentUser);
 
-  const backendFiltersFor = (appliedFilters = filters) => ({
+  const backendFiltersFor = (appliedFilters = filters, searchValue = search) => ({
     start: appliedFilters.start || undefined,
     end: appliedFilters.end || undefined,
     status: appliedFilters.status === ALL_VALUE ? undefined : appliedFilters.status,
     meetingType: appliedFilters.meetingType === ALL_VALUE ? undefined : appliedFilters.meetingType,
     city: appliedFilters.city.trim() || undefined,
     state: appliedFilters.state.trim() || undefined,
+    query: searchValue.trim() || undefined,
   });
 
-  const loadMeetings = async (appliedFilters = filters, page = 0, size = pageSize) => {
+  const loadMeetings = async (appliedFilters = filters, page = 0, size = pageSize, searchValue = search) => {
     if (isDateRangeInvalid(appliedFilters.start, appliedFilters.end)) return;
     setIsLoading(true);
     setError(null);
     try {
-      const backendFilters = backendFiltersFor(appliedFilters);
+      const backendFilters = backendFiltersFor(appliedFilters, searchValue);
       const data = await meetingsApi.getMeetingsPage({
         ...backendFilters,
         page,
@@ -857,7 +858,7 @@ export default function MeetingsList() {
   const clearFilters = () => {
     setSearch("");
     setFilters(DEFAULT_FILTERS);
-    loadMeetings(DEFAULT_FILTERS, 0, pageSize);
+    loadMeetings(DEFAULT_FILTERS, 0, pageSize, '');
   };
 
   const openWorkflowGuide = () => {
@@ -890,7 +891,7 @@ export default function MeetingsList() {
     const overBudget = filters.overBudget;
 
     return meetings.filter((meeting) => {
-      const actualExpenseTotal = meeting.expenses?.reduce((sum, expense) => sum + Number(expense.amount || 0), 0) || 0;
+      const actualExpenseTotal = meeting.actualExpenseTotal ?? meeting.expenses?.reduce((sum, expense) => sum + Number(expense.amount || 0), 0) ?? 0;
       const isOverBudget = actualExpenseTotal > Number(meeting.expectedBudget || 0);
       if (overBudget === "yes" && !isOverBudget) return false;
       if (overBudget === "no" && isOverBudget) return false;

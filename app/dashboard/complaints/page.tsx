@@ -247,31 +247,15 @@ const Complaints = () => {
         
         setIsLoading(true);
         try {
-            let url: string;
-            
-            if (isManager) {
-                const responses = await Promise.all(teamIds.map((id) =>
-                    fetch(`https://api.gajkesaristeels.in/task/getByTeam?id=${id}`, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    })
-                ));
-
-                const failedResponse = responses.find((response) => !response.ok);
-                if (failedResponse) {
-                    const errorText = await failedResponse.text();
-                    throw new Error(`API request failed: ${failedResponse.status} ${errorText}`);
-                }
-
-                const payloads = await Promise.all(responses.map((response) => response.json()));
-                const uniqueTasks = new Map<number, Record<string, unknown>>();
-                payloads.flatMap((payload) => Array.isArray(payload) ? payload : []).forEach((task) => {
-                    uniqueTasks.set(Number(task.id) || uniqueTasks.size, task);
-                });
+            const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
+            const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
+            const payloads = isManager
+                ? await Promise.all(teamIds.map((id) => API.getTasks({ teamId: id, taskType: 'complaint' })))
+                : [await API.getTasks({ start: formattedStartDate, end: formattedEndDate, taskType: 'complaint' })];
+            const uniqueTasks = new Map<number, Record<string, unknown>>();
+            payloads.flat().forEach((task) => uniqueTasks.set(Number(task.id) || uniqueTasks.size, task as unknown as Record<string, unknown>));
 
                 const tasksArray = Array.from(uniqueTasks.values())
-                    .filter((task: Record<string, unknown>) => task.taskType === 'complaint')
                     .map((task: Record<string, unknown>) => ({
                         id: Number(task.id) || 0,
                         taskTitle: String(task.taskTitle || ''),
@@ -293,49 +277,6 @@ const Complaints = () => {
 
                 setTasks(tasksArray);
                 setIsLoading(false);
-                return;
-            } else {
-                const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
-                const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
-                url = `https://api.gajkesaristeels.in/task/getByDate?start=${formattedStartDate}&end=${formattedEndDate}`;
-            }
-
-            const response = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API request failed: ${response.status} ${errorText}`);
-            }
-
-            const data = await response.json();
-
-            const tasksArray = (Array.isArray(data) ? data : [])
-                .filter((task: Record<string, unknown>) => task.taskType === 'complaint')
-                .map((task: Record<string, unknown>) => ({
-                    id: Number(task.id) || 0,
-                    taskTitle: String(task.taskTitle || ''),
-                    taskDesciption: String(task.taskDesciption || ''),
-                    dueDate: String(task.dueDate || ''),
-                    assignedToId: Number(task.assignedToId) || 0,
-                    assignedToName: String(task.assignedToName || 'Unknown'),
-                    assignedById: Number(task.assignedById) || 0,
-                    status: String(task.status || ''),
-                    priority: String(task.priority || ''),
-                    category: String(task.category || ''),
-                    storeId: Number(task.storeId) || 0,
-                    storeName: String(task.storeName || ''),
-                    storeCity: String(task.storeCity || ''),
-                    taskType: String(task.taskType || ''),
-                    imageCount: Number(task.imageCount) || 0,
-                } as Task))
-                .sort((a: Task, b: Task) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
-
-            setTasks(tasksArray);
-            setIsLoading(false);
         } catch (error) {
             console.error('Error fetching tasks:', error);
             setIsLoading(false);
@@ -359,23 +300,8 @@ const Complaints = () => {
         
         setIsStoresLoading(true);
         try {
-            const params = new URLSearchParams({
-                employeeId: employeeId.toString(),
-                searchTerm,
-                page: page.toString(),
-                size: size.toString(),
-                sortBy: sortByParam,
-                sortOrder,
-            });
-            const url = `https://api.gajkesaristeels.in/store/getStoreNamesByEmployee?${params.toString()}`;
-            
-            const response = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setStores(data.content || []);
+            const data = await API.getStoreNames(employeeId, searchTerm);
+            setStores(data as unknown as Store[]);
         } catch (error) {
             console.error('Error fetching stores:', error);
         } finally {

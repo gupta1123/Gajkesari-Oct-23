@@ -313,13 +313,14 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
         const start = expenseStartDate ? expenseStartDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
         const end = expenseEndDate ? expenseEndDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-30`;
         try {
-          const response = await fetch(`${API_BASE_URL}/expense/getByEmployeeAndDate?start=${start}&end=${end}&id=${id}`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
+          const data = await API.searchExpenses({
+            employeeId: Number(id),
+            start,
+            end,
+            page: 0,
+            size: 100,
           });
-          const data = await response.json();
-          setExpenses(data);
+          setExpenses(data.content as unknown as Expense[]);
         } catch (error) {
           console.error("Error fetching expenses:", error);
         }

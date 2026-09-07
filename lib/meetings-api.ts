@@ -246,6 +246,7 @@ export interface MeetingFilters {
   size?: number;
   sortBy?: string;
   sortDir?: "asc" | "desc" | string;
+  query?: string;
 }
 
 export interface MeetingPageResponse<T> {
@@ -254,6 +255,7 @@ export interface MeetingPageResponse<T> {
   items?: T[];
   totalElements?: number;
   totalPages?: number;
+  page?: number;
   number?: number;
   size?: number;
   first?: boolean;
@@ -273,20 +275,13 @@ export interface MeetingPage<T> {
 }
 
 export interface MeetingDashboardSummary {
-  needsApproval?: number;
+  totalMeetings?: number;
+  byStatus?: Record<string, number>;
+  byStatusLabel?: Record<string, number>;
   pendingApproval?: number;
-  pendingApprovalCount?: number;
-  upcomingApproved?: number;
-  scheduled?: number;
-  approved?: number;
-  needsFinalReview?: number;
-  finalReview?: number;
-  reportSubmitted?: number;
-  needsCorrection?: number;
-  correctionRequired?: number;
+  pendingFinalReview?: number;
   closed?: number;
-  closedCount?: number;
-  [key: string]: number | undefined;
+  totalActualExpense?: number;
 }
 
 export interface CreateMeetingPayload {
@@ -413,7 +408,7 @@ const normalizePage = <T>(response: MeetingPageResponse<T> | T[], fallbackSize =
   const size = response.size ?? fallbackSize;
   const totalElements = response.totalElements ?? content.length;
   const totalPages = response.totalPages ?? Math.max(1, Math.ceil(totalElements / Math.max(size, 1)));
-  const number = response.number ?? 0;
+  const number = response.page ?? response.number ?? 0;
 
   return {
     content,
@@ -424,6 +419,41 @@ const normalizePage = <T>(response: MeetingPageResponse<T> | T[], fallbackSize =
     first: response.first ?? number <= 0,
     last: response.last ?? number >= totalPages - 1,
   };
+};
+
+const buildV2MeetingFilters = (filters: MeetingFilters = {}, overrides: Partial<MeetingFilters> = {}) => {
+  const merged = { ...filters, ...overrides };
+  return {
+    startDate: merged.start,
+    endDate: merged.end,
+    status: merged.status,
+    meetingType: merged.meetingType,
+    city: merged.city,
+    state: merged.state,
+    query: merged.query,
+    page: merged.page ?? 0,
+    size: Math.min(Number(merged.size || 20), 100),
+    sortBy: merged.sortBy ?? 'meetingDate',
+    sortOrder: merged.sortDir ?? 'desc',
+  };
+};
+
+const getAllMeetingAttendees = async (): Promise<MeetingAttendee[]> => {
+  const size = 500;
+  const first = await meetingRequest<MeetingPageResponse<MeetingAttendee>>(
+    `/v2/meetings/attendees${buildQuery({ page: 0, size })}`,
+  );
+  const firstPage = normalizePage(first, size);
+  const attendees = [...firstPage.content];
+  for (let page = 1; page < firstPage.totalPages; page += 1) {
+    const response = await meetingRequest<MeetingPageResponse<MeetingAttendee>>(
+      `/v2/meetings/attendees${buildQuery({ page, size })}`,
+    );
+    const nextPage = normalizePage(response, size);
+    attendees.push(...nextPage.content);
+    if (nextPage.last) break;
+  }
+  return attendees;
 };
 
 const meetingRequest = async <T>(endpoint: string, options: RequestInit = {}): Promise<T> => {
@@ -536,7 +566,7 @@ export const meetingsApi = {
 
   getApprovalQueue: (filters: MeetingFilters = {}) =>
     meetingRequest<MeetingPageResponse<Meeting> | Meeting[]>(
-      `/meeting/approvalQueue/paged${buildQuery({ page: 0, size: 20, sortBy: "meetingDate", sortDir: "desc", ...filters })}`
+      `/v2/meetings${buildQuery(buildV2MeetingFilters(filters, { status: filters.status || 'PENDING_APPROVAL' }))}`
     ).then((response) => normalizePage(response, Number(filters.size || 20))),
 
   approveMeeting: (meetingId: number, payload: ApprovalPayload) =>
@@ -665,16 +695,16 @@ export const meetingsApi = {
 
   getMeetingsPage: (filters: MeetingFilters = {}) =>
     meetingRequest<MeetingPageResponse<Meeting> | Meeting[]>(
-      `/meeting/getAll/paged${buildQuery({ page: 0, size: 20, sortBy: "meetingDate", sortDir: "desc", ...filters })}`
+      `/v2/meetings${buildQuery(buildV2MeetingFilters(filters))}`
     ).then((response) => normalizePage(response, Number(filters.size || 20))),
 
   getMeetings: (filters: MeetingFilters = {}) =>
     meetingRequest<MeetingPageResponse<Meeting> | Meeting[]>(
-      `/meeting/getAll/paged${buildQuery({ page: 0, size: 20, sortBy: "meetingDate", sortDir: "desc", ...filters })}`
+      `/v2/meetings${buildQuery(buildV2MeetingFilters(filters))}`
     ).then((response) => normalizePage(response, Number(filters.size || 20)).content),
 
   getDashboardSummary: (filters: Omit<MeetingFilters, "status"> = {}) =>
-    meetingRequest<MeetingDashboardSummary>(`/meeting/dashboard/summary${buildQuery(filters)}`),
+    meetingRequest<MeetingDashboardSummary>(`/v2/meetings/dashboard/summary${buildQuery({ startDate: filters.start, endDate: filters.end })}`),
 
   getMeetingAudit: (meetingId: number) =>
     meetingRequest<MeetingAuditHistory[]>(`/meeting/audit${buildQuery({ id: meetingId })}`),
@@ -683,21 +713,29 @@ export const meetingsApi = {
 
   getReportsPage: (filters: MeetingFilters = {}) =>
     meetingRequest<MeetingPageResponse<Meeting> | Meeting[]>(
-      `/meeting/report/paged${buildQuery({ page: 0, size: 20, sortBy: "meetingDate", sortDir: "desc", ...filters })}`
+      `/v2/meetings${buildQuery(buildV2MeetingFilters(filters))}`
     ).then((response) => normalizePage(response, Number(filters.size || 20))),
 
   getReports: (filters: MeetingFilters = {}) =>
     meetingRequest<MeetingPageResponse<Meeting> | Meeting[]>(
-      `/meeting/report/paged${buildQuery({ page: 0, size: 20, sortBy: "meetingDate", sortDir: "desc", ...filters })}`
+      `/v2/meetings${buildQuery(buildV2MeetingFilters(filters))}`
     ).then((response) => normalizePage(response, 20).content),
 
   exportReport: (filters: MeetingFilters = {}) =>
-    meetingBlobRequest(`/meeting/report/export${buildQuery(filters)}`),
+    meetingBlobRequest(`/v2/meetings/report/export${buildQuery({
+      startDate: filters.start,
+      endDate: filters.end,
+      status: filters.status,
+      meetingType: filters.meetingType,
+      city: filters.city,
+      state: filters.state,
+      query: filters.query,
+    })}`),
 
   getReportById: (meetingId: number) =>
     meetingRequest<Meeting>(`/meeting/report/getById${buildQuery({ id: meetingId })}`),
 
-  getAttendeeMaster: () => meetingRequest<MeetingAttendee[]>("/meeting/attendees/getAll"),
+  getAttendeeMaster: getAllMeetingAttendees,
 };
 
 export const hasMeetingAction = (meeting: Pick<Meeting, "allowedActions"> | null | undefined, action: MeetingAction) =>

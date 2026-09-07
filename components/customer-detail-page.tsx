@@ -245,13 +245,8 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
     const fetchCustomerData = useCallback(async (id: string) => {
         try {
             setIsLoadingCustomer(true);
-            const response = await fetch(`https://api.gajkesaristeels.in/store/getById?id=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setCustomerData(data);
+            const data = await new API().getStoreById(Number(id));
+            setCustomerData({ ...data });
 
             // Set the visibility of the Sites tab based on clientType
             const validClientTypes = ['builder', 'site visit', 'architect', 'engineer'];
@@ -265,13 +260,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
     const fetchNotesData = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`https://api.gajkesaristeels.in/notes/getByStore?id=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setNotesData(data);
+            setNotesData(await new API().getNotesByStore(Number(id)) as unknown as Note[]);
         } catch (error) {
             console.error('Error fetching notes data:', error);
         }
@@ -279,20 +268,15 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
     const fetchVisitsData = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`https://api.gajkesaristeels.in/visit/getByStore?id=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
+            const data = await new API().getVisitsByStore(Number(id));
             // Sort latest to oldest by visit_date
-            const sorted = (data || []).slice().sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
-                const da = new Date(a.visit_date as string).getTime();
-                const db = new Date(b.visit_date as string).getTime();
+            const sorted = (data || []).slice().sort((a: VisitDto, b: VisitDto) => {
+                const da = new Date(a.visit_date || a.visitDate || '').getTime();
+                const db = new Date(b.visit_date || b.visitDate || '').getTime();
                 return db - da;
             });
-            setVisitsData(sorted);
-            setFilteredVisitsData(sorted);
+            setVisitsData(sorted as unknown as Visit[]);
+            setFilteredVisitsData(sorted as unknown as Visit[]);
         } catch (error) {
             console.error('Error fetching visits data:', error);
         }
@@ -300,13 +284,18 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
     const fetchRequirementsData = useCallback(async (id: string, start: Date, end: Date) => {
         try {
-            const response = await fetch(`https://api.gajkesaristeels.in/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
+            const data = await API.searchTasks({
+                storeId: Number(id),
+                start: start.toISOString().split('T')[0],
+                end: end.toISOString().split('T')[0],
+                taskType: 'requirement',
+                page: 0,
+                size: 100,
             });
-            const data = await response.json();
-            setRequirementsData(data.filter((task: Record<string, unknown>) => task.taskType === 'requirement'));
+            setRequirementsData(data.content.map((task) => ({
+                ...task,
+                taskDescription: task.taskDesciption || task.description || '',
+            })) as unknown as Task[]);
         } catch (error) {
             console.error('Error fetching requirements data:', error);
         }
@@ -314,13 +303,18 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
     const fetchComplaintsData = useCallback(async (id: string, start: Date, end: Date) => {
         try {
-            const response = await fetch(`https://api.gajkesaristeels.in/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
+            const data = await API.searchTasks({
+                storeId: Number(id),
+                start: start.toISOString().split('T')[0],
+                end: end.toISOString().split('T')[0],
+                taskType: 'complaint',
+                page: 0,
+                size: 100,
             });
-            const data = await response.json();
-            setComplaintsData(data.filter((task: Record<string, unknown>) => task.taskType === 'complaint'));
+            setComplaintsData(data.content.map((task) => ({
+                ...task,
+                taskDescription: task.taskDesciption || task.description || '',
+            })) as unknown as Task[]);
         } catch (error) {
             console.error('Error fetching complaints data:', error);
         }
@@ -329,13 +323,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
     const fetchEmployees = useCallback(async () => {
         try {
             setIsLoadingEmployees(true);
-            const response = await fetch('https://api.gajkesaristeels.in/employee/getFieldOfficer', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setEmployees(data);
+            setEmployees(await API.getFieldOfficers() as unknown as Array<Record<string, unknown>>);
         } catch (error) {
             console.error('Error fetching field officers:', error);
         } finally {
@@ -346,13 +334,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
     const fetchStores = useCallback(async () => {
         try {
             setIsLoadingStores(true);
-            const response = await fetch('https://api.gajkesaristeels.in/store/names', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setStores(data);
+            setStores(await API.getStoreNames() as unknown as Array<Record<string, unknown>>);
         } catch (error) {
             console.error('Error fetching stores:', error);
         } finally {
@@ -612,14 +594,19 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
     const createTask = async () => {
         try {
-            const response = await fetch(`https://api.gajkesaristeels.in/task/getByStoreAndDate?storeId=${storeId}&start=${format(startDate, 'yyyy-MM-dd')}&end=${format(endDate, 'yyyy-MM-dd')}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
+            const data = await API.searchTasks({
+                storeId: Number(storeId),
+                start: format(startDate, 'yyyy-MM-dd'),
+                end: format(endDate, 'yyyy-MM-dd'),
+                page: 0,
+                size: 100,
             });
-            const data = await response.json();
-            setRequirementsData(data.filter((task: Record<string, unknown>) => task.taskType === 'requirement'));
-            setComplaintsData(data.filter((task: Record<string, unknown>) => task.taskType === 'complaint'));
+            const mapped = data.content.map((task) => ({
+                ...task,
+                taskDescription: task.taskDesciption || task.description || '',
+            })) as unknown as Task[];
+            setRequirementsData(mapped.filter((task) => task.taskType === 'requirement'));
+            setComplaintsData(mapped.filter((task) => task.taskType === 'complaint'));
             console.log('Tasks refreshed successfully!');
         } catch (error) {
             console.error('Error fetching updated tasks:', error);
@@ -975,19 +962,14 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                     await fetchEmployees();
 
                     // Then fetch task details
-                    const response = await fetch(`https://api.gajkesaristeels.in/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    });
-                    const data = await response.json();
+                    const data = (await API.searchTasks({ storeId: Number(storeId), taskType: 'complaint', page: 0, size: 1 })).content;
                     if (Array.isArray(data) && data.length > 0) {
                         const task = data[0];
                         setComplaintTask(prev => ({
                             ...prev,
-                            assignedToId: task.assignedToId,
-                            assignedToName: task.assignedToName,
-                            storeName: customerData?.storeName || task.storeName
+                            assignedToId: task.assignedToId ?? 0,
+                            assignedToName: task.assignedToName ?? '',
+                            storeName: String(customerData?.storeName || task.storeName || '')
                         }));
                     }
                 } catch (error) {
@@ -1007,19 +989,14 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                     await fetchEmployees();
 
                     // Then fetch task details
-                    const response = await fetch(`https://api.gajkesaristeels.in/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    });
-                    const data = await response.json();
+                    const data = (await API.searchTasks({ storeId: Number(storeId), taskType: 'requirement', page: 0, size: 1 })).content;
                     if (Array.isArray(data) && data.length > 0) {
                         const task = data[0];
                         setRequirementTask(prev => ({
                             ...prev,
-                            assignedToId: task.assignedToId,
-                            assignedToName: task.assignedToName,
-                            storeName: customerData?.storeName || task.storeName
+                            assignedToId: task.assignedToId ?? 0,
+                            assignedToName: task.assignedToName ?? '',
+                            storeName: String(customerData?.storeName || task.storeName || '')
                         }));
                     }
                 } catch (error) {

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
     Pagination,
     PaginationContent,
@@ -64,7 +64,6 @@ type CustomerFilters = {
     employeeName: string;
 };
 
-const TEAM_CUSTOMER_PAGE_SIZE = 1000;
 const CUSTOMER_FILTER_DEBOUNCE_MS = 300;
 
 function Ellipsis({ value }: { value: React.ReactNode }) {
@@ -114,17 +113,6 @@ const matchesCustomerFilters = (store: StoreDto, filters: CustomerFilters) => {
         (!filters.employeeName || normalizeSearchValue(store.employeeName).includes(normalizeSearchValue(filters.employeeName))) &&
         (!phoneFilter || phone.includes(phoneFilter))
     );
-};
-
-const hasBirthdayOn = (store: StoreDto, date: Date) => {
-    const dob = store.dateOfBirth || store.dob;
-    if (!dob) return false;
-
-    const datePart = dob.split('T')[0];
-    const parts = datePart.split('-').map(Number);
-    if (parts.length !== 3 || parts.some(Number.isNaN)) return false;
-
-    return parts[1] === date.getMonth() + 1 && parts[2] === date.getDate();
 };
 
 const getStoreSortValue = (store: StoreDto, sortColumn: string): string | number => {
@@ -198,19 +186,6 @@ const createStoreResponse = (
         first: safePage === 1,
         empty: content.length === 0,
     };
-};
-
-const getAllStoresForTeam = async (teamId: number): Promise<StoreDto[]> => {
-    const firstPage = await API.getStoresForTeam(teamId, 0, TEAM_CUSTOMER_PAGE_SIZE);
-    if (firstPage.totalPages <= 1) return firstPage.content ?? [];
-
-    const remainingPages = await Promise.all(
-        Array.from({ length: firstPage.totalPages - 1 }, (_, index) =>
-            API.getStoresForTeam(teamId, index + 1, TEAM_CUSTOMER_PAGE_SIZE),
-        ),
-    );
-
-    return [firstPage, ...remainingPages].flatMap((response) => response.content ?? []);
 };
 
 function CustomerListContent() {
@@ -608,34 +583,7 @@ function CustomerListContent() {
         try {
             let data: StoreResponse;
 
-            if (isManager || isFieldOfficer) {
-                if (teamIds.length === 0) {
-                    if (isLatestRequest()) {
-                        setCustomers([]);
-                        setTotalPages(1);
-                    }
-                    return;
-                }
-
-                const responses = await Promise.all(teamIds.map(getAllStoresForTeam));
-                if (!isLatestRequest()) return;
-
-                const uniqueStores = new Map<number, StoreDto>();
-                responses.flat().forEach((store) => uniqueStores.set(store.storeId, store));
-
-                const today = new Date();
-                const filteredStores = Array.from(uniqueStores.values()).filter(
-                    (store) =>
-                        matchesCustomerFilters(store, desktopFilters) &&
-                        (!birthdayToday || hasBirthdayOn(store, today)),
-                );
-
-                data = createStoreResponse(
-                    sortStores(filteredStores, sortColumn, sortDirection),
-                    currentPage,
-                    pageSize,
-                );
-            } else if (birthdayToday) {
+            if (birthdayToday) {
                 const today = new Date();
                 const todayStr = format(today, 'yyyy-MM-dd');
                 const birthdayCustomers = await API.getStoresByDobDateRange(todayStr, todayStr);
@@ -649,6 +597,55 @@ function CustomerListContent() {
                     currentPage,
                     pageSize,
                 );
+            } else if (isManager || isFieldOfficer) {
+                if (teamIds.length === 0) {
+                    if (isLatestRequest()) {
+                        setCustomers([]);
+                        setTotalPages(1);
+                    }
+                    return;
+                }
+
+                const requestedWindow = currentPage * pageSize;
+                const responses = await Promise.all(teamIds.map(async (accessibleTeamId) => {
+                    const requestPage = (page: number) => API.searchStores({
+                        teamId: accessibleTeamId,
+                        storeName: desktopFilters.storeName || undefined,
+                        ownerName: desktopFilters.ownerName || undefined,
+                        city: desktopFilters.city || undefined,
+                        state: desktopFilters.state || undefined,
+                        clientType: desktopFilters.clientType || undefined,
+                        employeeName: desktopFilters.employeeName || undefined,
+                        primaryContact: desktopFilters.primaryContact || undefined,
+                        page,
+                        size: 100,
+                        sortBy: sortColumn,
+                        sortOrder: sortDirection,
+                    });
+                    const first = await requestPage(0);
+                    const pagesNeeded = Math.min(first.totalPages, Math.ceil(requestedWindow / 100));
+                    const content = [...first.content];
+                    for (let page = 1; page < pagesNeeded; page += 1) {
+                        content.push(...(await requestPage(page)).content);
+                    }
+                    return { ...first, content };
+                }));
+                if (!isLatestRequest()) return;
+
+                const uniqueStores = new Map<number, StoreDto>();
+                responses.flatMap((response) => response.content).forEach((store) => uniqueStores.set(store.storeId, store));
+                const sortedStores = sortStores(Array.from(uniqueStores.values()), sortColumn, sortDirection);
+                const totalElements = responses.reduce((total, response) => total + response.totalElements, 0);
+                const mergedTotalPages = Math.ceil(totalElements / pageSize);
+                data = {
+                    content: sortedStores.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+                    page: currentPage - 1,
+                    size: pageSize,
+                    totalElements,
+                    totalPages: mergedTotalPages,
+                    first: currentPage === 1,
+                    last: mergedTotalPages === 0 || currentPage >= mergedTotalPages,
+                };
             } else {
                 data = await API.getStoresFilteredPaginated({
                     storeName: desktopFilters.storeName || undefined,
@@ -855,23 +852,7 @@ function CustomerListContent() {
         try {
             console.log('Starting export process...');
             
-            const response = await fetch('https://api.gajkesaristeels.in/store/export', {
-                method: 'GET',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-    
-            console.log('Export response status:', response.status);
-            console.log('Export response ok:', response.ok);
-    
-            if (!response.ok) {
-                console.error('Failed to fetch export data');
-                setExportMessage('Failed to download. Please try again.');
-                return;
-            }
-    
-            const csvContent = await response.text();
+            const csvContent = await API.exportStores();
             console.log('CSV content received, length:', csvContent.length);
     
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1277,7 +1258,6 @@ function CustomerListContent() {
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center space-x-3">
                                             <Avatar>
-                                                <AvatarImage src={`https://source.boringavatars.com/beam/120/${customer.clientFirstName}${customer.clientLastName}?colors=264653,2a9d8f,e9c46a,f4a261,e76f51`} />
                                                 <AvatarFallback>{getInitials(customer.clientFirstName, customer.clientLastName)}</AvatarFallback>
                                             </Avatar>
                                             <div>

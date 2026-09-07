@@ -42,6 +42,7 @@ import {
     SheetTitle,
 } from '@/components/ui/sheet';
 import AddTeam from '@/components/AddTeam';
+import { API } from '@/lib/api';
 
 interface Team {
     id: number;
@@ -179,17 +180,7 @@ const Teams: React.FC = () => {
         if (!token) return;
 
         try {
-            const response = await fetch("https://api.gajkesaristeels.in/employee/getCities", {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch cities');
-            }
-
-            const data = await response.json();
+            const data = await API.getCities();
             setAvailableCities((prev) => mergeCityOptions(prev, buildCityOptions(data)));
         } catch (error) {
             console.error('Error fetching cities:', error);
@@ -201,20 +192,17 @@ const Teams: React.FC = () => {
 
         setIsLoadingManagers(true);
         try {
-            const [employeesResponse, teamsResponse] = await Promise.all([
-                fetch('https://api.gajkesaristeels.in/employee/getAll', {
-                    headers: { Authorization: `Bearer ${token}` },
-                }),
+            const [employeesData, teamsResponse] = await Promise.all([
+                API.getEmployeeDirectory({ status: 'active', officeManager: true }),
                 fetch('https://api.gajkesaristeels.in/employee/team/getAll', {
                     headers: { Authorization: `Bearer ${token}` },
                 }),
             ]);
 
-            if (!employeesResponse.ok || !teamsResponse.ok) {
+            if (!teamsResponse.ok) {
                 throw new Error('Failed to fetch team assignments');
             }
 
-            const employeesData = (await employeesResponse.json()) as TeamManager[];
             const teamsData = (await teamsResponse.json()) as Team[];
             const currentTeam = teamsData.find((team) => team.id === editingTeamId);
             const currentManagerIds = new Set(getTeamManagers(currentTeam ?? { id: 0 }).map((manager) => manager.id));
@@ -224,9 +212,9 @@ const Teams: React.FC = () => {
                     .flatMap((team) => getTeamManagers(team).map((manager) => manager.id))
             );
 
-            const managers = employeesData
+            const managers = (employeesData as unknown as TeamManager[])
                 .filter((employee) => {
-                    if (employee.isOfficeManager !== true || employee.deleted) return false;
+                    if (employee.deleted) return false;
                     return currentManagerIds.has(employee.id) || !assignedElsewhereIds.has(employee.id);
                 })
                 .sort(sortByNameAsc);
@@ -248,22 +236,9 @@ const Teams: React.FC = () => {
                 return;
             }
 
-            const responses = await Promise.all(
-                cities.map((city) =>
-                    fetch(
-                        `https://api.gajkesaristeels.in/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
-                        { headers: { Authorization: `Bearer ${token}` } },
-                    ),
-                ),
+            const officersByCity = await Promise.all(
+                cities.map((city) => API.getFieldOfficers(city) as unknown as Promise<FieldOfficer[]>),
             );
-            const failedResponse = responses.find((response) => !response.ok);
-            if (failedResponse) {
-                throw new Error(`Failed to fetch field officers (${failedResponse.status})`);
-            }
-
-            const officersByCity = (await Promise.all(
-                responses.map((response) => response.json()),
-            )) as FieldOfficer[][];
             const officersById = new Map<number, FieldOfficer>();
             officersByCity.flat().forEach((officer) => officersById.set(officer.id, officer));
 

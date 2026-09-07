@@ -26,6 +26,29 @@ export interface EmployeeDto {
   houseLatitude?: number;
   houseLongitude?: number;
   status?: string;
+  teamId?: number;
+  officeManager?: boolean;
+}
+
+export interface CompactPage<T> {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  first: boolean;
+  last: boolean;
+}
+
+export interface EmployeeDirectoryParams {
+  status?: 'active' | 'inactive' | 'all';
+  role?: string;
+  city?: string;
+  officeManager?: boolean;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 // Alias for backward compatibility
@@ -33,10 +56,19 @@ export type Employee = EmployeeDto;
 
 export interface VisitAttachmentResponse {
   fileName: string;
-  fileDownloadUri: string;
+  fileDownloadUri?: string;
   fileType: string;
   tag?: string;
   size?: number;
+}
+
+export interface AttachmentMetadata {
+  id?: number;
+  fileName: string;
+  fileType: string;
+  tag?: string;
+  size?: number;
+  fileDownloadUri?: string;
 }
 
 export interface VisitDto {
@@ -91,6 +123,9 @@ export interface VisitDto {
   updatedTime?: string;
   intentAuditLogDto?: Record<string, unknown>;
   monthlySale?: number;
+  visitDate?: string;
+  teamId?: number;
+  attachmentCount?: number;
 }
 
 export interface VisitCheckoutPayload {
@@ -102,7 +137,8 @@ export interface VisitCheckoutPayload {
 
 export interface VisitResponse {
   content: VisitDto[];
-  pageable: {
+  page?: number;
+  pageable?: {
     pageNumber: number;
     pageSize: number;
     sort: {
@@ -118,15 +154,15 @@ export interface VisitResponse {
   totalElements: number;
   last: boolean;
   size: number;
-  number: number;
-  sort: {
+  number?: number;
+  sort?: {
     empty: boolean;
     sorted: boolean;
     unsorted: boolean;
   };
-  numberOfElements: number;
+  numberOfElements?: number;
   first: boolean;
-  empty: boolean;
+  empty?: boolean;
 }
 
 export interface BrandProCon {
@@ -180,6 +216,16 @@ export interface Task {
   createdAt?: string;
   updatedAt?: string;
   imageCount?: number;
+  taskTitle?: string;
+  taskDesciption?: string;
+  taskType?: string;
+  assignedToName?: string;
+  assignedById?: number;
+  assignedByName?: string;
+  storeId?: number;
+  visitDate?: string;
+  createdTime?: string;
+  updatedTime?: string;
 }
 
 // Alias for backward compatibility
@@ -205,6 +251,7 @@ export interface Note {
   updatedDate: string;
   createdTime: string | null;
   updatedTime: string | null;
+  attachmentCount?: number;
 }
 
 // Alias for backward compatibility
@@ -309,8 +356,9 @@ export interface ExpenseDto {
   employeeName: string;
   expenseDate: string;
   paymentMethod: string | null;
-  attachment: Array<{ fileName: string; fileData: string }>;
-  attachmentResponse: Array<{ fileName: string; fileDownloadUri: string; fileType: string; tag?: string; size?: number }>;
+  attachment?: Array<{ fileName: string; fileData: string }>;
+  attachmentResponse?: Array<{ fileName: string; fileDownloadUri: string; fileType: string; tag?: string; size?: number }>;
+  attachmentCount?: number;
 }
 
 export interface StoreDto {
@@ -359,7 +407,8 @@ export interface StoreDto {
 
 export interface StoreResponse {
   content: StoreDto[];
-  pageable: {
+  page?: number;
+  pageable?: {
     pageNumber: number;
     pageSize: number;
     sort: {
@@ -375,15 +424,80 @@ export interface StoreResponse {
   totalElements: number;
   last: boolean;
   size: number;
-  number: number;
-  sort: {
+  number?: number;
+  sort?: {
     empty: boolean;
     sorted: boolean;
     unsorted: boolean;
   };
-  numberOfElements: number;
+  numberOfElements?: number;
   first: boolean;
-  empty: boolean;
+  empty?: boolean;
+}
+
+export interface StoreSearchParams {
+  employeeId?: number;
+  teamId?: number;
+  storeName?: string;
+  primaryContact?: string;
+  ownerName?: string;
+  city?: string;
+  state?: string;
+  monthlySale?: number;
+  clientType?: string;
+  employeeName?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface StoreNameDto {
+  id: number;
+  storeName: string;
+}
+
+export interface TaskSearchParams {
+  assignedToId?: number;
+  assignedById?: number;
+  teamId?: number;
+  storeId?: number;
+  visitId?: number;
+  start?: string;
+  end?: string;
+  taskType?: string;
+  status?: string;
+  priority?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface NoteSearchParams {
+  employeeId?: number;
+  storeId?: number;
+  visitId?: number;
+  start?: string;
+  end?: string;
+  query?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface ExpenseSearchParams {
+  employeeId?: number;
+  start?: string;
+  end?: string;
+  approvalStatus?: string;
+  type?: string;
+  subType?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface EmployeeUserDto {
@@ -424,8 +538,18 @@ export interface EmployeeStatsWithVisits {
     fullDays: number;
     halfDays: number;
     absences: number;
+    presentDays?: number;
+    completedVisitCount?: number;
+    totalVisitCount?: number;
+    expenseTotal?: number;
+    approvedExpense?: number;
   };
   visitDto: VisitDto[];
+  visitsByPurpose?: Record<string, number>;
+  page?: number;
+  size?: number;
+  totalElements?: number;
+  totalPages?: number;
 }
 
 export interface VisitPurposeCount {
@@ -553,6 +677,112 @@ export interface EmployeeJourneyPoint {
   country?: string | null;
 }
 
+export interface VisitDetailResponse {
+  visit: VisitDto;
+  store: StoreDto | null;
+  attachments: VisitAttachmentResponse[];
+  brandProCons: BrandProCon[];
+  intentAuditLogs: IntentAuditLog[];
+  monthlySaleLogs: MonthlySaleChange[];
+  tasks: Task[];
+  notes: Note[];
+  sitesCount: number;
+  latestIntentLevel?: number | null;
+}
+
+export interface StoreMonthlyTrend {
+  month: string;
+  avgMonthlySale: number;
+  avgIntent: number;
+  totalVisitCount: number;
+}
+
+export interface NewCustomerTrendRow {
+  month: string;
+  employeeId: number;
+  employeeName: string;
+  newStoreCount: number;
+}
+
+export interface NewCustomerTrendPerformer {
+  employeeId: number;
+  employeeName: string;
+  newStoreCount: number;
+  totalNewCustomers?: number;
+}
+
+export interface NewCustomerTrendsResponse {
+  startDate: string;
+  endDate: string;
+  monthlyTotals: NewCustomerTrendRow[];
+  topPerformers: NewCustomerTrendPerformer[];
+  bottomPerformers: NewCustomerTrendPerformer[];
+}
+
+export type SalaryJobStatus =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'COMPLETED_WITH_ERRORS'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export interface SalaryCalculationJob {
+  id: string;
+  type: 'DAILY_ALL_EMPLOYEES' | 'MONTHLY_ALL_EMPLOYEES' | 'REFRESH_DATE_RANGE';
+  status: SalaryJobStatus;
+  year?: number | null;
+  month?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  includeSundays: boolean;
+  totalItems: number;
+  processedItems: number;
+  successItems: number;
+  errorItems: number;
+  cancellationRequested: boolean;
+  attempt: number;
+  createdBy?: string | null;
+  message?: string | null;
+  createdAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
+type ApiErrorBody = { error?: string; activeJob?: SalaryCalculationJob } | string | null;
+
+export class APIRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly details: ApiErrorBody,
+  ) {
+    super(message);
+    this.name = 'APIRequestError';
+  }
+}
+
+const appendQueryValue = (query: URLSearchParams, key: string, value: unknown) => {
+  if (value === undefined || value === null || value === '' || value === 'all') return;
+  query.set(key, String(value));
+};
+
+const buildQuery = (params: Record<string, unknown>): string => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => appendQueryValue(query, key, value));
+  return query.toString();
+};
+
+const normalizePage = <T>(page: CompactPage<T>): CompactPage<T> => ({
+  content: Array.isArray(page.content) ? page.content : [],
+  page: Number(page.page ?? 0),
+  size: Number(page.size ?? 0),
+  totalElements: Number(page.totalElements ?? 0),
+  totalPages: Number(page.totalPages ?? 0),
+  first: Boolean(page.first),
+  last: Boolean(page.last),
+});
+
 // API Service Class
 export class API {
   private baseUrl: string;
@@ -643,6 +873,30 @@ export class API {
     return apiService.getAllNotes();
   }
 
+  static async searchTasks(params: TaskSearchParams): Promise<CompactPage<Task>> {
+    return apiService.searchTasks(params);
+  }
+
+  static async getTasks(params: TaskSearchParams): Promise<Task[]> {
+    return apiService.getTasks(params);
+  }
+
+  static async searchNotes(params: NoteSearchParams): Promise<CompactPage<Note>> {
+    return apiService.searchNotes(params);
+  }
+
+  static async searchExpenses(params: ExpenseSearchParams): Promise<CompactPage<ExpenseDto>> {
+    return apiService.searchExpenses(params);
+  }
+
+  static async getExpenseAttachments(expenseId: number): Promise<AttachmentMetadata[]> {
+    return apiService.getExpenseAttachments(expenseId);
+  }
+
+  static async getStoreNames(employeeId?: number, searchTerm?: string): Promise<StoreNameDto[]> {
+    return apiService.getStoreNames(employeeId, searchTerm);
+  }
+
   static async getStoresFiltered(params: {
     storeName?: string;
     ownerName?: string;
@@ -674,6 +928,10 @@ export class API {
     return apiService.getStoresFilteredPaginated(params);
   }
 
+  static async searchStores(params: StoreSearchParams): Promise<StoreResponse> {
+    return apiService.searchStores(params);
+  }
+
   static async getStoresByEmployee(employeeId: number, params: {
     sortBy?: string;
     sortOrder?: string;
@@ -692,6 +950,14 @@ export class API {
   // Employee-related static methods
   static async getAllEmployees(): Promise<EmployeeUserDto[]> {
     return apiService.getAllEmployees();
+  }
+
+  static async getEmployeeDirectory(params: EmployeeDirectoryParams = {}): Promise<EmployeeUserDto[]> {
+    return apiService.getEmployeeDirectory(params);
+  }
+
+  static async getFieldOfficers(city?: string): Promise<EmployeeUserDto[]> {
+    return apiService.getEmployeeDirectory({ status: 'active', role: 'Field Officer', city });
   }
 
   static async getEmployeeById(id: number): Promise<EmployeeUserDto> {
@@ -760,6 +1026,38 @@ export class API {
 
   static async getEmployeeStatsOptimized(employeeId: number, startDate: string, endDate: string, page: number = 0, size: number = 20, sort: string = 'id,desc'): Promise<EmployeeStatsOptimizedResponse> {
     return apiService.getEmployeeStatsOptimized(employeeId, startDate, endDate, page, size, sort);
+  }
+
+  static async getVisitDetail(id: number): Promise<VisitDetailResponse> {
+    return apiService.getVisitDetail(id);
+  }
+
+  static async getNewCustomerTrends(startDate: string, endDate: string, employeeIds?: number[], limit = 5): Promise<NewCustomerTrendsResponse> {
+    return apiService.getNewCustomerTrends(startDate, endDate, employeeIds, limit);
+  }
+
+  static async getStoreMonthlyTrends(storeId: number, startDate: string, endDate: string): Promise<StoreMonthlyTrend[]> {
+    return apiService.getStoreMonthlyTrends(storeId, startDate, endDate);
+  }
+
+  static async createSalaryRefreshJob(startDate: string, endDate: string): Promise<SalaryCalculationJob> {
+    return apiService.createSalaryRefreshJob(startDate, endDate);
+  }
+
+  static async getActiveSalaryJob(): Promise<SalaryCalculationJob | null> {
+    return apiService.getActiveSalaryJob();
+  }
+
+  static async getSalaryJob(id: string): Promise<SalaryCalculationJob> {
+    return apiService.getSalaryJob(id);
+  }
+
+  static async cancelSalaryJob(id: string): Promise<SalaryCalculationJob> {
+    return apiService.cancelSalaryJob(id);
+  }
+
+  static async retrySalaryJob(id: string): Promise<SalaryCalculationJob> {
+    return apiService.retrySalaryJob(id);
   }
 
   static async getEmployeeDashboardSummary(employeeId: number, startDate: string, endDate: string): Promise<EmployeeDashboardSummary> {
@@ -837,7 +1135,6 @@ export class API {
     console.log('🌐 Making API request:', {
       url,
       method: config.method || 'GET',
-      headers: config.headers,
       hasToken: !!this.token
     });
 
@@ -848,18 +1145,25 @@ export class API {
       if (!response.ok) {
         // Try to extract error details from body (JSON or text)
         let bodySnippet = '';
+        let errorDetails: ApiErrorBody = null;
         try {
           if (contentType.includes('application/json')) {
-            const errJson = await response.json();
+            const errJson = await response.json() as ApiErrorBody;
+            errorDetails = errJson;
             bodySnippet = typeof errJson === 'string' ? errJson : JSON.stringify(errJson);
           } else {
             bodySnippet = await response.text();
+            errorDetails = bodySnippet;
           }
         } catch {
           // ignore body parsing errors
         }
         const preview = bodySnippet ? ` Body: ${bodySnippet.slice(0, 200)}` : '';
-        throw new Error(`API request failed: ${response.status} ${response.statusText}.${preview}`);
+        throw new APIRequestError(
+          `API request failed: ${response.status} ${response.statusText}.${preview}`,
+          response.status,
+          errorDetails,
+        );
       }
 
       // No content
@@ -910,7 +1214,6 @@ export class API {
         url,
         method: config.method || 'GET',
         hasToken: !!this.token,
-        tokenPreview: this.token ? `${this.token.substring(0, 20)}...` : 'No token'
       });
       
       // If it's a network error, provide more helpful error message
@@ -949,6 +1252,32 @@ Please check your internet connection and try again.`);
     }
   }
 
+  private async getCompactPage<T>(endpoint: string): Promise<CompactPage<T>> {
+    return normalizePage(await this.makeRequest<CompactPage<T>>(endpoint));
+  }
+
+  private async collectCompactPages<T>(
+    endpoint: string,
+    params: Record<string, unknown>,
+    maxPageSize: number,
+  ): Promise<T[]> {
+    const size = Math.min(Number(params.size) || maxPageSize, maxPageSize);
+    const first = await this.getCompactPage<T>(
+      `${endpoint}?${buildQuery({ ...params, page: 0, size })}`,
+    );
+    const rows = [...first.content];
+
+    for (let page = 1; page < first.totalPages; page += 1) {
+      const response = await this.getCompactPage<T>(
+        `${endpoint}?${buildQuery({ ...params, page, size })}`,
+      );
+      rows.push(...response.content);
+      if (response.last) break;
+    }
+
+    return rows;
+  }
+
   private async makeTextRequest(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<string> {
     const isAbsoluteEndpoint = /^https?:\/\//i.test(endpoint);
     const url = isAbsoluteEndpoint ? endpoint : `${this.baseUrl}${endpoint}`;
@@ -964,7 +1293,6 @@ Please check your internet connection and try again.`);
     console.log('🌐 Making text API request:', {
       url,
       method: config.method || 'GET',
-      headers: config.headers,
       hasToken: !!this.token,
     });
 
@@ -984,7 +1312,6 @@ Please check your internet connection and try again.`);
         url,
         method: config.method || 'GET',
         hasToken: !!this.token,
-        tokenPreview: this.token ? `${this.token.substring(0, 20)}...` : 'No token',
       });
 
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
@@ -1019,23 +1346,33 @@ Please check your internet connection and try again.`);
 
   // Visit APIs
   async getAllVisits(): Promise<VisitDto[]> {
-    return this.makeRequest<VisitDto[]>('/visit/getAll');
+    return this.collectCompactPages<VisitDto>('/v2/visits', { sortBy: 'id', sortOrder: 'desc' }, 100);
   }
 
   async getVisitsByEmployee(employeeId: number): Promise<VisitDto[]> {
-    return this.makeRequest<VisitDto[]>(`/visit/getByEmployee?employeeId=${employeeId}`);
+    return this.collectCompactPages<VisitDto>('/v2/visits', { employeeId, sortBy: 'id', sortOrder: 'desc' }, 100);
   }
 
   async getVisitsByDateRange(startDate: string, endDate: string): Promise<VisitDto[]> {
-    return this.makeRequest<VisitDto[]>(`/visit/getByDateRange?start=${startDate}&end=${endDate}`);
+    return this.collectCompactPages<VisitDto>(
+      '/v2/visits',
+      { startDate, endDate, dateType: 'scheduled', sortBy: 'id', sortOrder: 'desc' },
+      100,
+    );
   }
 
   async getVisitsByEmployeeAndDateRange(employeeId: number, startDate: string, endDate: string): Promise<VisitDto[]> {
-    return this.makeRequest<VisitDto[]>(`/visit/getByEmployeeAndDateRange?employeeId=${employeeId}&start=${startDate}&end=${endDate}`);
+    return this.collectCompactPages<VisitDto>(
+      '/v2/visits',
+      { employeeId, startDate, endDate, dateType: 'scheduled', sortBy: 'id', sortOrder: 'desc' },
+      100,
+    );
   }
 
   async getEmployeeStatsByDateRange(employeeId: number, startDate: string, endDate: string): Promise<EmployeeStatsWithVisits> {
-    return this.makeRequest<EmployeeStatsWithVisits>(`/visit/getByDateRangeAndEmployeeStats?id=${employeeId}&start=${startDate}&end=${endDate}`);
+    return this.makeRequest<EmployeeStatsWithVisits>(
+      `/v2/visits/employee-stats?${buildQuery({ employeeId, startDate, endDate, page: 0, size: 100 })}`,
+    );
   }
 
   async getEmployeeStatsWithVisits(employeeId: number, startDate: string, endDate: string): Promise<EmployeeStatsWithVisits> {
@@ -1043,22 +1380,29 @@ Please check your internet connection and try again.`);
   }
 
   async getEmployeeStatsOptimized(employeeId: number, startDate: string, endDate: string, page: number = 0, size: number = 20, sort: string = 'id,desc'): Promise<EmployeeStatsOptimizedResponse> {
-    void sort;
-    const result = await this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
-      const completedVisits = (result.visitDto || []).filter((visit) => visit.checkinTime && visit.checkoutTime);
-      const purposeCounts = new Map<string, number>();
-      completedVisits.forEach((visit) => {
-        const purpose = (visit.purpose || 'Other').trim() || 'Other';
-        purposeCounts.set(purpose, (purposeCounts.get(purpose) || 0) + 1);
-      });
-      const startIndex = Math.max(page, 0) * size;
-      const content = completedVisits.slice(startIndex, startIndex + size);
-      const totalPages = Math.max(Math.ceil(completedVisits.length / size), 1);
+    const result = await this.makeRequest<EmployeeStatsWithVisits>(
+      `/v2/visits/employee-stats?${buildQuery({ employeeId, startDate, endDate, page, size })}`,
+    );
+    const content = result.visitDto || [];
+    const completedVisits = content.filter((visit) => visit.checkinTime && visit.checkoutTime);
+    const purposeEntries = Object.entries(result.visitsByPurpose || {});
+    const purposeCounts = purposeEntries.length > 0
+      ? purposeEntries.map(([purpose, count]) => ({ purpose, count }))
+      : Array.from(
+          completedVisits.reduce((counts, visit) => {
+            const purpose = (visit.purpose || 'Unknown').trim() || 'Unknown';
+            counts.set(purpose, (counts.get(purpose) || 0) + 1);
+            return counts;
+          }, new Map<string, number>()),
+          ([purpose, count]) => ({ purpose, count }),
+        );
+    const totalElements = Number(result.totalElements ?? content.length);
+    const totalPages = Number(result.totalPages ?? Math.ceil(totalElements / Math.max(size, 1)));
     return {
         statsDto: result.statsDto,
         summary: {
-          completedVisits: completedVisits.length,
-          visitsByPurpose: Array.from(purposeCounts, ([purpose, count]) => ({ purpose, count })),
+          completedVisits: Number(result.statsDto.completedVisitCount ?? completedVisits.length),
+          visitsByPurpose: purposeCounts,
         },
         visitPage: {
           content,
@@ -1066,13 +1410,13 @@ Please check your internet connection and try again.`);
             pageNumber: page,
             pageSize: size,
             sort: { empty: false, sorted: true, unsorted: false },
-            offset: startIndex,
+            offset: Math.max(page, 0) * size,
             paged: true,
             unpaged: false,
           },
           totalPages,
-          totalElements: completedVisits.length,
-          last: page >= totalPages - 1,
+          totalElements,
+          last: totalPages === 0 || page >= totalPages - 1,
           size,
           number: page,
           sort: { empty: false, sorted: true, unsorted: false },
@@ -1084,65 +1428,103 @@ Please check your internet connection and try again.`);
   }
 
   async getVisitsByDateSorted(startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', storeName?: string, employeeName?: string): Promise<VisitResponse> {
-    let url = `/visit/getByDateSorted?startDate=${startDate}&endDate=${endDate}&page=${page}&size=${size}&sort=${sort}`;
-    if (storeName && storeName.trim() !== '') {
-      url += `&storeName=${encodeURIComponent(storeName.trim())}`;
-    }
-    if (employeeName && employeeName.trim() !== '') {
-      url += `&employeeName=${encodeURIComponent(employeeName.trim())}`;
-    }
-    console.log('API URL:', `${this.baseUrl}${url}`);
-    return this.makeRequest<VisitResponse>(url);
+    const [sortBy = 'visitDate', sortOrder = 'desc'] = sort.split(',');
+    return this.getCompactPage<VisitDto>(`/v2/visits?${buildQuery({
+      startDate,
+      endDate,
+      dateType: 'scheduled',
+      page,
+      size: Math.min(size, 100),
+      sortBy,
+      sortOrder,
+      storeName: storeName?.trim(),
+      employeeName: employeeName?.trim(),
+    })}`);
   }
 
   async getVisitsByDateSortedOld(startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'id,desc', employeeName?: string): Promise<VisitResponse> {
-    let url = `/visit/getByDateSortedOld?startDate=${startDate}&endDate=${endDate}&page=${page}&size=${size}&sort=${sort}`;
-    if (employeeName && employeeName.trim() !== '') {
-      url += `&employeeName=${encodeURIComponent(employeeName.trim())}`;
-    }
-    console.log('Old Visit API URL:', `${this.baseUrl}${url}`);
-    return this.makeRequest<VisitResponse>(url);
+    return this.getVisitsByDateSorted(startDate, endDate, page, size, sort, undefined, employeeName);
   }
 
   async getVisitsForTeam(teamId: number, startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', purpose?: string, priority?: string, storeName?: string, employeeName?: string): Promise<VisitResponse> {
-    let url = `/visit/getForTeam?teamId=${teamId}&startDate=${startDate}&endDate=${endDate}&page=${page}&size=${size}&sort=${sort}`;
-    
-    if (purpose && purpose.trim() !== '') {
-      url += `&purpose=${encodeURIComponent(purpose.trim())}`;
-    }
-    
-    if (priority && priority.trim() !== '') {
-      url += `&priority=${encodeURIComponent(priority.trim())}`;
-    }
-    
-    if (storeName && storeName.trim() !== '') {
-      url += `&storeName=${encodeURIComponent(storeName.trim())}`;
-    }
-    
-    if (employeeName && employeeName.trim() !== '') {
-      url += `&employeeName=${encodeURIComponent(employeeName.trim())}`;
-    }
-    
-    console.log('Team API URL:', `${this.baseUrl}${url}`);
-    return this.makeRequest<VisitResponse>(url);
+    const [sortBy = 'visitDate', sortOrder = 'desc'] = sort.split(',');
+    return this.getCompactPage<VisitDto>(`/v2/visits?${buildQuery({
+      teamId,
+      startDate,
+      endDate,
+      dateType: 'scheduled',
+      page,
+      size: Math.min(size, 100),
+      sortBy,
+      sortOrder,
+      purpose: purpose?.trim(),
+      priority: priority?.trim(),
+      storeName: storeName?.trim(),
+      employeeName: employeeName?.trim(),
+    })}`);
   }
 
   async getVisitsForTeams(teamIds: number[], startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', purpose?: string, priority?: string, outcome?: string, storeName?: string, employeeName?: string): Promise<VisitResponse> {
-    const query = new URLSearchParams({
-      startDate, endDate, page: String(page), size: String(size), sort,
+    if (teamIds.length === 0) {
+      return normalizePage({ content: [], page, size, totalElements: 0, totalPages: 0, first: page === 0, last: true });
+    }
+    if (teamIds.length === 1) {
+      return this.getVisitsForTeam(teamIds[0], startDate, endDate, page, size, sort, purpose, priority, storeName, employeeName);
+    }
+
+    const [sortBy = 'visitDate', sortOrder = 'desc'] = sort.split(',');
+    const requestedWindow = (page + 1) * size;
+    const responses = await Promise.all(teamIds.map(async (teamId) => {
+      const requestPage = (teamPage: number) => this.getCompactPage<VisitDto>(`/v2/visits?${buildQuery({
+          teamId,
+          startDate,
+          endDate,
+          dateType: 'scheduled',
+          page: teamPage,
+          size: 100,
+          sortBy,
+          sortOrder,
+          purpose: purpose?.trim(),
+          priority: priority?.trim(),
+          outcome: outcome?.trim(),
+          storeName: storeName?.trim(),
+          employeeName: employeeName?.trim(),
+        })}`);
+      const first = await requestPage(0);
+      const pagesNeeded = Math.min(first.totalPages, Math.ceil(requestedWindow / 100));
+      const content = [...first.content];
+      for (let teamPage = 1; teamPage < pagesNeeded; teamPage += 1) {
+        content.push(...(await requestPage(teamPage)).content);
+      }
+      return { ...first, content };
+    }));
+    const unique = Array.from(new Map(responses.flatMap((response) => response.content).map((visit) => [visit.id, visit])).values());
+    const direction = sortOrder.toLowerCase() === 'asc' ? 1 : -1;
+    unique.sort((left, right) => {
+      const leftValue = String(left[sortBy as keyof VisitDto] ?? left.id);
+      const rightValue = String(right[sortBy as keyof VisitDto] ?? right.id);
+      return leftValue.localeCompare(rightValue, undefined, { numeric: true }) * direction;
     });
-    teamIds.forEach((teamId) => query.append('teamIds', String(teamId)));
-    if (purpose?.trim()) query.set('purpose', purpose.trim());
-    if (priority?.trim()) query.set('priority', priority.trim());
-    if (outcome?.trim()) query.set('outcome', outcome.trim());
-    if (storeName?.trim()) query.set('storeName', storeName.trim());
-    if (employeeName?.trim()) query.set('employeeName', employeeName.trim());
-    return this.makeRequest<VisitResponse>(`/visit/getForTeams?${query}`);
+    const totalElements = responses.reduce((total, response) => total + response.totalElements, 0);
+    const totalPages = Math.ceil(totalElements / Math.max(size, 1));
+    return normalizePage({
+      content: unique.slice(page * size, (page + 1) * size),
+      page,
+      size,
+      totalElements,
+      totalPages,
+      first: page === 0,
+      last: totalPages === 0 || page >= totalPages - 1,
+    });
   }
 
   // Visit detail APIs
   async getVisitById(id: number): Promise<VisitDto> {
     return this.makeRequest<VisitDto>(`/visit/getById?id=${id}`);
+  }
+
+  async getVisitDetail(id: number): Promise<VisitDetailResponse> {
+    return this.makeRequest<VisitDetailResponse>(`/v2/visits/${id}/detail`);
   }
 
   async checkoutVisit(id: number, payload: VisitCheckoutPayload): Promise<string> {
@@ -1185,20 +1567,31 @@ Please check your internet connection and try again.`);
   }
 
   async getTasksByVisit(type: string, visitId: number): Promise<Task[]> {
-    return this.makeRequest<Task[]>(`/task/getByVisit?type=${type}&visitId=${visitId}`);
+    return this.collectCompactPages<Task>('/v2/tasks', {
+      visitId,
+      taskType: type,
+      sortBy: 'updatedAt',
+      sortOrder: 'desc',
+    }, 100);
   }
 
   async getVisitsByStore(id: number): Promise<VisitDto[]> {
-    return this.makeRequest<VisitDto[]>(`/visit/getByStore?id=${id}`);
+    return (await this.getCompactPage<VisitDto>(`/v2/visits?${buildQuery({
+      storeId: id,
+      page: 0,
+      size: 100,
+      sortBy: 'visitDate',
+      sortOrder: 'desc',
+    })}`)).content;
   }
 
   // Notes by store
   async getNotesByStore(storeId: number): Promise<Note[]> {
-    return this.makeRequest<Note[]>(`/notes/getByStore?id=${storeId}`);
+    return this.collectCompactPages<Note>('/v2/notes', { storeId, sortBy: 'updatedDate', sortOrder: 'desc' }, 100);
   }
 
   async getNotesByVisit(id: number): Promise<Note[]> {
-    return this.makeRequest<Note[]>(`/notes/getByVisit?id=${id}`);
+    return this.collectCompactPages<Note>('/v2/notes', { visitId: id, sortBy: 'updatedDate', sortOrder: 'desc' }, 100);
   }
 
   async createNote(noteData: {
@@ -1214,7 +1607,35 @@ Please check your internet connection and try again.`);
   }
 
   async getAllNotes(): Promise<Note[]> {
-    return this.makeRequest<Note[]>('/notes/getAll');
+    return this.collectCompactPages<Note>('/v2/notes', { sortBy: 'updatedDate', sortOrder: 'desc' }, 100);
+  }
+
+  async searchTasks(params: TaskSearchParams): Promise<CompactPage<Task>> {
+    return this.getCompactPage<Task>(`/v2/tasks?${buildQuery({
+      ...params,
+      page: params.page ?? 0,
+      size: Math.min(params.size ?? 20, 100),
+      sortBy: params.sortBy ?? 'updatedAt',
+      sortOrder: params.sortOrder ?? 'desc',
+    })}`);
+  }
+
+  async getTasks(params: TaskSearchParams): Promise<Task[]> {
+    return this.collectCompactPages<Task>('/v2/tasks', {
+      ...params,
+      sortBy: params.sortBy ?? 'updatedAt',
+      sortOrder: params.sortOrder ?? 'desc',
+    }, 100);
+  }
+
+  async searchNotes(params: NoteSearchParams): Promise<CompactPage<Note>> {
+    return this.getCompactPage<Note>(`/v2/notes?${buildQuery({
+      ...params,
+      page: params.page ?? 0,
+      size: Math.min(params.size ?? 20, 100),
+      sortBy: params.sortBy ?? 'updatedDate',
+      sortOrder: params.sortOrder ?? 'desc',
+    })}`);
   }
 
   async updateNote(id: number, noteData: {
@@ -1268,12 +1689,92 @@ Please check your internet connection and try again.`);
     return this.makeRequest<ReportCountsItem[]>(`/report/getCounts?startDate=${startDate}&endDate=${endDate}`);
   }
 
+  async getNewCustomerTrends(startDate: string, endDate: string, employeeIds?: number[], limit = 5): Promise<NewCustomerTrendsResponse> {
+    return this.makeRequest<NewCustomerTrendsResponse>(`/v2/reports/new-customers/trends?${buildQuery({
+      startDate,
+      endDate,
+      employeeIds: employeeIds?.length ? employeeIds.join(',') : undefined,
+      limit,
+    })}`);
+  }
+
+  async getStoreMonthlyTrends(storeId: number, startDate: string, endDate: string): Promise<StoreMonthlyTrend[]> {
+    return this.makeRequest<StoreMonthlyTrend[]>(`/v2/reports/store-monthly-trends?${buildQuery({
+      storeId,
+      startDate,
+      endDate,
+    })}`);
+  }
+
+  async createSalaryRefreshJob(startDate: string, endDate: string): Promise<SalaryCalculationJob> {
+    return this.makeRequest<SalaryCalculationJob>('/v2/salary-calculation/jobs', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'REFRESH_DATE_RANGE',
+        startDate,
+        endDate,
+        includeSundays: false,
+      }),
+    });
+  }
+
+  async getActiveSalaryJob(): Promise<SalaryCalculationJob | null> {
+    return (await this.makeRequest<SalaryCalculationJob | undefined>('/v2/salary-calculation/jobs/active')) ?? null;
+  }
+
+  async getSalaryJob(id: string): Promise<SalaryCalculationJob> {
+    return this.makeRequest<SalaryCalculationJob>(`/v2/salary-calculation/jobs/${encodeURIComponent(id)}`);
+  }
+
+  async cancelSalaryJob(id: string): Promise<SalaryCalculationJob> {
+    return this.makeRequest<SalaryCalculationJob>(`/v2/salary-calculation/jobs/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  async retrySalaryJob(id: string): Promise<SalaryCalculationJob> {
+    return this.makeRequest<SalaryCalculationJob>(`/v2/salary-calculation/jobs/${encodeURIComponent(id)}/retry`, {
+      method: 'POST',
+    });
+  }
+
   // Expense APIs
   async getExpensesByDateRange(startDate: string, endDate: string): Promise<ExpenseDto[]> {
-    return this.makeRequest<ExpenseDto[]>(`/expense/getByDateRange?start=${startDate}&end=${endDate}`);
+    return this.collectCompactPages<ExpenseDto>('/v2/expenses', {
+      start: startDate,
+      end: endDate,
+      sortBy: 'expenseDate',
+      sortOrder: 'desc',
+    }, 100);
+  }
+
+  async searchExpenses(params: ExpenseSearchParams): Promise<CompactPage<ExpenseDto>> {
+    return this.getCompactPage<ExpenseDto>(`/v2/expenses?${buildQuery({
+      ...params,
+      page: params.page ?? 0,
+      size: Math.min(params.size ?? 20, 100),
+      sortBy: params.sortBy ?? 'expenseDate',
+      sortOrder: params.sortOrder ?? 'desc',
+    })}`);
+  }
+
+  async getExpenseAttachments(expenseId: number): Promise<AttachmentMetadata[]> {
+    return this.makeRequest<AttachmentMetadata[]>(`/v2/expenses/${expenseId}/attachments`);
   }
 
   // Store APIs
+  async searchStores(params: StoreSearchParams): Promise<StoreResponse> {
+    const primaryContact = params.primaryContact?.replace(/\D/g, '');
+    return this.getCompactPage<StoreDto>(`/v2/store/search?${buildQuery({
+      ...params,
+      primaryContact,
+      page: params.page ?? 0,
+      size: Math.min(params.size ?? 20, 100),
+      sortBy: params.sortBy ?? 'storeName',
+      sortOrder: params.sortOrder ?? 'asc',
+    })}`);
+  }
+
   async getStoresFiltered(params: {
     storeName?: string;
     ownerName?: string;
@@ -1288,7 +1789,7 @@ Please check your internet connection and try again.`);
     const queryParams = new URLSearchParams();
     
     if (params.storeName) queryParams.append('storeName', params.storeName);
-    if (params.ownerName) queryParams.append('clientName', params.ownerName);
+    if (params.ownerName) queryParams.append('ownerName', params.ownerName);
     if (params.city && params.city !== 'all') queryParams.append('city', params.city);
     if (params.state && params.state !== 'all') queryParams.append('state', params.state);
     if (params.clientType && params.clientType !== 'all') queryParams.append('clientType', params.clientType);
@@ -1301,7 +1802,7 @@ Please check your internet connection and try again.`);
     queryParams.append('sortBy', sortBy);
     queryParams.append('sortOrder', sortOrder);
 
-    const response = await this.makeRequest<StoreResponse>(`/store/filteredValues?${queryParams.toString()}`);
+    const response = await this.getCompactPage<StoreDto>(`/v2/store/search?${queryParams.toString()}`);
     return response.content;
   }
 
@@ -1319,32 +1820,15 @@ Please check your internet connection and try again.`);
     sortOrder?: string;
     sort?: string;
   }): Promise<StoreResponse> {
-    const queryParams = new URLSearchParams();
-    
-    if (params.storeName) queryParams.append('storeName', params.storeName);
-    if (params.ownerName) queryParams.append('clientName', params.ownerName);
-    if (params.city) queryParams.append('city', params.city);
-    if (params.state) queryParams.append('state', params.state);
-    if (params.clientType) queryParams.append('clientType', params.clientType);
-    if (params.employeeName) queryParams.append('employeeName', params.employeeName);
-    if (params.primaryContact) {
-      const cleanedPhone = params.primaryContact.replace(/\D/g, '');
-      if (cleanedPhone) queryParams.append('primaryContact', cleanedPhone);
-    }
-    if (params.page !== undefined) queryParams.append('page', params.page.toString());
-    if (params.size !== undefined) queryParams.append('size', params.size.toString());
-    
-    // Always sort alphabetically by store name by default
-    const sortBy = params.sortBy || 'storeName';
-    const sortOrder = params.sortOrder || 'asc';
-    queryParams.append('sort', `${sortBy},${sortOrder}`);
-
-    return this.makeRequest<StoreResponse>(`/store/filteredValues?${queryParams.toString()}`);
+    return this.searchStores({
+      ...params,
+      sortOrder: params.sortOrder === 'desc' ? 'desc' : 'asc',
+    });
   }
 
   // Get a single store by ID
   async getStoreById(id: number): Promise<StoreDto> {
-    return this.makeRequest<StoreDto>(`/store/getById?id=${id}`);
+    return this.makeRequest<StoreDto>(`/v2/store/${id}/detail`);
   }
 
   // Update store by ID
@@ -1360,14 +1844,15 @@ Please check your internet connection and try again.`);
     sortOrder?: string;
   }): Promise<StoreResponse> {
     const queryParams = new URLSearchParams();
-    queryParams.append('id', employeeId.toString());
+    queryParams.append('employeeId', employeeId.toString());
     
     // Always sort alphabetically by store name by default
     const sortBy = params.sortBy || 'storeName';
     const sortOrder = params.sortOrder || 'asc';
-    queryParams.append('sort', `${sortBy},${sortOrder}`);
+    queryParams.append('sortBy', sortBy);
+    queryParams.append('sortOrder', sortOrder);
 
-    return this.makeRequest<StoreResponse>(`/store/getByEmployeeWithSort?${queryParams.toString()}`);
+    return this.getCompactPage<StoreDto>(`/v2/store/search?${queryParams.toString()}`);
   }
 
   async deleteStore(storeId: number): Promise<void> {
@@ -1378,7 +1863,7 @@ Please check your internet connection and try again.`);
 
   async exportStores(): Promise<string> {
     const headers = await this.getHeaders();
-    const response = await fetch(`${this.baseUrl}/store/export`, {
+    const response = await fetch(`${this.baseUrl}/v2/store/export`, {
       headers,
     });
     
@@ -1430,7 +1915,13 @@ Please check your internet connection and try again.`);
   // Tasks by store and date range (complaints/requirements)
   async getTasksByStoreAndDate(params: { storeId: number; start: string; end: string }): Promise<TaskDto[]> {
     const { storeId, start, end } = params;
-    return this.makeRequest<TaskDto[]>(`/task/getByStoreAndDate?storeId=${storeId}&start=${start}&end=${end}`);
+    return this.collectCompactPages<TaskDto>('/v2/tasks', {
+      storeId,
+      start,
+      end,
+      sortBy: 'updatedAt',
+      sortOrder: 'desc',
+    }, 100);
   }
 
   // Sites by store
@@ -1452,7 +1943,16 @@ Please check your internet connection and try again.`);
 
   // Employee-related methods
   async getAllEmployees(): Promise<EmployeeUserDto[]> {
-    return this.makeRequest<EmployeeUserDto[]>('/employee/getAll');
+    return this.getEmployeeDirectory({ status: 'active' });
+  }
+
+  async getEmployeeDirectory(params: EmployeeDirectoryParams = {}): Promise<EmployeeUserDto[]> {
+    return this.collectCompactPages<EmployeeUserDto>('/v2/employees', {
+      ...params,
+      status: params.status ?? 'active',
+      sortBy: params.sortBy ?? 'firstName',
+      sortOrder: params.sortOrder ?? 'asc',
+    }, 500);
   }
 
   async getEmployeeById(id: number): Promise<EmployeeUserDto> {
@@ -1468,7 +1968,7 @@ Please check your internet connection and try again.`);
   }
 
   async getCities(): Promise<string[]> {
-    return this.makeRequest<string[]>('/employee/getCities');
+    return this.makeRequest<string[]>('/v2/employees/cities');
   }
 
   async assignEmployeeCity(employeeId: number, city: string): Promise<unknown> {
@@ -1486,7 +1986,7 @@ Please check your internet connection and try again.`);
   }
 
   async getAllInactiveEmployees(): Promise<EmployeeUserDto[]> {
-    return this.makeRequest<EmployeeUserDto[]>('/employee/getAllInactive');
+    return this.getEmployeeDirectory({ status: 'inactive' });
   }
 
   async createEmployee(employeeData: Record<string, unknown>): Promise<unknown> {
@@ -1576,13 +2076,12 @@ Please check your internet connection and try again.`);
   }
 
   async getEmployeeDashboardSummary(employeeId: number, startDate: string, endDate: string): Promise<EmployeeDashboardSummary> {
-    const result = await this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
-      const completedVisits = (result.visitDto || []).filter((visit) => visit.checkinTime && visit.checkoutTime);
-      const purposeCounts = new Map<string, number>();
-      completedVisits.forEach((visit) => {
-        const purpose = (visit.purpose || 'Other').trim() || 'Other';
-        purposeCounts.set(purpose, (purposeCounts.get(purpose) || 0) + 1);
-      });
+    const result = await this.makeRequest<EmployeeStatsWithVisits>(
+      `/v2/visits/employee-stats?${buildQuery({ employeeId, startDate, endDate, page: 0, size: 1 })}`,
+    );
+    const purposeCounts = Object.entries(result.visitsByPurpose || {}).map(([purpose, count]) => ({ purpose, count }));
+    const completedVisitCount = Number(result.statsDto.completedVisitCount ?? result.statsDto.visitCount ?? 0);
+    const totalVisitCount = Number(result.statsDto.totalVisitCount ?? result.totalElements ?? result.visitDto?.length ?? 0);
     return {
         employeeId,
         employeeName: result.visitDto?.[0]?.employeeName || '',
@@ -1590,12 +2089,12 @@ Please check your internet connection and try again.`);
         endDate,
         statsDto: {
           ...result.statsDto,
-          completedVisitCount: completedVisits.length,
-          totalVisitCount: result.visitDto?.length || 0,
+          completedVisitCount,
+          totalVisitCount,
         },
         visitSummary: {
-          completedVisits: completedVisits.length,
-          visitsByPurpose: Array.from(purposeCounts, ([purpose, count]) => ({ purpose, count })),
+          completedVisits: completedVisitCount,
+          visitsByPurpose: purposeCounts,
         },
         expenseSummary: {
           expenseCount: 0,
@@ -1615,12 +2114,31 @@ Please check your internet connection and try again.`);
   }
 
   async getStoresForTeam(teamId: number, page: number = 0, size: number = 10): Promise<StoreResponse> {
-    return this.makeRequest<StoreResponse>(`/store/getForTeam?teamId=${teamId}&page=${page}&size=${size}`);
+    return this.getCompactPage<StoreDto>(`/v2/store/search?${buildQuery({
+      teamId,
+      page,
+      size: Math.min(size, 100),
+      sortBy: 'storeName',
+      sortOrder: 'asc',
+    })}`);
   }
 
   async getStoresByDobDateRange(startDate: string, endDate: string): Promise<StoreDto[]> {
-    // Use the same base URL as other store calls (relative path)
-    return this.makeRequest<StoreDto[]>(`/store/getByDobDateRange?startDate=${startDate}&endDate=${endDate}`);
+    return this.collectCompactPages<StoreDto>('/v2/store/dob-search', {
+      startDate,
+      endDate,
+      sortBy: 'storeName',
+      sortOrder: 'asc',
+    }, 100);
+  }
+
+  async getStoreNames(employeeId?: number, searchTerm?: string): Promise<StoreNameDto[]> {
+    return this.collectCompactPages<StoreNameDto>('/v2/store/names', {
+      employeeId,
+      searchTerm: searchTerm?.trim(),
+      sortBy: 'storeName',
+      sortOrder: 'asc',
+    }, 100);
   }
 }
 

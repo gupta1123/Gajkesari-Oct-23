@@ -24,6 +24,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { requestDailyTaDaEdit } from "@/lib/daily-ta-da-edit";
+import { API } from "@/lib/api";
 
 // --- Interfaces ---
 interface DailyBreakdownData {
@@ -147,13 +148,9 @@ const DailyBreakdown: React.FC = () => {
     const fetchEmployees = useCallback(async () => {
         if (!token) return;
         try {
-            const response = await fetch('https://api.gajkesaristeels.in/employee/getAll', {
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            const data = await response.json();
+            const data = await API.getFieldOfficers();
             if (data) {
-                const officers = data.filter((e: Employee) => e.role === 'Field Officer')
-                    .sort((a: Employee, b: Employee) => a.firstName.localeCompare(b.firstName));
+                const officers = (data as Employee[]).sort((a, b) => a.firstName.localeCompare(b.firstName));
                 setEmployees(officers);
             }
         } catch (err) { console.error(err); }

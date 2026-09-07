@@ -223,31 +223,19 @@ const Requirements = () => {
         
         setIsLoading(true);
         try {
-            let url: string;
-            
-            if (isManager) {
-                const responses = await Promise.all(teamIds.map((id) =>
-                    fetch(`${API_BASE_URL}/task/getByTeam?id=${id}`, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    })
-                ));
-
-                const failedResponse = responses.find((response) => !response.ok);
-                if (failedResponse) {
-                    const errorText = await failedResponse.text();
-                    throw new Error(`API request failed: ${failedResponse.status} ${errorText}`);
-                }
-
-                const payloads = await Promise.all(responses.map((response) => response.json()));
-                const uniqueTasks = new Map<number, Record<string, unknown>>();
-                payloads.flatMap((payload) => Array.isArray(payload) ? payload : []).forEach((task) => {
-                    uniqueTasks.set(Number(task.id) || uniqueTasks.size, task);
-                });
-                const data = Array.from(uniqueTasks.values());
+            const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
+            const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
+            const payloads = isManager
+                ? await Promise.all(teamIds.map((id) => API.getTasks({ teamId: id, taskType: 'requirement' })))
+                : [await API.getTasks({
+                    start: formattedStartDate,
+                    end: formattedEndDate,
+                    taskType: 'requirement',
+                })];
+            const uniqueTasks = new Map<number, Record<string, unknown>>();
+            payloads.flat().forEach((task) => uniqueTasks.set(Number(task.id) || uniqueTasks.size, task as unknown as Record<string, unknown>));
+            const data = Array.from(uniqueTasks.values());
                 const tasksArray = data
-                    .filter((task: Record<string, unknown>) => task.taskType === 'requirement')
                     .map((task: Record<string, unknown>) => ({
                         id: Number(task.id) || 0,
                         taskTitle: String(task.taskTitle || ''),
@@ -268,48 +256,6 @@ const Requirements = () => {
 
                 setTasks(tasksArray);
                 setIsLoading(false);
-                return;
-            } else {
-                const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
-                const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
-                url = `${API_BASE_URL}/task/getByDate?start=${formattedStartDate}&end=${formattedEndDate}`;
-            }
-
-            const response = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API request failed: ${response.status} ${errorText}`);
-            }
-
-            const data = await response.json();
-
-            const tasksArray = (Array.isArray(data) ? data : [])
-                .filter((task: Record<string, unknown>) => task.taskType === 'requirement')
-                .map((task: Record<string, unknown>) => ({
-                    id: Number(task.id) || 0,
-                    taskTitle: String(task.taskTitle || ''),
-                    taskDesciption: String(task.taskDesciption || task.taskDescription || ''),
-                    dueDate: String(task.dueDate || ''),
-                    assignedToId: Number(task.assignedToId) || 0,
-                    assignedToName: String(task.assignedToName || 'Unknown'),
-                    assignedById: Number(task.assignedById) || 0,
-                    status: String(task.status || ''),
-                    priority: String(task.priority || ''),
-                    category: String(task.category || ''),
-                    storeId: Number(task.storeId) || 0,
-                    storeName: String(task.storeName || ''),
-                    storeCity: String(task.storeCity || ''),
-                    taskType: String(task.taskType || ''),
-                } as Task))
-                .sort((a: Task, b: Task) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
-
-            setTasks(tasksArray);
-            setIsLoading(false);
         } catch (error) {
             console.error('Error fetching tasks:', error);
             setIsLoading(false);
@@ -333,13 +279,7 @@ const Requirements = () => {
         
         setIsStoresLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/store/names`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setStores(Array.isArray(data) ? data : []);
+            setStores(await API.getStoreNames() as unknown as Store[]);
         } catch (error) {
             console.error('Error fetching stores:', error);
         } finally {

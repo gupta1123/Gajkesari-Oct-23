@@ -13,10 +13,11 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { API } from "@/lib/api";
 
 export interface ExpensePhotoAttachment {
   fileName: string;
-  fileDownloadUri: string;
+  fileDownloadUri?: string;
   fileType: string;
   tag?: string;
   size?: number;
@@ -54,9 +55,30 @@ export default function ExpenseDetailsDialog({
   open,
   onOpenChange,
 }: ExpenseDetailsDialogProps) {
+  const [loadedAttachments, setLoadedAttachments] = useState<ExpensePhotoAttachment[]>([]);
+  useEffect(() => {
+    let mounted = true;
+    if (!open || !expense) {
+      setLoadedAttachments([]);
+      return;
+    }
+    setLoadedAttachments([]);
+    void API.getExpenseAttachments(expense.id)
+      .then((attachments) => {
+        if (mounted) setLoadedAttachments(attachments);
+      })
+      .catch((attachmentError) => {
+        console.error('Unable to load expense attachment metadata:', attachmentError);
+        if (mounted) setLoadedAttachments([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [expense, open]);
+
   const photos = useMemo(
-    () => (expense?.attachments ?? []).filter(isImageAttachment),
-    [expense?.attachments],
+    () => (loadedAttachments.length > 0 ? loadedAttachments : expense?.attachments ?? []).filter(isImageAttachment),
+    [expense?.attachments, loadedAttachments],
   );
   const selectedPhoto = photos[0] ?? null;
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);

@@ -221,19 +221,7 @@ const ReportsPageContent: React.FC = () => {
             setEmployeesLoading(true);
             setEmployeesError(null);
             try {
-                const [allEmployeesResponse, inactiveEmployeesResponse] = await Promise.all([
-                    fetch(`${API_BASE_URL}/employee/getAll`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    }),
-                    fetch(`${API_BASE_URL}/employee/getAllInactive`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    }),
-                ]);
-                if (!allEmployeesResponse.ok) throw new Error(`Failed to fetch all employees: ${allEmployeesResponse.statusText}`);
-                if (!inactiveEmployeesResponse.ok) throw new Error(`Failed to fetch inactive employees: ${inactiveEmployeesResponse.statusText}`);
-                const allEmployees: Employee[] = await allEmployeesResponse.json();
-                const inactiveEmployees: Employee[] = await inactiveEmployeesResponse.json();
-                const inactiveEmployeeIds = new Set(inactiveEmployees.map(emp => emp.id));
+                const allEmployees = await API.getFieldOfficers() as unknown as Employee[];
                 const isManager = hasManagerPrivileges(userRole, currentUser);
                 let scopedFieldOfficerIds: Set<number> | null = null;
 
@@ -247,7 +235,6 @@ const ReportsPageContent: React.FC = () => {
                 }
 
                 const activeFieldOfficers = allEmployees
-                    .filter(emp => emp.role === 'Field Officer' && !inactiveEmployeeIds.has(emp.id))
                     .filter(emp => scopedFieldOfficerIds === null || scopedFieldOfficerIds.has(emp.id))
                     .sort((a, b) => {
                         const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
@@ -312,7 +299,7 @@ const ReportsPageContent: React.FC = () => {
         const apiCustomerType = displayCategoryToApiTypeMap[displayCategory] || displayCategory.toLowerCase();
 
         try {
-            const url = `${API_BASE_URL}/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${apiCustomerType}`;
+            const url = `${API_BASE_URL}/v2/visits/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${apiCustomerType}`;
             const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
             const data: VisitDetail[] = await response.json();
             setVisitDetails(data);
@@ -340,7 +327,7 @@ const ReportsPageContent: React.FC = () => {
         setDateRangeError(null);
         setReportLoading(true); setReportError(null); setShowReport(false);
         try {
-            const url = `${API_BASE_URL}/visit/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
+            const url = `${API_BASE_URL}/v2/visits/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
             const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
             const data: FieldOfficerStatsResponse = await response.json();
 

@@ -45,6 +45,25 @@ export interface VisitReportExportResponse {
   fileName?: string;
 }
 
+export interface ContractorEngineerVisitReportPage {
+  content: ContractorEngineerVisitReport[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  first: boolean;
+  last: boolean;
+}
+
+export interface ContractorEngineerVisitReportFilters {
+  start?: string;
+  end?: string;
+  category?: string;
+  area?: string;
+  page?: number;
+  size?: number;
+}
+
 export type ContractorEngineerVisitReportPayload = {
   visitDate?: string | null;
   officerName?: string | null;
@@ -136,14 +155,32 @@ async function sendJson<T>(path: string, method: "POST" | "PUT", payload: unknow
   }
 }
 
-async function requestReportList(path: string) {
-  const result = await requestJson<
-    | ContractorEngineerVisitReport[]
-    | { content?: ContractorEngineerVisitReport[]; data?: ContractorEngineerVisitReport[] }
-  >(path);
+async function requestReportPage(filters: ContractorEngineerVisitReportFilters = {}): Promise<ContractorEngineerVisitReportPage> {
+  const query = new URLSearchParams();
+  Object.entries({
+    start: filters.start,
+    end: filters.end,
+    category: filters.category && filters.category !== 'all' ? filters.category : undefined,
+    area: filters.area?.trim(),
+    page: filters.page ?? 0,
+    size: Math.min(filters.size ?? 20, 200),
+  }).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+  });
+  return requestJson<ContractorEngineerVisitReportPage>(
+    `/v2/contractor-engineer-visit-reports?${query.toString()}`,
+  );
+}
 
-  if (Array.isArray(result)) return result;
-  return result.content || result.data || [];
+async function collectReportPages(filters: ContractorEngineerVisitReportFilters = {}) {
+  const first = await requestReportPage({ ...filters, page: 0, size: 200 });
+  const reports = [...(first.content || [])];
+  for (let page = 1; page < first.totalPages; page += 1) {
+    const next = await requestReportPage({ ...filters, page, size: 200 });
+    reports.push(...(next.content || []));
+    if (next.last) break;
+  }
+  return reports;
 }
 
 async function requestExport(path: string): Promise<VisitReportExportResponse> {
@@ -173,8 +210,9 @@ export const contractorEngineerVisitReportsApi = {
       payload,
     ),
 
-  getAll: () =>
-    requestReportList("/contractor-engineer-visit-report/getAll"),
+  getAll: () => collectReportPages(),
+
+  getPage: requestReportPage,
 
   getById: (id: number) =>
     requestJson<ContractorEngineerVisitReport>(
@@ -182,10 +220,7 @@ export const contractorEngineerVisitReportsApi = {
     ),
 
   getByDateRange: (start: string, end: string) => {
-    const query = new URLSearchParams({ start, end });
-    return requestReportList(
-      `/contractor-engineer-visit-report/getByDateRange?${query.toString()}`,
-    );
+    return collectReportPages({ start, end });
   },
 
   exportByDateRange: (start: string, end: string) => {

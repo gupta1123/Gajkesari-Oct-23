@@ -168,7 +168,7 @@ export default function EnquiriesPage() {
 
     try {
       const queryParams = new URLSearchParams();
-      const baseUrl = `${API_BASE_URL}/enquiry/filtered`;
+      const baseUrl = `${API_BASE_URL}/v2/enquiries`;
 
       if (storeNameFilter) queryParams.append('storeName', storeNameFilter);
       if (talukaFilter) queryParams.append('taluka', talukaFilter);

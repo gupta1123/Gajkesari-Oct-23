@@ -208,19 +208,7 @@ export default function AttendancePage() {
       }
 
       try {
-        const url = `${API_BASE_URL}/visit/getByDateSorted?startDate=${date}&endDate=${date}&employeeName=${employeeName}&page=0&size=100&sort=id,desc`;
-        
-        const response = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch visit data");
-        }
-
-        const data = await response.json();
+        const data = await API.getVisitsByDateSorted(date, date, 0, 100, 'id,desc', undefined, employeeName);
 
         setVisitData(data.content || []);
         setSelectedDate(date);

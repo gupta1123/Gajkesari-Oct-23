@@ -24,6 +24,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DollarSign, Truck, Loader2, ChevronLeft, ChevronRight, Search, RotateCcw, ChevronsUpDown, Check } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { API } from "@/lib/api";
 
 interface Employee {
     id: number;
@@ -107,17 +108,7 @@ const Allowance: React.FC = () => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch('https://api.gajkesaristeels.in/employee/getAll', {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch employees: ${response.statusText}`);
-            }
-
-            const data = await response.json();
+            const data = await API.getAllEmployees();
             const sortedData = data.sort((a: Employee, b: Employee) => a.firstName.localeCompare(b.firstName));
             setEmployees(sortedData);
         } catch (error) {

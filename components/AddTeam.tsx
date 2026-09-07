@@ -141,7 +141,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
 
     const fetchOfficeManagers = useCallback(async () => {
         try {
-            const allEmployeesData = (await API.getAllEmployees()) as unknown as OfficeManager[];
+            const allEmployeesData = (await API.getEmployeeDirectory({ status: 'active', officeManager: true })) as unknown as OfficeManager[];
             const teamsResponse = await fetch(
                 `${API_BASE_URL}/employee/team/getAll`,
                 {
@@ -183,15 +183,9 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
             );
             setCities((prev) => mergeCityOptions(prev, employeeCityOptions, assignedCityOptions));
             
-            const deletedManagerIds = allEmployeesData
-                .filter((employee: OfficeManager) => employee.isOfficeManager === true && employee.deleted)
-                .map((employee: OfficeManager) => employee.id);
-            
             const availableManagers = allEmployeesData
                 .filter((employee: OfficeManager) =>
-                    employee.isOfficeManager === true &&
-                    !assignedManagerIds.includes(employee.id) &&
-                    !deletedManagerIds.includes(employee.id)
+                    !employee.deleted && !assignedManagerIds.includes(employee.id)
                 )
                 .sort((a: OfficeManager, b: OfficeManager) => 
                     `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)
@@ -209,15 +203,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
 
     const fetchCities = useCallback(async () => {
         try {
-            const response = await fetch(
-                `${API_BASE_URL}/employee/getCities`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                }
-            );
-            const data = await response.json();
+            const data = await API.getCities();
             const sortedCities = buildCityOptions<CityOption>(data, createCityOption);
             setCities((prev) => mergeCityOptions(prev, sortedCities));
         } catch (error) {
@@ -257,23 +243,9 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
 
         try {
             setIsLoadingEmployees(true);
-            const promises = citiesList.map(city =>
-                fetch(
-                    `${API_BASE_URL}/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
-                    {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    }
-                )
+            const allEmployeesData = await Promise.all(
+                citiesList.map((city) => API.getFieldOfficers(city) as unknown as Promise<Employee[]>),
             );
-
-            const responses = await Promise.all(promises);
-            const failedResponse = responses.find((response) => !response.ok);
-            if (failedResponse) {
-                throw new Error(await failedResponse.text() || 'Failed to load field officers');
-            }
-            const allEmployeesData = await Promise.all(responses.map(r => r.json()));
             const merged: Record<number, Employee> = {};
             allEmployeesData.forEach((cityEmployees: Employee[], index: number) => {
                 const sourceCity = citiesList[index];

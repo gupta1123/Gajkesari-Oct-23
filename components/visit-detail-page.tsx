@@ -527,8 +527,12 @@ export default function VisitDetailPage() {
       setIsLoading(true);
       setError(null);
       const api = new API();
+      setTaskLoading({ requirement: true, complaint: true });
+      setTaskErrors({ requirement: null, complaint: null });
 
-      const visitData = await api.getVisitById(Number(targetVisitId));
+      const detail = await api.getVisitDetail(Number(targetVisitId));
+      const visitData = detail.visit;
+      const attachmentResponse = detail.attachments || [];
       setVisitDetail({
         ...visitData,
         purpose: visitData.purpose || '',
@@ -541,6 +545,7 @@ export default function VisitDetailPage() {
         updatedAt: visitData.updatedAt || '',
         storeId: visitData.storeId || 0,
         employeeId: visitData.employeeId || 0,
+        attachmentResponse,
       });
 
       calculateVisitDuration(
@@ -550,80 +555,57 @@ export default function VisitDetailPage() {
         visitData.checkoutTime || ''
       );
 
-      setIsLoading(false);
+      setBrandProCons(detail.brandProCons || []);
+      setIntentAuditLogs(detail.intentAuditLogs || []);
+      setMonthlySaleChanges(detail.monthlySaleLogs || []);
+      setNotes(detail.notes || []);
+      const tasks = detail.tasks || [];
+      setRequirements(tasks.filter((task) => task.taskType === 'requirement' || task.type === 'requirement'));
+      setComplaints(tasks.filter((task) => task.taskType === 'complaint' || task.type === 'complaint'));
+      setTaskLoading({ requirement: false, complaint: false });
 
-      for (const type of ['requirement', 'complaint'] as const) {
-        setTaskLoading(current => ({ ...current, [type]: true }));
-        setTaskErrors(current => ({ ...current, [type]: null }));
-        void api.getTasksByVisit(type, Number(targetVisitId))
-          .then(tasks => type === 'requirement' ? setRequirements(tasks) : setComplaints(tasks))
-          .catch(() => setTaskErrors(current => ({ ...current, [type]: `Unable to load ${type}s. Please reload and try again.` })))
-          .finally(() => setTaskLoading(current => ({ ...current, [type]: false })));
+      const sortedStoreVisits = (await api.getVisitsByStore(visitData.storeId || 0)).slice().sort((a, b) => {
+        const da = new Date(a.visit_date || a.visitDate || '').getTime();
+        const db = new Date(b.visit_date || b.visitDate || '').getTime();
+        return db - da;
+      });
+      setStoreVisits(sortedStoreVisits);
+
+      const fallbackIntent = (detail.intentAuditLogs || []).reduce<IntentAuditLog | null>(
+        (latest, item) => !latest || item.id > latest.id ? item : latest,
+        null,
+      )?.newIntentLevel;
+      const recentIntent = detail.latestIntentLevel ?? fallbackIntent;
+      if (recentIntent != null) {
+        setMetrics((prev) => [...prev.filter((metric) => metric.title !== 'Intent Level'), { title: 'Intent Level', value: String(recentIntent) }]);
       }
-      (async () => {
-        try {
-          const [
-            proConsData,
-            intentAuditData,
-            monthlySaleData,
-            notesData,
-            storeVisitsData,
-          ] = await Promise.all([
-            api.getVisitProCons(Number(targetVisitId)),
-            api.getIntentAuditByVisit(Number(targetVisitId)),
-            api.getMonthlySaleByVisit(Number(targetVisitId)),
-            api.getNotesByVisit(Number(targetVisitId)),
-            api.getVisitsByStore(visitData.storeId || 0),
-          ]);
 
-          setBrandProCons(proConsData || []);
-          setIntentAuditLogs(intentAuditData || []);
-          setMonthlySaleChanges(monthlySaleData || []);
-          setNotes(notesData || []);
-          const sortedStoreVisits = (storeVisitsData || []).slice().sort((a: VisitDto, b: VisitDto) => {
-            const da = new Date(a.visit_date as string).getTime();
-            const db = new Date(b.visit_date as string).getTime();
-            return db - da;
-          });
-          setStoreVisits(sortedStoreVisits);
+      if (detail.monthlySaleLogs?.length) {
+        const latestSale = [...detail.monthlySaleLogs].sort((left, right) => right.id - left.id)[0];
+        setMetrics((prev) => [...prev.filter((metric) => metric.title !== 'Monthly Sales'), {
+          title: 'Monthly Sales',
+          value: `${latestSale.newMonthlySale.toLocaleString()} tons`,
+        }]);
+      }
 
-          if (intentAuditData && intentAuditData.length > 0) {
-            const recentIntent = intentAuditData[intentAuditData.length - 1]?.newIntentLevel ?? 'N/A';
-            setMetrics((prev) => {
-              const filtered = prev.filter((m) => m.title !== 'Intent Level');
-              return [...filtered, { title: 'Intent Level', value: String(recentIntent) }];
-            });
-          }
+      if (attachmentResponse.length > 0) {
+        void fetchCheckinImages(Number(targetVisitId), attachmentResponse);
+      } else {
+        setCheckinImages([]);
+      }
 
-          if (monthlySaleData && monthlySaleData.length > 0) {
-            const recentSales = `${monthlySaleData[0].newMonthlySale.toLocaleString()} tons`;
-            setMetrics((prev) => {
-              const filtered = prev.filter((m) => m.title !== 'Monthly Sales');
-              return [...filtered, { title: 'Monthly Sales', value: recentSales }];
-            });
-          }
-
-          if (visitData.attachmentResponse && visitData.attachmentResponse.length > 0) {
-            fetchCheckinImages(Number(targetVisitId), visitData.attachmentResponse);
-          }
-
-          if (storeVisitsData && storeVisitsData.length > 0) {
-            const firstVisit = storeVisitsData[0];
-            setStoreDetails({
-              contactNumber: firstVisit.storePrimaryContact?.toString() || 'Not available',
-              city: firstVisit.city || 'Not available',
-              address:
-                `${firstVisit.subDistrict || ''}, ${firstVisit.district || ''}, ${firstVisit.state || ''}`
-                  .replace(/^[, ]+|[, ]+$/g, '') || 'Not available',
-            });
-          }
-        } catch (innerErr) {
-          console.error('Error loading visit auxiliary data:', innerErr);
-        }
-      })();
+      const store = detail.store;
+      setStoreDetails({
+        contactNumber: store?.primaryContact?.toString() || visitData.storePrimaryContact?.toString() || 'Not available',
+        city: store?.city || visitData.city || 'Not available',
+        address: `${store?.addressLine1 || ''}, ${store?.addressLine2 || ''}, ${store?.subDistrict || ''}, ${store?.district || ''}, ${store?.state || ''}`
+          .replace(/^[, ]+|[, ]+$/g, '').replace(/,\s*,/g, ',') || 'Not available',
+      });
+      setIsLoading(false);
     } catch (err) {
       setError((err as Error)?.message || 'Failed to load visit details');
       console.error('Error fetching visit details:', err);
+      setTaskLoading({ requirement: false, complaint: false });
       setIsLoading(false);
     }
   }, []);

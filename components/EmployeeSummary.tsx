@@ -21,6 +21,7 @@ import {
     downloadEmployeeTaDaExcelFile,
     requestEmployeeTaDaExcelSummary,
 } from "@/lib/employee-ta-da-excel-export";
+import { API, APIRequestError, type SalaryCalculationJob } from "@/lib/api";
 
 interface SummaryData {
     employeeName: string;
@@ -53,6 +54,15 @@ interface Employee {
     firstName: string;
     lastName: string;
 }
+
+const TERMINAL_SALARY_JOB_STATUSES = new Set([
+    'COMPLETED',
+    'COMPLETED_WITH_ERRORS',
+    'FAILED',
+    'CANCELLED',
+]);
+
+const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 const toFiniteNumber = (value: number | string | null | undefined): number => {
     const numericValue = Number(value);
@@ -112,6 +122,9 @@ const EmployeeSummary: React.FC = () => {
     const [isApplyingAdjustment, setIsApplyingAdjustment] = useState(false);
     const [isExcelExporting, setIsExcelExporting] = useState(false);
     const [excelExportError, setExcelExportError] = useState<string | null>(null);
+    const [salaryJob, setSalaryJob] = useState<SalaryCalculationJob | null>(null);
+    const [isCancellingSalaryJob, setIsCancellingSalaryJob] = useState(false);
+    const [isRetryingSalaryJob, setIsRetryingSalaryJob] = useState(false);
 
     const handleClearEmployeeSelection = () => {
         setSelectedEmployeeIds([]);
@@ -128,17 +141,7 @@ const EmployeeSummary: React.FC = () => {
         
         try {
             setEmployeesLoading(true);
-            const response = await fetch('https://api.gajkesaristeels.in/employee/getAll', {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch employees: ${response.statusText}`);
-            }
-
-            const data: Employee[] = await response.json();
+            const data = await API.getAllEmployees() as unknown as Employee[];
             if (data && Array.isArray(data)) {
                 setAllEmployees(data);
             }
@@ -155,38 +158,36 @@ const EmployeeSummary: React.FC = () => {
         fetchAllEmployees();
     }, [token]);
 
+    useEffect(() => {
+        if (!token) return;
+        let mounted = true;
+        const restoreActiveJob = async () => {
+            try {
+                let job = await API.getActiveSalaryJob();
+                while (mounted && job && !TERMINAL_SALARY_JOB_STATUSES.has(job.status)) {
+                    setSalaryJob(job);
+                    await wait(1500);
+                    job = await API.getSalaryJob(job.id);
+                }
+                if (mounted) setSalaryJob(job);
+            } catch (activeJobError) {
+                console.error('Unable to restore the active salary job:', activeJobError);
+            }
+        };
+        void restoreActiveJob();
+        return () => {
+            mounted = false;
+        };
+    }, [token]);
+
     // Helper function to format date for filter
     const formatDateForFilter = (date: Date | undefined) => {
         if (!date) return '';
         return format(date, 'yyyy-MM-dd');
     };
 
-    const fetchSummaryData = async () => {
-        setError(null);
-        setDateValidationError(null);
-
-        if (!startDate) {
-            setDateValidationError('Choose a From Date before selecting a To Date.');
-            return;
-        }
-
-        if (!endDate) {
-            setDateValidationError('Choose a To Date to complete the date range.');
-            return;
-        }
-
-        if (startDate > endDate) {
-            setDateValidationError('To Date cannot be earlier than From Date. Choose a date on or after the From Date.');
-            return;
-        }
-
-        try {
-            setSummaryLoading(true);
-
-            if (!token) {
-                throw new Error('Authentication token not found. Please log in.');
-            }
-
+    const loadSummaryTable = async () => {
+        if (!token) throw new Error('Authentication token not found. Please log in.');
             const response = await fetch(
                 `https://api.gajkesaristeels.in/salary-calculation/manual-summary-range?startDate=${startDate}&endDate=${endDate}`,
                 {
@@ -215,10 +216,103 @@ const EmployeeSummary: React.FC = () => {
             }
 
             setSummaryData(data);
+    };
+
+    const waitForSalaryJob = async (initialJob: SalaryCalculationJob) => {
+        let currentJob = initialJob;
+        setSalaryJob(currentJob);
+        while (!TERMINAL_SALARY_JOB_STATUSES.has(currentJob.status)) {
+            await wait(1500);
+            currentJob = await API.getSalaryJob(currentJob.id);
+            setSalaryJob(currentJob);
+        }
+        return currentJob;
+    };
+
+    const fetchSummaryData = async () => {
+        setError(null);
+        setDateValidationError(null);
+
+        if (!startDate) {
+            setDateValidationError('Choose a From Date before selecting a To Date.');
+            return;
+        }
+
+        if (!endDate) {
+            setDateValidationError('Choose a To Date to complete the date range.');
+            return;
+        }
+
+        if (startDate > endDate) {
+            setDateValidationError('To Date cannot be earlier than From Date. Choose a date on or after the From Date.');
+            return;
+        }
+
+        try {
+            setSummaryLoading(true);
+            if (!token) throw new Error('Authentication token not found. Please log in.');
+
+            let job: SalaryCalculationJob;
+            try {
+                job = await API.createSalaryRefreshJob(startDate, endDate);
+            } catch (jobError) {
+                const activeJob = jobError instanceof APIRequestError && jobError.status === 409 &&
+                    typeof jobError.details === 'object' && jobError.details
+                    ? jobError.details.activeJob
+                    : undefined;
+                if (!activeJob) throw jobError;
+
+                const completedActiveJob = await waitForSalaryJob(activeJob);
+                const isRequestedRange = completedActiveJob.type === 'REFRESH_DATE_RANGE' &&
+                    completedActiveJob.startDate === startDate && completedActiveJob.endDate === endDate;
+                if (isRequestedRange && (completedActiveJob.status === 'COMPLETED' || completedActiveJob.status === 'COMPLETED_WITH_ERRORS')) {
+                    await loadSummaryTable();
+                    return;
+                }
+                job = await API.createSalaryRefreshJob(startDate, endDate);
+            }
+
+            const completedJob = await waitForSalaryJob(job);
+            if (completedJob.status !== 'COMPLETED' && completedJob.status !== 'COMPLETED_WITH_ERRORS') {
+                throw new Error(completedJob.message || `Salary refresh ${completedJob.status.toLowerCase()}.`);
+            }
+            await loadSummaryTable();
         } catch (error) {
             setError(error instanceof Error ? error.message : 'An unknown error occurred');
         } finally {
             setSummaryLoading(false);
+        }
+    };
+
+    const handleCancelSalaryJob = async () => {
+        if (!salaryJob || TERMINAL_SALARY_JOB_STATUSES.has(salaryJob.status)) return;
+        try {
+            setIsCancellingSalaryJob(true);
+            setSalaryJob(await API.cancelSalaryJob(salaryJob.id));
+        } catch (cancelError) {
+            setError(cancelError instanceof Error ? cancelError.message : 'Unable to cancel the salary refresh.');
+        } finally {
+            setIsCancellingSalaryJob(false);
+        }
+    };
+
+    const handleRetrySalaryJob = async () => {
+        if (!salaryJob) return;
+        try {
+            setIsRetryingSalaryJob(true);
+            setSummaryLoading(true);
+            const completedJob = await waitForSalaryJob(await API.retrySalaryJob(salaryJob.id));
+            if (completedJob.status !== 'COMPLETED' && completedJob.status !== 'COMPLETED_WITH_ERRORS') {
+                throw new Error(completedJob.message || `Salary refresh ${completedJob.status.toLowerCase()}.`);
+            }
+            if (completedJob.startDate === startDate && completedJob.endDate === endDate) {
+                await loadSummaryTable();
+            }
+        } catch (retryError) {
+            setError(retryError instanceof Error ? retryError.message : 'Unable to retry the salary refresh.');
+        } finally {
+            setSummaryLoading(false);
+            setIsRetryingSalaryJob(false);
         }
     };
 
@@ -367,7 +461,7 @@ const EmployeeSummary: React.FC = () => {
                 throw new Error(errorText || `Failed to apply TA adjustment: ${response.statusText}`);
             }
 
-            await fetchSummaryData();
+            await loadSummaryTable();
             resetAdjustmentModal();
         } catch (error) {
             setAdjustmentError(error instanceof Error ? error.message : 'Failed to apply TA adjustment.');
@@ -602,6 +696,11 @@ const EmployeeSummary: React.FC = () => {
     const regularTotalSalary = adjustmentEmployee ? toFiniteNumber(adjustmentEmployee.totalSalary) : 0;
     const currentTravelAllowance = adjustmentEmployee ? toFiniteNumber(adjustmentEmployee.travelAllowance) : 0;
     const projectedAdjustedTotalSalary = regularTotalSalary + previewAdjustmentAmount;
+    const salaryJobIsActive = Boolean(salaryJob && !TERMINAL_SALARY_JOB_STATUSES.has(salaryJob.status));
+    const salaryJobNeedsAttention = Boolean(salaryJob && ['FAILED', 'CANCELLED', 'COMPLETED_WITH_ERRORS'].includes(salaryJob.status));
+    const salaryJobProgress = salaryJob?.totalItems
+        ? Math.min(100, Math.round((salaryJob.processedItems / salaryJob.totalItems) * 100))
+        : 0;
 
     return (
         <div className="space-y-4">
@@ -623,6 +722,45 @@ const EmployeeSummary: React.FC = () => {
                             >
                                 <X className="h-4 w-4" />
                             </Button>
+                        </div>
+                    )}
+
+                    {(salaryJobIsActive || salaryJobNeedsAttention) && salaryJob && (
+                        <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0 space-y-1">
+                                <p className="text-sm font-medium">
+                                    {salaryJobIsActive ? `Refreshing salary data · ${salaryJobProgress}%` : `Salary refresh ${salaryJob.status.toLowerCase().replaceAll('_', ' ')}`}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    {salaryJob.processedItems} of {salaryJob.totalItems || '—'} employees processed
+                                    {salaryJob.message ? ` · ${salaryJob.message}` : ''}
+                                </p>
+                            </div>
+                            {salaryJobIsActive ? (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() => void handleCancelSalaryJob()}
+                                    disabled={isCancellingSalaryJob || salaryJob.cancellationRequested}
+                                >
+                                    {isCancellingSalaryJob ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    {salaryJob.cancellationRequested ? 'Cancelling…' : 'Cancel refresh'}
+                                </Button>
+                            ) : (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() => void handleRetrySalaryJob()}
+                                    disabled={isRetryingSalaryJob}
+                                >
+                                    {isRetryingSalaryJob ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    Retry refresh
+                                </Button>
+                            )}
                         </div>
                     )}
 
@@ -812,12 +950,12 @@ const EmployeeSummary: React.FC = () => {
                                     <Button
                                         onClick={() => void fetchSummaryData()}
                                         className="h-9 flex-1 text-sm font-medium shadow-none sm:flex-none lg:w-[112px]"
-                                        disabled={summaryLoading}
+                                        disabled={summaryLoading || salaryJobIsActive}
                                     >
                                         {summaryLoading ? (
                                             <>
                                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                Loading...
+                                                {salaryJobIsActive ? `${salaryJobProgress}%` : 'Starting…'}
                                             </>
                                         ) : (
                                             'Apply'

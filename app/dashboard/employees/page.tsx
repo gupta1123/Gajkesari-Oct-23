@@ -235,18 +235,8 @@ function EmployeeList() {
 
   const fetchArchivedEmployees = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/employee/getAllInactive`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch archived employees: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      setArchivedEmployees(data);
+      const data = await API.getAllInactiveEmployees();
+      setArchivedEmployees(data as unknown as User[]);
     } catch (err) {
       console.error('Error fetching archived employees:', err);
     }

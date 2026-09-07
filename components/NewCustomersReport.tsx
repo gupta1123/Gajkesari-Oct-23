@@ -15,11 +15,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import axios from 'axios';
-import { format, parse, eachMonthOfInterval, startOfMonth, endOfMonth } from 'date-fns';
+import { format, parse } from 'date-fns';
 import { useAuth } from '@/components/auth-provider';
 import { Calendar as CalendarIcon, UserCheck, UserX, RefreshCw } from 'lucide-react';
-import { API } from '@/lib/api';
+import { API, type NewCustomerTrendPerformer } from '@/lib/api';
 import { hasManagerPrivileges } from '@/lib/auth';
 import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 
@@ -67,6 +66,7 @@ const NewCustomersReport = () => {
     const [isAutoSelect, setIsAutoSelect] = useState(true);
     const [isDarkMode, setIsDarkMode] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [serverPerformers, setServerPerformers] = useState<{ top: NewCustomerTrendPerformer[]; bottom: NewCustomerTrendPerformer[] }>({ top: [], bottom: [] });
 
     const { token, userRole, currentUser, userData } = useAuth();
 
@@ -88,17 +88,15 @@ const NewCustomersReport = () => {
     }, [token, userRole, currentUser, userData?.employeeId]);
 
     useEffect(() => {
-        if (token && startDate && endDate) {
+        if (token && startDate && endDate && employees.length > 0) {
             fetchReportData();
         }
-    }, [token, startDate, endDate]);
+    }, [token, startDate, endDate, employees, excludedEmployees]);
 
     // --- Data Fetching ---
     const fetchEmployees = async () => {
         try {
-            const response = await axios.get<Employee[]>('https://api.gajkesaristeels.in/employee/getAll', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await API.getFieldOfficers() as unknown as Employee[];
             const isManager = hasManagerPrivileges(userRole, currentUser);
             let scopedFieldOfficerIds: Set<number> | null = null;
 
@@ -111,8 +109,7 @@ const NewCustomersReport = () => {
                 }
             }
 
-            const fieldOfficers = response.data
-                .filter(emp => emp.role === "Field Officer")
+            const fieldOfficers = response
                 .filter(emp => scopedFieldOfficerIds === null || scopedFieldOfficerIds.has(emp.id));
             const employeeOptions = fieldOfficers
                 .map((emp: Employee) => ({
@@ -128,28 +125,26 @@ const NewCustomersReport = () => {
 
     const fetchReportData = async () => {
         setIsLoading(true);
-        const start = parse(startDate, 'yyyy-MM-dd', new Date());
-        const end = parse(endDate, 'yyyy-MM-dd', new Date());
-        const months = eachMonthOfInterval({ start, end });
-
-        const fetchPromises = months.map(async (month) => {
-            const monthStart = format(startOfMonth(month), 'yyyy-MM-dd');
-            const monthEnd = format(endOfMonth(month), 'yyyy-MM-dd');
-
-            try {
-                const response = await axios.get<ReportData[]>('https://api.gajkesaristeels.in/report/getForEmployee', {
-                    params: { startDate: monthStart, endDate: monthEnd },
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                return { month: format(month, 'MMMM yyyy'), data: response.data };
-            } catch (error) {
-                return { month: format(month, 'MMMM yyyy'), data: [] };
-            }
-        });
-
-        const results = await Promise.all(fetchPromises);
-        setReportData(Object.fromEntries(results.map(({ month, data }) => [month, data])));
-        setIsLoading(false);
+        try {
+            const excludedIds = new Set(excludedEmployees.map((employee) => employee.value));
+            const employeeIds = employees.filter((employee) => !excludedIds.has(employee.value)).map((employee) => employee.value);
+            const response = await API.getNewCustomerTrends(startDate, endDate, employeeIds, 5);
+            const monthly = response.monthlyTotals.reduce<Record<string, ReportData[]>>((result, row) => {
+                const parsedMonth = parse(row.month, 'yyyy-MM', new Date());
+                const label = Number.isNaN(parsedMonth.getTime()) ? row.month : format(parsedMonth, 'MMMM yyyy');
+                result[label] ??= [];
+                result[label].push({ employeeName: row.employeeName, newStoreCount: row.newStoreCount });
+                return result;
+            }, {});
+            setReportData(monthly);
+            setServerPerformers({ top: response.topPerformers || [], bottom: response.bottomPerformers || [] });
+        } catch (reportError) {
+            console.error('Error fetching new-customer trends:', reportError);
+            setReportData({});
+            setServerPerformers({ top: [], bottom: [] });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     // --- Calculations ---
@@ -174,16 +169,21 @@ const NewCustomersReport = () => {
             return acc;
         }, {});
 
-        const sortedPerformers = Object.entries(aggregatedData)
+        const allPerformers = Object.entries(aggregatedData)
             .sort(([, a], [, b]) => b - a)
             .map(([name, count]) => ({ name, count }));
 
+        const mapPerformer = (performer: NewCustomerTrendPerformer) => ({
+            name: performer.employeeName,
+            count: performer.newStoreCount ?? performer.totalNewCustomers ?? 0,
+        });
+
         return {
-            topPerformers: sortedPerformers.slice(0, 5),
-            bottomPerformers: sortedPerformers.slice(-5).reverse(),
-            allPerformers: sortedPerformers
+            topPerformers: serverPerformers.top.map(mapPerformer),
+            bottomPerformers: serverPerformers.bottom.map(mapPerformer),
+            allPerformers,
         };
-    }, [filteredReportData]);
+    }, [filteredReportData, serverPerformers]);
 
     const updateSelectedEmployees = useCallback(() => {
         if (!isAutoSelect) return;

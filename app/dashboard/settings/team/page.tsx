@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useState, useEffect } from "react";
 import { Users, Plus, Edit, Save, X, MapPin, User, Building, Crown, Navigation, Loader2 } from "lucide-react";
+import { API } from "@/lib/api";
 
 type Team = {
   id: number;
@@ -231,16 +232,8 @@ export default function TeamSettings() {
       if (!token) return;
       
       try {
-        const response = await fetch('https://api.gajkesaristeels.in/employee/getAll', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-
-        if (response.ok) {
-          const data: Employee[] = await response.json();
-          setEmployees(data);
-        }
+        const data = await API.getAllEmployees();
+        setEmployees(data as unknown as Employee[]);
       } catch (error) {
         console.error('Error fetching employees:', error);
       }

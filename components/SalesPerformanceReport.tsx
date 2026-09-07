@@ -21,11 +21,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import axios from 'axios';
 import moment from 'moment';
 import { useAuth } from '@/components/auth-provider';
 import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
 import { useTheme } from '@/components/theme-provider';
+import { API } from '@/lib/api';
 
 ChartJS.register(
     CategoryScale,
@@ -60,8 +60,6 @@ type StoreOption = {
     city: string;
 };
 
-const API_BASE_URL = 'https://api.gajkesaristeels.in';
-
 const SalesPerformanceReport: React.FC = () => {
     const [stores, setStores] = useState<StoreOption[]>([]);
     const [selectedStore, setSelectedStore] = useState<StoreOption | null>(null);
@@ -81,21 +79,16 @@ const SalesPerformanceReport: React.FC = () => {
 
     const fetchStores = useCallback(async () => {
         try {
-            const response = await axios.get<{ content: Store[], totalPages: number }>(
-                `${API_BASE_URL}/store/filteredValues`,
-                {
-                    params: {
-                        storeName: storeSearchQuery,
-                        city: cityFilter,
-                        page: 0,
-                        size: 10,
-                        sort: 'storeName,asc'
-                    },
-                    headers: { Authorization: `Bearer ${token}` }
-                }
-            );
-            if (response.data && response.data.content) {
-                const storeOptions = response.data.content.map((store: Store) => ({
+            const response = await API.getStoresFilteredPaginated({
+                storeName: storeSearchQuery,
+                city: cityFilter,
+                page: 0,
+                size: 10,
+                sortBy: 'storeName',
+                sortOrder: 'asc',
+            });
+            if (response.content) {
+                const storeOptions = response.content.map((store: Store) => ({
                     value: store.storeId,
                     label: store.storeName,
                     city: store.city
@@ -116,19 +109,6 @@ const SalesPerformanceReport: React.FC = () => {
         }
     }, [fetchStores, token]);
 
-    const fetchMonthData = useCallback(async (start: string, end: string, storeId: number) => {
-        try {
-            const response = await axios.get(`${API_BASE_URL}/report/getAvgValues`, {
-                params: { startDate: start, endDate: end, storeId },
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            return response.data;
-        } catch (err) {
-            console.error(`Error fetching data for ${start} to ${end}:`, err);
-            throw err;
-        }
-    }, [token]);
-
     const fetchReportData = useCallback(async () => {
         if (!startDate || !endDate || dateRangeInvalid) return;
         if (!selectedStore) {
@@ -139,42 +119,14 @@ const SalesPerformanceReport: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const monthlyDataArray = [];
-            const currentDate = moment(startDate).startOf('month');
-            const endMoment = moment(endDate);
-
-            while (currentDate.isSameOrBefore(endMoment)) {
-                const monthStart = currentDate.format('YYYY-MM-DD');
-                const monthEnd = moment.min(currentDate.clone().endOf('month'), endMoment).format('YYYY-MM-DD');
-
-                const monthData = await fetchMonthData(monthStart, monthEnd, selectedStore.value);
-
-                const avgMonthlySale = monthData.monthlySaleLogs.length > 0
-                    ? monthData.monthlySaleLogs.reduce((sum: number, log: { newMonthlySale: number }) => sum + log.newMonthlySale, 0) / monthData.monthlySaleLogs.length
-                    : 0;
-
-                const avgIntent = monthData.intentLogs.length > 0
-                    ? monthData.intentLogs.reduce((sum: number, log: { newIntentLevel: number }) => sum + log.newIntentLevel, 0) / monthData.intentLogs.length
-                    : 0;
-
-                monthlyDataArray.push({
-                    month: currentDate.format('YYYY-MM'),
-                    avgMonthlySale,
-                    avgIntent,
-                    totalVisitCount: monthData.totalVisitCount
-                });
-
-                currentDate.add(1, 'month');
-            }
-
-            setMonthlyData(monthlyDataArray);
+            setMonthlyData(await API.getStoreMonthlyTrends(selectedStore.value, startDate, endDate));
         } catch (err) {
             setError('Failed to fetch report data');
             console.error(err);
         } finally {
             setLoading(false);
         }
-    }, [selectedStore, startDate, endDate, dateRangeInvalid, fetchMonthData]);
+    }, [selectedStore, startDate, endDate, dateRangeInvalid]);
 
     const chartData = {
         labels: monthlyData.map(data => data.month),

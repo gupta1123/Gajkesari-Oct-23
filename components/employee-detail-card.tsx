@@ -21,7 +21,7 @@ import { summarizeVisitPurposes } from "@/lib/visit-purpose-summary";
 import { format, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from 'next/navigation';
-import { API, type VisitDto, type EmployeeStatsWithVisits, type EmployeeDashboardSummary } from "@/lib/api";
+import { API, type VisitDto, type EmployeeStatsWithVisits, type EmployeeVisitSummary } from "@/lib/api";
 
 interface Employee {
   id: number;
@@ -365,7 +365,7 @@ interface EmployeeDetailCardProps {
 
 export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDetailCardProps) {
   const [employeeDetails, setEmployeeDetails] = useState<EmployeeStatsWithVisits | null>(null);
-  const [employeeSummary, setEmployeeSummary] = useState<EmployeeDashboardSummary | null>(null);
+  const [visitSummary, setVisitSummary] = useState<EmployeeVisitSummary | null>(null);
   const [visitTotalPages, setVisitTotalPages] = useState(1);
   const [visitTotalElements, setVisitTotalElements] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -434,6 +434,7 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
         const end = format(dateRange.end, 'yyyy-MM-dd');
         const data = await API.getEmployeeStatsOptimized(employee.id, start, end, currentPage - 1, 10, 'id,desc');
         setEmployeeDetails({ statsDto: data.statsDto, visitDto: data.visitPage.content || [] });
+        setVisitSummary(data.summary);
         setVisitTotalPages(Math.max(data.visitPage.totalPages || 1, 1));
         setVisitTotalElements(data.visitPage.totalElements || 0);
       } catch (e) {
@@ -445,22 +446,9 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
     run();
   }, [employee.id, dateRange.start, dateRange.end, currentPage]);
 
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const start = format(dateRange.start, 'yyyy-MM-dd');
-        const end = format(dateRange.end, 'yyyy-MM-dd');
-        setEmployeeSummary(await API.getEmployeeDashboardSummary(employee.id, start, end));
-      } catch (e) {
-        setError((e as Error)?.message || 'Failed to load employee summary');
-      }
-    };
-    run();
-  }, [employee.id, dateRange.start, dateRange.end]);
-
   const visitsByPurposeChartData = useMemo(() => {
-    return summarizeVisitPurposes(employeeSummary?.visitSummary.visitsByPurpose || []);
-  }, [employeeSummary]);
+    return summarizeVisitPurposes(visitSummary?.visitsByPurpose || []);
+  }, [visitSummary]);
 
   const handleViewDetails = (visitId: number) => {
     // Persist parent view state to ensure return lands back here
@@ -553,7 +541,7 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
     employeeState: v.state,
   }));
 
-  const totalCompletedVisits = employeeSummary?.visitSummary.completedVisits || 0;
+  const totalCompletedVisits = visitSummary?.completedVisits || 0;
 
   return (
     <div className="space-y-4 pb-12 md:pb-0">

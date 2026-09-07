@@ -2,12 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  eachMonthOfInterval,
-  endOfMonth,
   format,
   parse,
   subMonths,
-  startOfMonth,
 } from "date-fns";
 import {
   Card,
@@ -38,6 +35,7 @@ import {
   YAxis,
 } from "recharts";
 import { AlertCircle, ChevronDown } from "lucide-react";
+import { API, type NewCustomerTrendPerformer } from "@/lib/api";
 
 type ReportRow = {
   employeeName: string;
@@ -228,32 +226,19 @@ export default function Report2Page() {
   const [error, setError] = useState<string | null>(null);
   const [showTopPerformers, setShowTopPerformers] = useState(true);
   const [isAutoSelect, setIsAutoSelect] = useState(true);
+  const [serverPerformers, setServerPerformers] = useState<{ top: NewCustomerTrendPerformer[]; bottom: NewCustomerTrendPerformer[] }>({ top: [], bottom: [] });
 
   const fetchEmployees = useCallback(async () => {
     if (!token) return;
     try {
-      const response = await fetch(
-        "https://api.gajkesaristeels.in/employee/getAll",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to load employees (${response.status})`);
-      }
-
-      const data: Array<{
+      const data = await API.getFieldOfficers() as unknown as Array<{
         id: number;
         firstName?: string;
         lastName?: string;
         role?: string;
-      }> = await response.json();
+      }>;
 
       const fieldOfficers = data
-        .filter((employee) => employee.role === "Field Officer")
         .map((employee) => ({
           value: employee.id,
           label: `${employee.firstName ?? ""} ${employee.lastName ?? ""}`
@@ -271,7 +256,7 @@ export default function Report2Page() {
   }, [token]);
 
   const fetchReportData = useCallback(async () => {
-    if (!token || !startDate || !endDate) return;
+    if (!token || !startDate || !endDate || employees.length === 0) return;
     setIsLoading(true);
     setError(null);
 
@@ -287,60 +272,20 @@ export default function Report2Page() {
         throw new Error("Start date must be before end date.");
       }
 
-      const months = eachMonthOfInterval({ start, end });
-
       // Clear existing data so UI reflects the new range while loading
       setReportData({});
-
-      const results = await Promise.all(
-        months.map(async (month, index) => {
-          const isFirst = index === 0;
-          const isLast = index === months.length - 1;
-          const monthStartBoundary = isFirst ? start : startOfMonth(month);
-          const monthEndBoundary = isLast ? end : endOfMonth(month);
-          const monthStart = format(monthStartBoundary, "yyyy-MM-dd");
-          const monthEnd = format(monthEndBoundary, "yyyy-MM-dd");
-          const label = format(month, "MMMM yyyy");
-
-          try {
-            const url = new URL(
-              "https://api.gajkesaristeels.in/report/getForEmployee",
-            );
-            url.searchParams.set("startDate", monthStart);
-            url.searchParams.set("endDate", monthEnd);
-
-            const res = await fetch(url.toString(), {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-              cache: "no-store",
-            });
-
-            if (!res.ok) {
-              console.error(
-                `Failed to fetch report data for ${label}`,
-                res.status,
-              );
-              return { month: label, data: [] as ReportRow[] };
-            }
-
-            const json = (await res.json()) as ReportRow[];
-            // Filter out employees with no activity (zero newStoreCount and empty storeCountDto)
-            const filteredData = Array.isArray(json) ? json.filter(row => row.newStoreCount > 0 || (row.storeCountDto && row.storeCountDto.length > 0)) : [];
-            return { month: label, data: filteredData };
-          } catch (requestError) {
-            console.error(
-              `Error fetching report data for ${label}:`,
-              requestError,
-            );
-            return { month: label, data: [] as ReportRow[] };
-          }
-        }),
-      );
-
-      setReportData(
-        Object.fromEntries(results.map(({ month, data }) => [month, data])),
-      );
+      const excludedIds = new Set(excludedEmployees.map((employee) => employee.value));
+      const employeeIds = employees.filter((employee) => !excludedIds.has(employee.value)).map((employee) => employee.value);
+      const response = await API.getNewCustomerTrends(startDate, endDate, employeeIds, 5);
+      const monthly = response.monthlyTotals.reduce<MonthReport>((result, row) => {
+        const parsedMonth = parse(row.month, 'yyyy-MM', new Date());
+        const label = Number.isNaN(parsedMonth.getTime()) ? row.month : format(parsedMonth, 'MMMM yyyy');
+        result[label] ??= [];
+        result[label].push({ employeeName: row.employeeName, newStoreCount: row.newStoreCount });
+        return result;
+      }, {});
+      setReportData(monthly);
+      setServerPerformers({ top: response.topPerformers || [], bottom: response.bottomPerformers || [] });
     } catch (err) {
       console.error("Failed to load report:", err);
       setError(
@@ -350,7 +295,7 @@ export default function Report2Page() {
     } finally {
       setIsLoading(false);
     }
-  }, [token, startDate, endDate]);
+  }, [token, startDate, endDate, employees, excludedEmployees]);
 
   useEffect(() => {
     fetchEmployees();
@@ -388,16 +333,21 @@ export default function Report2Page() {
         return acc;
       }, {});
 
-    const sorted = Object.entries(aggregated)
+    const allPerformers = Object.entries(aggregated)
       .sort(([, a], [, b]) => b - a)
       .map<Performer>(([name, count]) => ({ name, count }));
 
+    const mapPerformer = (performer: NewCustomerTrendPerformer): Performer => ({
+      name: performer.employeeName,
+      count: performer.newStoreCount ?? performer.totalNewCustomers ?? 0,
+    });
+
     return {
-      topPerformers: sorted.slice(0, 5),
-      bottomPerformers: sorted.slice(-5).reverse(),
-      allPerformers: sorted,
+      topPerformers: serverPerformers.top.map(mapPerformer),
+      bottomPerformers: serverPerformers.bottom.map(mapPerformer),
+      allPerformers,
     };
-  }, [filteredReportData]);
+  }, [filteredReportData, serverPerformers]);
 
   useEffect(() => {
     if (!isAutoSelect) return;

@@ -401,6 +401,10 @@ export default function ContractorEngineerVisitReportSection({
   const [reportStartDate, setReportStartDate] = useState(() => todayIso());
   const [reportEndDate, setReportEndDate] = useState(() => todayIso());
   const [isReportsLoading, setIsReportsLoading] = useState(false);
+  const [reportPage, setReportPage] = useState(0);
+  const [reportPageSize, setReportPageSize] = useState(10);
+  const [reportTotalElements, setReportTotalElements] = useState(0);
+  const [reportTotalPages, setReportTotalPages] = useState(0);
   const [reportsError, setReportsError] = useState<string | null>(null);
   const [isReportsExporting, setIsReportsExporting] = useState(false);
   const [isSavingReport, setIsSavingReport] = useState(false);
@@ -458,22 +462,32 @@ export default function ContractorEngineerVisitReportSection({
     setIsReportsLoading(true);
     setReportsError(null);
     try {
-      const data = await contractorEngineerVisitReportsApi.getByDateRange(
-        validatedDateRange.start,
-        validatedDateRange.end,
-      );
-      setReports(data || []);
+      const data = await contractorEngineerVisitReportsApi.getPage({
+        start: validatedDateRange.start,
+        end: validatedDateRange.end,
+        category: submittedCategory,
+        area: submittedSearch,
+        page: reportPage,
+        size: reportPageSize,
+      });
+      setReports(data.content || []);
+      setReportTotalElements(data.totalElements || 0);
+      setReportTotalPages(data.totalPages || 0);
     } catch (error) {
       setReports([]);
       setReportsError(error instanceof Error ? error.message : "Failed to load submitted reports.");
     } finally {
       setIsReportsLoading(false);
     }
-  }, [validatedDateRange]);
+  }, [validatedDateRange, submittedCategory, submittedSearch, reportPage, reportPageSize]);
 
   useEffect(() => {
     loadSubmittedReports();
   }, [loadSubmittedReports]);
+
+  useEffect(() => {
+    setReportPage(0);
+  }, [reportStartDate, reportEndDate, submittedCategory, submittedSearch]);
 
   useEffect(() => {
     if (initialTab === "submittedReports" || initialTab === "fillReport") {
@@ -488,19 +502,15 @@ export default function ContractorEngineerVisitReportSection({
       const matchesQuery =
         !query ||
         [
-          report.customerName,
-          report.firmName,
-          report.officerName,
-          report.projectName,
           report.region,
           report.districtArea,
-          report.mobileNo,
+          report.address,
         ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(query));
 
       const matchesCategory =
-        submittedCategory === "all" || report.category === submittedCategory;
+        submittedCategory === "all" || report.category?.toLowerCase() === submittedCategory.toLowerCase();
       const matchesProjectType =
         submittedProjectType === "all" || report.projectType === submittedProjectType;
       const matchesPotential =
@@ -554,9 +564,16 @@ export default function ContractorEngineerVisitReportSection({
       const reportDate = form.visitDate || todayIso();
       setReportStartDate(reportDate);
       setReportEndDate(reportDate);
-      setReports(
-        await contractorEngineerVisitReportsApi.getByDateRange(reportDate, reportDate),
-      );
+      const refreshedReports = await contractorEngineerVisitReportsApi.getPage({
+        start: reportDate,
+        end: reportDate,
+        page: 0,
+        size: reportPageSize,
+      });
+      setReports(refreshedReports.content);
+      setReportTotalElements(refreshedReports.totalElements);
+      setReportTotalPages(refreshedReports.totalPages);
+      setReportPage(0);
       setActiveReportTab("submittedReports");
       setFormMessage("Report saved successfully.");
 
@@ -1039,7 +1056,7 @@ export default function ContractorEngineerVisitReportSection({
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <TextField
                   id="contractor-submitted-search"
-                  label="Search"
+                  label="Area"
                   value={submittedSearch}
                   onChange={setSubmittedSearch}
                 />
@@ -1071,7 +1088,7 @@ export default function ContractorEngineerVisitReportSection({
                   Clear Filters
                 </Button>
                 <span className="text-xs text-muted-foreground font-medium">
-                  Showing {filteredReports.length} of {reports.length} reports
+                  Showing {filteredReports.length} of {reportTotalElements} reports
                 </span>
               </div>
             </CardContent>
@@ -1085,6 +1102,15 @@ export default function ContractorEngineerVisitReportSection({
           isExporting={isReportsExporting}
           onExport={downloadSubmittedReports}
           onRetry={loadSubmittedReports}
+          currentPage={reportPage}
+          pageSize={reportPageSize}
+          totalPages={reportTotalPages}
+          totalElements={reportTotalElements}
+          onPageChange={setReportPage}
+          onPageSizeChange={(size) => {
+            setReportPageSize(size);
+            setReportPage(0);
+          }}
         />
       </TabsContent>
     </Tabs>

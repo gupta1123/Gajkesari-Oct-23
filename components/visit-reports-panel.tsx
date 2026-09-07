@@ -32,6 +32,12 @@ type VisitReportsPanelProps = {
   isExporting?: boolean;
   onExport: () => void;
   onRetry?: () => void;
+  currentPage?: number;
+  pageSize?: number;
+  totalPages?: number;
+  totalElements?: number;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
 };
 
 const displayValue = (value?: string | number | null) =>
@@ -48,23 +54,36 @@ export default function VisitReportsPanel({
   isLoading = false,
   error,
   onRetry,
+  currentPage: controlledPage,
+  pageSize: controlledPageSize,
+  totalPages: controlledTotalPages,
+  totalElements: controlledTotalElements,
+  onPageChange,
+  onPageSizeChange,
 }: VisitReportsPanelProps) {
   const router = useRouter();
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [expandedCards, setExpandedCards] = useState<number[]>([]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [reports.length]);
+  const isServerPaginated = controlledPage !== undefined && controlledPageSize !== undefined &&
+    controlledTotalPages !== undefined && controlledTotalElements !== undefined;
 
-  const totalPages = Math.ceil(reports.length / rowsPerPage) || 1;
-  const safeCurrentPage = Math.min(currentPage, totalPages);
+  useEffect(() => {
+    if (!isServerPaginated) setCurrentPage(1);
+  }, [reports.length, isServerPaginated]);
+
+  const resolvedRowsPerPage = isServerPaginated ? (controlledPageSize ?? rowsPerPage) : rowsPerPage;
+  const totalPages = isServerPaginated ? Math.max(controlledTotalPages ?? 0, 1) : Math.ceil(reports.length / rowsPerPage) || 1;
+  const safeCurrentPage = isServerPaginated
+    ? Math.min((controlledPage ?? 0) + 1, totalPages)
+    : Math.min(currentPage, totalPages);
 
   const paginatedReports = useMemo(() => {
+    if (isServerPaginated) return reports;
     const start = (safeCurrentPage - 1) * rowsPerPage;
     return reports.slice(start, start + rowsPerPage);
-  }, [reports, safeCurrentPage, rowsPerPage]);
+  }, [reports, safeCurrentPage, rowsPerPage, isServerPaginated]);
 
   return (
     <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
@@ -240,10 +259,14 @@ export default function VisitReportsPanel({
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground font-medium">Rows per page:</span>
                 <Select
-                  value={String(rowsPerPage)}
+                  value={String(resolvedRowsPerPage)}
                   onValueChange={(val) => {
-                    setRowsPerPage(Number(val));
-                    setCurrentPage(1);
+                    const size = Number(val);
+                    if (isServerPaginated) onPageSizeChange?.(size);
+                    else {
+                      setRowsPerPage(size);
+                      setCurrentPage(1);
+                    }
                   }}
                 >
                   <SelectTrigger className="h-8 w-18 text-xs bg-background shadow-none">
@@ -264,20 +287,26 @@ export default function VisitReportsPanel({
                   size="sm"
                   className="h-8 text-xs"
                   disabled={safeCurrentPage <= 1}
-                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  onClick={() => {
+                    if (isServerPaginated) onPageChange?.(Math.max(0, (controlledPage ?? 0) - 1));
+                    else setCurrentPage((prev) => Math.max(1, prev - 1));
+                  }}
                 >
                   <ChevronLeft className="mr-1 h-3.5 w-3.5" />
                   Previous
                 </Button>
                 <span className="text-xs text-muted-foreground font-medium">
-                  Page {safeCurrentPage} of {totalPages} · {reports.length} reports
+                  Page {safeCurrentPage} of {totalPages} · {isServerPaginated ? (controlledTotalElements ?? 0) : reports.length} reports
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
                   className="h-8 text-xs"
                   disabled={safeCurrentPage >= totalPages}
-                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  onClick={() => {
+                    if (isServerPaginated) onPageChange?.(Math.min(totalPages - 1, (controlledPage ?? 0) + 1));
+                    else setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+                  }}
                 >
                   Next
                   <ChevronRight className="ml-1 h-3.5 w-3.5" />
