@@ -338,6 +338,45 @@ export interface ReportCountsItem {
   employeeLastName: string;
 }
 
+export interface FieldOfficerVisitStats {
+  totalVisits: number;
+  attendanceStats: {
+    absences: number;
+    halfDays: number;
+    fullDays: number;
+  };
+  completedVisits: number;
+  visitsByCustomerType: Record<string, number>;
+}
+
+export interface CustomerVisitDetailDto {
+  avgIntentLevel: number;
+  avgMonthlySales: number;
+  visitCount: number;
+  lastVisited: string;
+  city: string;
+  taluka: string;
+  state: string;
+  customerName: string;
+  customerType: string;
+  storeId: number;
+}
+
+export type AttendanceRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface AttendanceApprovalRequestDto {
+  id: number;
+  employeeId: number;
+  employeeName: string;
+  requestDate: string;
+  requestedStatus: string;
+  logDate: string;
+  actionDate: string | null;
+  status: string;
+  description?: string;
+  reason?: string;
+}
+
 export interface ExpenseDto {
   id: number;
   type: string;
@@ -752,13 +791,18 @@ export interface SalaryCalculationJob {
 type ApiErrorBody = { error?: string; activeJob?: SalaryCalculationJob } | string | null;
 
 export class APIRequestError extends Error {
+  public readonly status: number;
+  public readonly details: ApiErrorBody;
+
   constructor(
     message: string,
-    public readonly status: number,
-    public readonly details: ApiErrorBody,
+    status: number,
+    details: ApiErrorBody,
   ) {
     super(message);
     this.name = 'APIRequestError';
+    this.status = status;
+    this.details = details;
   }
 }
 
@@ -816,6 +860,41 @@ export class API {
 
   static async getReportCounts(startDate: string, endDate: string): Promise<ReportCountsItem[]> {
     return apiService.getReportCounts(startDate, endDate);
+  }
+
+  static async getFieldOfficerVisitStats(
+    employeeId: number,
+    startDate: string,
+    endDate: string,
+  ): Promise<FieldOfficerVisitStats> {
+    return apiService.getFieldOfficerVisitStats(employeeId, startDate, endDate);
+  }
+
+  static async getCustomerVisitDetails(
+    employeeId: number,
+    startDate: string,
+    endDate: string,
+    customerType: string,
+  ): Promise<CustomerVisitDetailDto[]> {
+    return apiService.getCustomerVisitDetails(employeeId, startDate, endDate, customerType);
+  }
+
+  static async getAttendanceRequestsByStatus(
+    status: AttendanceRequestStatus,
+    start: string,
+    end: string,
+    page: number = 0,
+    size: number = 20,
+  ): Promise<CompactPage<AttendanceApprovalRequestDto>> {
+    return apiService.getAttendanceRequestsByStatus(status, start, end, page, size);
+  }
+
+  static async updateAttendanceRequestStatus(
+    id: number,
+    status: Exclude<AttendanceRequestStatus, 'pending'>,
+    attendance: string,
+  ): Promise<unknown> {
+    return apiService.updateAttendanceRequestStatus(id, status, attendance);
   }
 
   static async getDashboardSummary(startDate: string, endDate: string): Promise<DashboardSummary> {
@@ -895,6 +974,15 @@ export class API {
 
   static async getStoreNames(employeeId?: number, searchTerm?: string): Promise<StoreNameDto[]> {
     return apiService.getStoreNames(employeeId, searchTerm);
+  }
+
+  static async getStoreNamesPage(
+    employeeId?: number,
+    searchTerm?: string,
+    page: number = 0,
+    size: number = 100,
+  ): Promise<CompactPage<StoreNameDto>> {
+    return apiService.getStoreNamesPage(employeeId, searchTerm, page, size);
   }
 
   static async getStoresFiltered(params: {
@@ -1689,6 +1777,90 @@ Please check your internet connection and try again.`);
     return this.makeRequest<ReportCountsItem[]>(`/report/getCounts?startDate=${startDate}&endDate=${endDate}`);
   }
 
+  async getFieldOfficerVisitStats(
+    employeeId: number,
+    startDate: string,
+    endDate: string,
+  ): Promise<FieldOfficerVisitStats> {
+    return this.makeRequest<FieldOfficerVisitStats>(
+      `/v2/visits/field-officer-stats?${buildQuery({ employeeId, startDate, endDate })}`,
+    );
+  }
+
+  async getCustomerVisitDetails(
+    employeeId: number,
+    startDate: string,
+    endDate: string,
+    customerType: string,
+  ): Promise<CustomerVisitDetailDto[]> {
+    return this.makeRequest<CustomerVisitDetailDto[]>(
+      `/v2/visits/customer-visit-details?${buildQuery({ employeeId, startDate, endDate, customerType })}`,
+    );
+  }
+
+  async getAttendanceRequestsByStatus(
+    status: AttendanceRequestStatus,
+    start: string,
+    end: string,
+    page: number = 0,
+    size: number = 20,
+  ): Promise<CompactPage<AttendanceApprovalRequestDto>> {
+    const safePage = Math.max(0, page);
+    const safeSize = Math.min(Math.max(1, size), 100);
+    const response = await this.makeRequest<
+      | AttendanceApprovalRequestDto[]
+      | (Partial<CompactPage<AttendanceApprovalRequestDto>> & {
+          content?: AttendanceApprovalRequestDto[];
+          number?: number;
+        })
+    >(`/request/getByStatus?${buildQuery({ status, start, end, page: safePage, size: safeSize })}`);
+
+    if (Array.isArray(response)) {
+      const offset = safePage * safeSize;
+      const content = response.slice(offset, offset + safeSize);
+      const totalElements = response.length;
+      const totalPages = Math.ceil(totalElements / safeSize);
+      return {
+        content,
+        page: safePage,
+        size: safeSize,
+        totalElements,
+        totalPages,
+        first: safePage === 0,
+        last: totalPages === 0 || safePage >= totalPages - 1,
+      };
+    }
+
+    const content = Array.isArray(response.content) ? response.content : [];
+    const resolvedPage = Number(response.page ?? response.number ?? safePage);
+    const resolvedSize = Number(response.size ?? safeSize);
+    const totalElements = Number(response.totalElements ?? content.length);
+    const totalPages = Number(response.totalPages ?? Math.ceil(totalElements / Math.max(resolvedSize, 1)));
+    return {
+      content,
+      page: resolvedPage,
+      size: resolvedSize,
+      totalElements,
+      totalPages,
+      first: response.first ?? (resolvedPage === 0),
+      last: response.last ?? (totalPages === 0 || resolvedPage >= totalPages - 1),
+    };
+  }
+
+  async updateAttendanceRequestStatus(
+    id: number,
+    status: Exclude<AttendanceRequestStatus, 'pending'>,
+    attendance: string,
+  ): Promise<unknown> {
+    return this.makeRequest(
+      `/request/updateStatus?${buildQuery({ id, status, attendance })}`,
+      {
+        method: 'PUT',
+        headers: { requestId: String(id) },
+      },
+    );
+  }
+
   async getNewCustomerTrends(startDate: string, endDate: string, employeeIds?: number[], limit = 5): Promise<NewCustomerTrendsResponse> {
     return this.makeRequest<NewCustomerTrendsResponse>(`/v2/reports/new-customers/trends?${buildQuery({
       startDate,
@@ -2139,6 +2311,22 @@ Please check your internet connection and try again.`);
       sortBy: 'storeName',
       sortOrder: 'asc',
     }, 100);
+  }
+
+  async getStoreNamesPage(
+    employeeId?: number,
+    searchTerm?: string,
+    page: number = 0,
+    size: number = 100,
+  ): Promise<CompactPage<StoreNameDto>> {
+    return this.getCompactPage<StoreNameDto>(`/v2/store/names?${buildQuery({
+      employeeId,
+      searchTerm: searchTerm?.trim(),
+      page: Math.max(0, page),
+      size: Math.min(Math.max(1, size), 100),
+      sortBy: 'storeName',
+      sortOrder: 'asc',
+    })}`);
   }
 }
 

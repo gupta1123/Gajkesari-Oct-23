@@ -256,9 +256,12 @@ export default function AttendancePage() {
 
   return (
     <div className="container mx-auto px-4 py-4 sm:px-6">
-      <section aria-label="Attendance filters and legend" className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-[120px_150px_170px_minmax(180px,240px)]">
-          <div>
+      <section
+        aria-label="Attendance filters and legend"
+        className="mb-4 space-y-3 rounded-xl border border-border/60 bg-card p-3.5 shadow-sm sm:p-4"
+      >
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div className="flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
             <SearchableSelect
               options={yearOptions}
               value={String(selectedYear)}
@@ -268,26 +271,24 @@ export default function AttendancePage() {
                 if (!Number.isNaN(yr)) setSelectedYear(yr);
               }}
               placeholder="Select a year"
-              triggerClassName="h-9 w-full text-xs"
+              triggerClassName="h-9 w-[100px] rounded-lg border-border/80 text-xs font-semibold"
               contentClassName="w-[var(--radix-popover-trigger-width)]"
               searchPlaceholder="Search year..."
             />
-          </div>
-          <div>
+
             <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
-              <SelectTrigger className="h-9 w-full text-xs">
+              <SelectTrigger className="h-9 w-[120px] rounded-lg border-border/80 text-xs font-semibold">
                 <SelectValue placeholder="Select a month" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 {months.map((month, index) => (
-                  <SelectItem key={month} value={index.toString()}>
+                  <SelectItem key={month} value={index.toString()} className="text-xs">
                     {month}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div>
+
             <Select
               value={selectedRoleFilter}
               onValueChange={(value: 'all' | 'regional-manager' | 'field-officer') => {
@@ -295,50 +296,49 @@ export default function AttendancePage() {
                 setSelectedEmployeeId('');
               }}
             >
-              <SelectTrigger className="h-9 w-full text-xs" aria-label="Filter by role">
+              <SelectTrigger className="h-9 w-[130px] rounded-lg border-border/80 text-xs font-semibold" aria-label="Filter by role">
                 <SelectValue placeholder="All roles" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All roles</SelectItem>
-                <SelectItem value="regional-manager">Regional Manager</SelectItem>
-                <SelectItem value="field-officer">Field Officer</SelectItem>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all" className="text-xs">All roles</SelectItem>
+                <SelectItem value="regional-manager" className="text-xs">Regional Manager</SelectItem>
+                <SelectItem value="field-officer" className="text-xs">Field Officer</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-          <div>
-            <SearchableSelect
-              options={employeeOptions}
-              value={selectedEmployeeId}
-              onSelect={(option) => setSelectedEmployeeId(option?.value ?? '')}
-              placeholder="All employees"
-              searchPlaceholder="Search employees..."
-              emptyMessage="No employees available"
-              noResultsMessage="No matching employees"
-              allowClear
-              triggerClassName="h-9 w-full text-xs"
-              contentClassName="w-[var(--radix-popover-trigger-width)]"
-            />
-          </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 lg:ml-auto lg:justify-end">
-          <span className="text-xs font-semibold text-foreground">Legend:</span>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <div className="inline-flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-[2px] bg-green-500 shrink-0" />
-              <span className="whitespace-nowrap text-xs text-muted-foreground">Full Day</span>
+            <div className="min-w-[160px] flex-1 sm:max-w-[160px]">
+              <SearchableSelect
+                options={employeeOptions}
+                value={selectedEmployeeId}
+                onSelect={(option) => setSelectedEmployeeId(option?.value ?? '')}
+                placeholder="All employees"
+                searchPlaceholder="Search employees..."
+                emptyMessage="No employees available"
+                noResultsMessage="No matching employees"
+                allowClear
+                triggerClassName="h-9 w-full rounded-lg border-border/80 text-xs"
+                contentClassName="w-[var(--radix-popover-trigger-width)]"
+              />
             </div>
-            <div className="inline-flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-[2px] bg-yellow-500 shrink-0" />
-              <span className="whitespace-nowrap text-xs text-muted-foreground">Half Day</span>
+          </div>
+
+          <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap border-t border-border/40 pt-2 text-[11px] font-medium text-muted-foreground lg:border-t-0 lg:pt-0">
+            <span className="mr-1 shrink-0 text-xs font-semibold text-foreground">Legend:</span>
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-purple-500/20 bg-purple-500/10 px-2 py-0.5 text-purple-700 dark:text-purple-400">
+              <span className="h-2 w-2 rounded-full bg-purple-500" />
+              <span>Paid Leave</span>
             </div>
-            <div className="inline-flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-[2px] border border-purple-400 bg-purple-200 dark:border-purple-500 dark:bg-purple-900/40 shrink-0" />
-              <span className="whitespace-nowrap text-xs text-muted-foreground">Paid Leave</span>
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span>Full Day</span>
             </div>
-            <div className="inline-flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-[2px] bg-red-500 shrink-0" />
-              <span className="whitespace-nowrap text-xs text-muted-foreground">Absent</span>
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-400">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              <span>Half Day</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/10 px-2 py-0.5 text-rose-700 dark:text-rose-400">
+              <span className="h-2 w-2 rounded-full bg-rose-500" />
+              <span>Absent</span>
             </div>
           </div>
         </div>

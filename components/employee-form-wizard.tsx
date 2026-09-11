@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SpacedCalendar } from '@/components/ui/spaced-calendar';
 import { Separator } from "@/components/ui/separator";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Icons
@@ -148,7 +148,6 @@ export default function EmployeeFormWizard({ mode, employeeId }: EmployeeFormWiz
   const [baselineEmployee, setBaselineEmployee] = useState<NewEmployeeState>(initialNewEmployeeState);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showBackConfirmDialog, setShowBackConfirmDialog] = useState(false);
   const [isFormReady, setIsFormReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
@@ -163,6 +162,9 @@ export default function EmployeeFormWizard({ mode, employeeId }: EmployeeFormWiz
     JSON.stringify(newEmployee) !== JSON.stringify(baselineEmployee) ||
     JSON.stringify(selectedAssignedCities) !== JSON.stringify(baselineAssignedCities)
   );
+  const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+    isDirty: employeeFormIsDirty,
+  });
 
   // Validation State
   const [primaryContactError, setPrimaryContactError] = useState<string | null>(null);
@@ -304,23 +306,14 @@ export default function EmployeeFormWizard({ mode, employeeId }: EmployeeFormWiz
   }, [isEditMode, newEmployee.firstName, newEmployee.lastName, usernameWasEdited]);
 
   const handleBackClick = React.useCallback(() => {
-    if (employeeFormIsDirty) {
-      setShowBackConfirmDialog(true);
-    } else {
-      router.push('/dashboard/employees');
-    }
-  }, [employeeFormIsDirty, router]);
+    confirmDiscard(() => router.push('/dashboard/employees'));
+  }, [confirmDiscard, router]);
 
   useDashboardHeader({
     heading: pageTitle,
     subheading: pageSubtitle,
     onBack: handleBackClick,
   });
-
-  const handleConfirmBack = () => {
-    setShowBackConfirmDialog(false);
-    router.push('/dashboard/employees');
-  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const target = e.currentTarget;
@@ -485,6 +478,7 @@ export default function EmployeeFormWizard({ mode, employeeId }: EmployeeFormWiz
         }
       }
 
+      clearUnsavedChanges();
       router.push('/dashboard/employees');
     } catch (error) {
       console.error('Error saving employee:', error);
@@ -915,32 +909,6 @@ export default function EmployeeFormWizard({ mode, employeeId }: EmployeeFormWiz
           </div>
         </CardContent>
       </Card>
-
-      {/* Back Confirmation Dialog */}
-      <Dialog open={showBackConfirmDialog} onOpenChange={setShowBackConfirmDialog}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Discard Changes?</DialogTitle>
-            <DialogDescription>
-              You have unsaved changes. Are you sure you want to leave? All entered data will be lost.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowBackConfirmDialog(false)}
-            >
-              Continue Editing
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleConfirmBack}
-            >
-              Yes, Leave
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

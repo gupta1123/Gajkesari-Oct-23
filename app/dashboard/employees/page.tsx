@@ -26,6 +26,7 @@ import { hasAdminSetupPrivileges, isManagerRoleValue, normalizeRoleValue } from 
 import { getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 import { getEmployeeRoleCategory, getEmployeeRoleLabel, isAdminEmployee } from "@/lib/employee-role";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
@@ -331,6 +332,7 @@ function EmployeeList() {
       );
 
       if (response.ok) {
+        clearPasswordChanges();
         setIsResetPasswordOpen(false);
         setNewPassword('');
         setConfirmPassword('');
@@ -385,6 +387,7 @@ function EmployeeList() {
         );
 
         if (response.ok) {
+          clearUsernameChanges();
           setIsEditUsernameModalOpen(false);
           setEditingUsername(null);
           fetchEmployees();
@@ -482,6 +485,20 @@ function EmployeeList() {
     setIsEditUsernameModalOpen(false);
     setEditingUsername(null);
   };
+
+  const originalUsername = editingUsername
+    ? users.find((user) => user.id === editingUsername.id)?.userName ?? ''
+    : '';
+  const { clearUnsavedChanges: clearPasswordChanges, confirmDiscard: confirmPasswordDiscard } = useUnsavedChanges({
+    isDirty: isResetPasswordOpen && Boolean(newPassword || confirmPassword),
+    onDiscard: closeResetPasswordDialog,
+  });
+  const { clearUnsavedChanges: clearUsernameChanges, confirmDiscard: confirmUsernameDiscard } = useUnsavedChanges({
+    isDirty: isEditUsernameModalOpen && Boolean(editingUsername && editingUsername.username !== originalUsername),
+    onDiscard: closeUsernameDialog,
+  });
+  const requestCloseResetPasswordDialog = () => confirmPasswordDiscard(closeResetPasswordDialog);
+  const requestCloseUsernameDialog = () => confirmUsernameDiscard(closeUsernameDialog);
 
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -879,7 +896,7 @@ function EmployeeList() {
 
       {/* Reset Password Modal */}
       <Dialog open={isResetPasswordOpen} onOpenChange={(open) => {
-        if (!open) closeResetPasswordDialog();
+        if (!open) requestCloseResetPasswordDialog();
       }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -909,7 +926,7 @@ function EmployeeList() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeResetPasswordDialog}>
+            <Button variant="outline" onClick={requestCloseResetPasswordDialog}>
               Cancel
             </Button>
             <Button onClick={handleResetPasswordSubmit}>
@@ -921,7 +938,7 @@ function EmployeeList() {
 
       {/* Edit Username Modal */}
       <Dialog open={isEditUsernameModalOpen} onOpenChange={(open) => {
-        if (!open) closeUsernameDialog();
+        if (!open) requestCloseUsernameDialog();
       }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -941,7 +958,7 @@ function EmployeeList() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeUsernameDialog}>
+            <Button variant="outline" onClick={requestCloseUsernameDialog}>
               Cancel
             </Button>
             <Button onClick={handleSaveUsername}>

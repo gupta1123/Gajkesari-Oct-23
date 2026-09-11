@@ -75,6 +75,7 @@ const PricingPage = () => {
     const pricingRequest = useRef(0);
     const [showGajkesariRate, setShowGajkesariRate] = useState(false);
     const [fieldOfficers, setFieldOfficers] = useState<string[]>([]);
+    const [directoryOfficerNames, setDirectoryOfficerNames] = useState<string[]>([]);
     const [selectedFieldOfficer, setSelectedFieldOfficer] = useState("all");
     const [teamIds, setTeamIds] = useState<number[]>([]);
     const [teamLoading, setTeamLoading] = useState(false);
@@ -143,9 +144,21 @@ const PricingPage = () => {
                 if (teamData.length > 0) {
                     const accessibleTeamIds = getTeamIds(teamData);
                     setTeamIds(accessibleTeamIds);
+                    // Directory of team officers so the filter lists everyone,
+                    // not just officers with pricing rows on the selected date.
+                    const memberNames = new Map<string, string>();
+                    teamData.forEach(team => {
+                        (team.fieldOfficers ?? []).forEach(officer => {
+                            if (officer?.id == null) return;
+                            const name = `${officer.firstName ?? ''} ${officer.lastName ?? ''}`.trim();
+                            if (name) memberNames.set(String(officer.id), name);
+                        });
+                    });
+                    setDirectoryOfficerNames(Array.from(memberNames.values()).sort((left, right) => left.localeCompare(right)));
                 } else {
                     setTeamError('No team data found for this user');
                     setTeamIds([]);
+                    setDirectoryOfficerNames([]);
                 }
             } catch (err) {
                 console.error('Failed to load team data:', err);
@@ -158,6 +171,27 @@ const PricingPage = () => {
 
         loadTeamData();
     }, [isManager, isFieldOfficer, userData?.employeeId]);
+
+    // Admins (and other non-team roles): load the full field-officer directory
+    // so the filter lists everyone, not just officers with rows on the date.
+    useEffect(() => {
+        if (!token || !isRoleDetermined || isManager || isFieldOfficer) return;
+        let active = true;
+        (async () => {
+            try {
+                const directory = await API.getFieldOfficers() as unknown as Array<{ firstName?: string; lastName?: string }>;
+                if (!active || !Array.isArray(directory)) return;
+                const names = directory
+                    .map((emp) => `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim())
+                    .filter((name) => Boolean(name))
+                    .sort((left, right) => left.localeCompare(right));
+                setDirectoryOfficerNames(Array.from(new Set(names)));
+            } catch (error) {
+                console.error('Error loading field officer directory:', error);
+            }
+        })();
+        return () => { active = false; };
+    }, [token, isRoleDetermined, isManager, isFieldOfficer]);
 
     const fetchBrandData = useCallback(async () => {
         const request = ++pricingRequest.current;
@@ -244,8 +278,10 @@ const PricingPage = () => {
     }, [fetchBrandData]);
 
     const fieldOfficerOptions = React.useMemo<SearchableOption[]>(() =>
-        fieldOfficers.map((officer) => ({ value: officer, label: officer })),
-    [fieldOfficers]);
+        Array.from(new Set([...directoryOfficerNames, ...fieldOfficers]))
+            .sort((left, right) => left.localeCompare(right))
+            .map((officer) => ({ value: officer, label: officer })),
+    [directoryOfficerNames, fieldOfficers]);
 
     const filteredBrands = brandData.filter(brand => {
         const cityMatch = selectedCity === "all" || getBrandCity(brand) === selectedCity;

@@ -38,6 +38,7 @@ type VisitReportsPanelProps = {
   totalElements?: number;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (size: number) => void;
+  detailQuery?: string;
 };
 
 const displayValue = (value?: string | number | null) =>
@@ -60,6 +61,7 @@ export default function VisitReportsPanel({
   totalElements: controlledTotalElements,
   onPageChange,
   onPageSizeChange,
+  detailQuery,
 }: VisitReportsPanelProps) {
   const router = useRouter();
   const [currentPage, setCurrentPage] = useState(1);
@@ -84,6 +86,11 @@ export default function VisitReportsPanel({
     const start = (safeCurrentPage - 1) * rowsPerPage;
     return reports.slice(start, start + rowsPerPage);
   }, [reports, safeCurrentPage, rowsPerPage, isServerPaginated]);
+
+  const openReport = (reportId: number) => {
+    const query = detailQuery ? `?${detailQuery}` : "";
+    router.push(`/dashboard/reports/contractor-engineer/${reportId}${query}`);
+  };
 
   return (
     <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
@@ -184,7 +191,7 @@ export default function VisitReportsPanel({
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2.5 text-xs font-medium"
-                          onClick={() => router.push(`/dashboard/reports/contractor-engineer/${report.id}`)}
+                          onClick={() => openReport(report.id)}
                         >
                           View
                         </Button>
@@ -242,7 +249,7 @@ export default function VisitReportsPanel({
                           variant="outline"
                           size="sm"
                           className="h-7 px-3 text-xs"
-                          onClick={() => router.push(`/dashboard/reports/contractor-engineer/${report.id}`)}
+                          onClick={() => openReport(report.id)}
                         >
                           <Eye className="mr-1.5 h-3.5 w-3.5" />
                           View details

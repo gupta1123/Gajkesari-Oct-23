@@ -25,6 +25,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, Loader, Trash2, Calendar as CalendarIcon2, ChevronLeft, ChevronRight, Check, ChevronsUpDown } from 'lucide-react';
 import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
+import { usePagedStoreNames } from '@/components/use-paged-store-names';
+import { resolveTaskAssignerId } from '@/lib/task-assignment';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
+import { useDashboardHeader } from '@/components/dashboard-header-context';
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
@@ -50,11 +54,6 @@ interface Employee {
     firstName: string;
     lastName: string;
     role: string;
-}
-
-interface Store {
-    id: number;
-    storeName: string;
 }
 
 const Requirements = () => {
@@ -98,7 +97,6 @@ const Requirements = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [filterEmployees, setFilterEmployees] = useState<{ id: number; name: string }[]>([]);
-    const [stores, setStores] = useState<Store[]>([]);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -110,14 +108,11 @@ const Requirements = () => {
     const dateRangeInvalid = !isManager && isDateRangeInvalid(filters.startDate, filters.endDate);
     const [teamMembers, setTeamMembers] = useState<Employee[]>([]);
     const [isTabLoading, setIsTabLoading] = useState(false);
-    const [isStoresLoading, setIsStoresLoading] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
     const [updatingTaskFields, setUpdatingTaskFields] = useState<Set<string>>(new Set());
     
     // SearchableSelect state variables
-    const [selectedStore, setSelectedStore] = useState<string[]>([]);
     const [employeeOptions, setEmployeeOptions] = useState<SearchableSelectOption[]>([]);
-    const [storeOptions, setStoreOptions] = useState<SearchableSelectOption[]>([]);
     const [isAssignPopoverOpen, setIsAssignPopoverOpen] = useState(false);
     const [assignSearchTerm, setAssignSearchTerm] = useState("");
     const [filterEmployeeSearch, setFilterEmployeeSearch] = useState("");
@@ -126,6 +121,19 @@ const Requirements = () => {
     const statusOptions = ['Assigned', 'Work In Progress', 'Complete'] as const;
 
     const { token, userRole, userData, currentUser } = useAuth();
+    const {
+        stores,
+        searchInput: storeSearchInput,
+        isLoading: isStoresLoading,
+        isLoadingMore: isStoresLoadingMore,
+        error: storeLoadError,
+        loadMore: loadMoreStores,
+        onInputChange: handleStoreSearchInput,
+        reset: resetStoreSearch,
+    } = usePagedStoreNames({
+        enabled: Boolean(token && isModalOpen),
+        employeeId: newTask.assignedToId,
+    });
 
     useEffect(() => {
         const checkUserRole = () => {
@@ -274,19 +282,6 @@ const Requirements = () => {
         }
     }, [token]);
 
-    const fetchStores = useCallback(async () => {
-        if (!token) return;
-        
-        setIsStoresLoading(true);
-        try {
-            setStores(await API.getStoreNames() as unknown as Store[]);
-        } catch (error) {
-            console.error('Error fetching stores:', error);
-        } finally {
-            setIsStoresLoading(false);
-        }
-    }, [token]);
-
     useEffect(() => {
         try {
             const raw = sessionStorage.getItem(FILTER_STATE_KEY);
@@ -330,12 +325,6 @@ const Requirements = () => {
     ), [isManager, teamMembers, allEmployees]);
 
     useEffect(() => {
-        if (isModalOpen) {
-            fetchStores();
-        }
-    }, [isModalOpen, fetchStores]);
-
-    useEffect(() => {
         const directoryEmployees = allEmployees
             .filter((employee) => {
                 const category = getEmployeeRoleCategory(employee.role);
@@ -357,18 +346,18 @@ const Requirements = () => {
         setEmployeeOptions(options);
     }, [assignmentEmployees]);
 
-    useEffect(() => {
-        const options = stores.map(store => ({
-            value: store.id.toString(),
-            label: store.storeName
-        })).sort((a, b) => a.label.localeCompare(b.label));
-        setStoreOptions(options);
-    }, [stores]);
+    const storeOptions = useMemo<SearchableSelectOption[]>(() => stores.map((store) => ({
+        value: store.id.toString(),
+        label: store.storeName,
+    })), [stores]);
 
-    const selectedStoreOption = useMemo(
-        () => storeOptions.find((option) => option.value === selectedStore[0]) ?? null,
-        [selectedStore, storeOptions]
-    );
+    const selectedStoreOption = useMemo(() => {
+        if (!newTask.storeId || !newTask.storeName) return null;
+        return {
+            value: newTask.storeId.toString(),
+            label: newTask.storeName,
+        };
+    }, [newTask.storeId, newTask.storeName]);
 
     const storeSelectStyles: StylesConfig<SearchableSelectOption, false> = {
         control: (base, state) => ({
@@ -473,7 +462,8 @@ const Requirements = () => {
             const payload = {
                 ...newTask,
                 taskType: 'requirement',
-                assignedById: userData?.employeeId || 0
+                assignedById: resolveTaskAssignerId(userData?.employeeId),
+                dueDate: newTask.dueDate.split('T')[0],
             };
 
             const response = await fetch(`${API_BASE_URL}/task/create`, {
@@ -490,6 +480,7 @@ const Requirements = () => {
                 throw new Error(`Failed to create task: ${response.status} ${errorText}`);
             }
 
+            clearUnsavedChanges();
             setIsModalOpen(false);
             setNewTask({
                 id: 0,
@@ -507,7 +498,7 @@ const Requirements = () => {
                 storeCity: '',
                 taskType: 'requirement'
             });
-            setSelectedStore([]);
+            resetStoreSearch();
             setActiveTab('general');
             fetchTasks();
         } catch (error) {
@@ -522,7 +513,7 @@ const Requirements = () => {
         if (!token) return;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/task/delete?id=${id}`, {
+            const response = await fetch(`${API_BASE_URL}/task/deleteById?taskId=${id}`, {
                 method: 'DELETE',
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -530,12 +521,14 @@ const Requirements = () => {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to delete requirement');
+                const errorText = await response.text();
+                throw new Error(errorText || `Failed to delete requirement (${response.status})`);
             }
 
-            setTasks(prev => prev.filter(t => t.id !== id));
+            await fetchTasks();
         } catch (error) {
             console.error('Error deleting requirement:', error);
+            setErrorMessage(error instanceof Error ? error.message : 'Failed to delete requirement');
         }
     };
 
@@ -607,8 +600,24 @@ const Requirements = () => {
             storeCity: '',
             taskType: 'requirement'
         });
-        setSelectedStore([]);
+        resetStoreSearch();
     };
+
+    const requirementDraftIsDirty = isModalOpen && Boolean(
+        newTask.taskTitle.trim() ||
+        newTask.taskDesciption.trim() ||
+        newTask.dueDate ||
+        newTask.assignedToId ||
+        newTask.storeId ||
+        newTask.priority !== 'low' ||
+        activeTab !== 'general'
+    );
+    const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+        isDirty: requirementDraftIsDirty,
+        onDiscard: closeCreateModal,
+    });
+
+    const requestCloseCreateModal = () => confirmDiscard(closeCreateModal);
 
     const closeStatusModal = () => {
         setIsStatusModalOpen(false);
@@ -619,10 +628,13 @@ const Requirements = () => {
     const handleEmployeeSelect = (value: string) => {
         const empId = parseInt(value);
         const emp = assignmentEmployees.find(e => e.id === empId);
+        resetStoreSearch();
         setNewTask(prev => ({
             ...prev,
             assignedToId: empId,
-            assignedToName: emp ? `${emp.firstName} ${emp.lastName}` : ''
+            assignedToName: emp ? `${emp.firstName} ${emp.lastName}` : '',
+            storeId: 0,
+            storeName: '',
         }));
         setIsAssignPopoverOpen(false);
         setAssignSearchTerm('');
@@ -632,14 +644,12 @@ const Requirements = () => {
         if (option) {
             const stId = parseInt(option.value);
             const st = stores.find(s => s.id === stId);
-            setSelectedStore([option.value]);
             setNewTask(prev => ({
                 ...prev,
                 storeId: stId,
                 storeName: st?.storeName || option.label
             }));
         } else {
-            setSelectedStore([]);
             setNewTask(prev => ({
                 ...prev,
                 storeId: 0,
@@ -683,11 +693,23 @@ const Requirements = () => {
         return employeeOptions.filter(o => o.label.toLowerCase().includes(query));
     }, [employeeOptions, assignSearchTerm]);
 
+    const headerAction = useMemo(() => (
+        <Button size="sm" className="h-8 px-3 text-xs" onClick={() => setIsModalOpen(true)}>
+            <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> New
+        </Button>
+    ), []);
+
+    useDashboardHeader({
+        heading: 'Requirements',
+        subheading: 'Manage project and client requirements',
+        action: headerAction,
+    });
+
     return (
         <div className="space-y-4 py-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="hidden flex-wrap items-center gap-2 lg:flex">
-                    <div className="relative w-60 shrink-0">
+            <div className="flex items-center gap-2">
+                <div className="hidden min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-x-auto lg:flex">
+                    <div className="relative w-48 shrink-0">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
                             placeholder="Search requirement title, store..."
@@ -700,7 +722,7 @@ const Requirements = () => {
                         <PopoverTrigger asChild>
                             <Button
                                 variant="outline"
-                                className="h-9 w-[170px] justify-between text-xs font-normal shadow-none"
+                                className="h-9 w-[150px] justify-between text-xs font-normal shadow-none"
                             >
                                 <span className="truncate">{selectedFilterEmployeeLabel}</span>
                                 <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
@@ -760,7 +782,7 @@ const Requirements = () => {
                         </PopoverContent>
                     </Popover>
                     <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
-                        <SelectTrigger className="h-9 w-[150px] shrink-0 text-xs shadow-none">
+                        <SelectTrigger className="h-9 w-[135px] shrink-0 text-xs shadow-none">
                             <SelectValue placeholder="Filter by priority" />
                         </SelectTrigger>
                         <SelectContent>
@@ -789,7 +811,7 @@ const Requirements = () => {
                                     <PopoverTrigger asChild>
                                         <Button
                                             variant="outline"
-                                            className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.startDate && 'text-muted-foreground'}`}
+                                            className={`h-9 w-[150px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.startDate && 'text-muted-foreground'}`}
                                         >
                                             <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
                                             <span className="shrink-0 text-muted-foreground">From</span>
@@ -817,7 +839,7 @@ const Requirements = () => {
                                     <PopoverTrigger asChild>
                                         <Button
                                             variant="outline"
-                                            className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.endDate && 'text-muted-foreground'}`}
+                                            className={`h-9 w-[150px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.endDate && 'text-muted-foreground'}`}
                                         >
                                             <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
                                             <span className="shrink-0 text-muted-foreground">To</span>
@@ -843,20 +865,17 @@ const Requirements = () => {
                         </div>
                     )}
                 </div>
-                <div className="flex items-center gap-2 lg:ml-auto lg:shrink-0">
+                <div className="flex items-center gap-2 lg:hidden">
                     <Button variant="outline" size="sm" className="lg:hidden" onClick={() => setIsFilterDrawerOpen(true)}>
                         <Filter className="mr-2 h-4 w-4" />
                         Filters
-                    </Button>
-                    <Button size="sm" className="h-9 text-xs" onClick={() => setIsModalOpen(true)}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> New
                     </Button>
                 </div>
             </div>
 
             <Dialog open={isModalOpen} onOpenChange={(open: boolean) => {
                 if (open) setIsModalOpen(true);
-                else closeCreateModal();
+                else requestCloseCreateModal();
             }}>
                 <DialogContent>
                     <DialogHeader>
@@ -900,7 +919,7 @@ const Requirements = () => {
                                     </Select>
                                 </div>
                                 <div className="flex justify-between mt-4">
-                                    <Button variant="outline" onClick={closeCreateModal}>Cancel</Button>
+                                    <Button variant="outline" onClick={requestCloseCreateModal}>Cancel</Button>
                                     <Button onClick={handleNext} disabled={isTabLoading}>
                                         {isTabLoading ? (
                                             <>
@@ -1034,15 +1053,25 @@ const Requirements = () => {
                                         options={storeOptions}
                                         value={selectedStoreOption}
                                         onChange={handleStoreOptionSelect}
-                                        placeholder={isStoresLoading ? "Loading stores..." : "Select a store"}
+                                        inputValue={storeSearchInput}
+                                        onInputChange={handleStoreSearchInput}
+                                        onMenuScrollToBottom={loadMoreStores}
+                                        placeholder={
+                                            isStoresLoading ? "Loading stores..." :
+                                            !newTask.assignedToId ? "Select employee first" :
+                                            "Search and select a store"
+                                        }
                                         className="w-[280px]"
                                         classNamePrefix="select"
                                         styles={storeSelectStyles}
                                         isSearchable
                                         isClearable
-                                        isLoading={isStoresLoading}
+                                        isDisabled={!newTask.assignedToId}
+                                        isLoading={isStoresLoading || isStoresLoadingMore}
                                         backspaceRemovesValue
-                                        noOptionsMessage={() => "No matching stores found"}
+                                        noOptionsMessage={() => storeLoadError
+                                            ? "Could not load stores. Please try again."
+                                            : "No matching stores found"}
                                     />
                                 </div>
                                 <div className="flex justify-between mt-4">

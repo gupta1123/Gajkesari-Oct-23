@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
 
 interface DailyPricingModalProps {
   open: boolean;
@@ -37,6 +38,13 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
   const [newBrand, setNewBrand] = useState<NewBrandState>(DEFAULT_BRAND_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const sanitizeCityInput = (value: string) => value.replace(/[^a-zA-Z\s-]/g, "");
+  const pricingFormIsDirty = open && (
+    newBrand.price !== DEFAULT_BRAND_STATE.price ||
+    newBrand.city !== DEFAULT_BRAND_STATE.city
+  );
+  const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+    isDirty: pricingFormIsDirty,
+  });
 
   useEffect(() => {
     if (!open) {
@@ -80,6 +88,7 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
       }
 
       onCreateSuccess?.();
+      clearUnsavedChanges();
       onOpenChange(false);
     } catch (error) {
       console.error('Error creating pricing:', error);
@@ -89,11 +98,13 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
   };
 
   const handleClose = () => {
-    onOpenChange(false);
+    confirmDiscard(() => onOpenChange(false));
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen) handleClose();
+    }}>
       <DialogContent className="sm:max-w-[425px] p-6">
         <DialogHeader>
           <DialogTitle>Set Today&apos;s Pricing</DialogTitle>

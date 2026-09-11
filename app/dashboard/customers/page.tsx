@@ -39,6 +39,7 @@ import { getTeamIds, getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 import { formatDateToUserFriendly } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const CUSTOMER_LIST_STORAGE_KEY = "customers.list.state.v1";
 
@@ -68,10 +69,29 @@ const CUSTOMER_FILTER_DEBOUNCE_MS = 300;
 
 function Ellipsis({ value }: { value: React.ReactNode }) {
     const title = typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
+    const [isOpen, setIsOpen] = useState(false);
+
+    if (!title) {
+        return <span className="block min-w-0 truncate">{value}</span>;
+    }
+
     return (
-        <span className="block min-w-0 truncate" title={title}>
-            {value}
-        </span>
+        <Tooltip open={isOpen} onOpenChange={setIsOpen}>
+            <TooltipTrigger asChild>
+                <button
+                    type="button"
+                    className="block w-full min-w-0 cursor-help truncate text-left"
+                    aria-label={`Show full value: ${title}`}
+                    onClick={() => setIsOpen(true)}
+                    onBlur={() => setIsOpen(false)}
+                >
+                    {value}
+                </button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={6} className="max-w-sm break-words">
+                {title}
+            </TooltipContent>
+        </Tooltip>
     );
 }
 
@@ -1359,15 +1379,15 @@ function CustomerListContent() {
                 <div className="hidden min-w-0 md:block rounded-lg border bg-card overflow-hidden">
                     <Table className="table-fixed text-xs font-poppins">
                         <colgroup>
-                            {selectedColumns.includes('shopName') && <col className="w-[15%]" />}
+                            {selectedColumns.includes('shopName') && <col className="w-[14%]" />}
                             {selectedColumns.includes('ownerName') && <col className="w-[10%]" />}
                             {selectedColumns.includes('city') && <col className="w-[8%]" />}
                             {selectedColumns.includes('state') && <col className="w-[8%]" />}
                             {selectedColumns.includes('phone') && <col className="w-[9%]" />}
                             {selectedColumns.includes('monthlySales') && <col className="w-[8%]" />}
                             {selectedColumns.includes('intentLevel') && <col className="w-[5%]" />}
-                            {selectedColumns.includes('fieldOfficer') && <col className="w-[12%]" />}
-                            {selectedColumns.includes('clientType') && <col className="w-[8%]" />}
+                            {selectedColumns.includes('fieldOfficer') && <col className="w-[11%]" />}
+                            {selectedColumns.includes('clientType') && <col className="w-[10%]" />}
                             {selectedColumns.includes('totalVisits') && <col className="w-[5%]" />}
                             {selectedColumns.includes('lastVisitDate') && <col className="w-[7%]" />}
                             <col className="w-[5%]" />
@@ -1448,7 +1468,7 @@ function CustomerListContent() {
                                 )}
                                 {selectedColumns.includes('totalVisits') && (
                                     <TableHead className="cursor-pointer overflow-hidden text-ellipsis" title="#Visits" onClick={() => handleSort('totalVisits')}>
-                                        #Vists
+                                        #Visits
                                         {sortColumn === 'visitCount' && (
                                             <span className="text-black text-sm">{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
                                         )}
@@ -1544,9 +1564,9 @@ function CustomerListContent() {
                                         )}
                                         {selectedColumns.includes('fieldOfficer') && <TableCell><Ellipsis value={customer.employeeName || ''} /></TableCell>}
                                         {selectedColumns.includes('clientType') && (
-                                            <TableCell>
-                                                <Badge variant="outline" className="text-[11px] font-normal">
-                                                    {customer.clientType || ''}
+                                            <TableCell className="min-w-0 overflow-hidden">
+                                                <Badge variant="outline" className="max-w-full overflow-hidden text-[11px] font-normal">
+                                                    <Ellipsis value={customer.clientType || '—'} />
                                                 </Badge>
                                             </TableCell>
                                         )}

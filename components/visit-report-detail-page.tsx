@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import {
-  ArrowLeft,
   Building2,
   CalendarDays,
   FileText,
@@ -19,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useDashboardHeader } from "@/components/dashboard-header-context";
 import {
   contractorEngineerVisitReportsApi,
   type ContractorEngineerVisitReport,
@@ -27,9 +27,6 @@ import {
 type VisitReportDetailPageProps = {
   reportId: number;
 };
-
-const SUBMITTED_REPORTS_ROUTE =
-  "/dashboard/reports?tab=contractorEngineerVisitReport&contractorReportTab=submittedReports";
 
 const displayValue = (value?: string | number | null) =>
   value === null || value === undefined || value === "" ? null : String(value);
@@ -111,6 +108,7 @@ const getInitials = (value?: string | null) => {
 
 export default function VisitReportDetailPage({ reportId }: VisitReportDetailPageProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [report, setReport] = useState<ContractorEngineerVisitReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,9 +138,26 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
     loadReport();
   }, [loadReport]);
 
-  const handleBackToSubmittedReports = () => {
-    router.push(SUBMITTED_REPORTS_ROUTE);
-  };
+  const submittedReportsRoute = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "contractorEngineerVisitReport");
+    params.set("contractorReportTab", "submittedReports");
+    return `/dashboard/reports?${params.toString()}`;
+  }, [searchParams]);
+
+  const handleBackToSubmittedReports = useCallback(() => {
+    router.push(submittedReportsRoute);
+  }, [router, submittedReportsRoute]);
+
+  const reportCategory = displayValue(report?.category) || "Contractor";
+  const customerTitle = displayValue(report?.customerName) || "Customer details";
+  const formattedVisitDate = formatDate(report?.visitDate) || "—";
+
+  useDashboardHeader({
+    heading: `${reportCategory} Visit Report`,
+    subheading: report ? `${formattedVisitDate} • ${customerTitle}` : "Submitted report details",
+    onBack: handleBackToSubmittedReports,
+  });
 
   const materials = useMemo(() => {
     if (!report) return [];
@@ -158,10 +173,6 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
   if (isLoading) {
     return (
       <div className="w-full space-y-7">
-        <div className="space-y-3 border-b pb-6">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-4 w-80 max-w-full" />
-        </div>
         <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
           {[0, 1].map((column) => (
             <div key={column} className="space-y-6">
@@ -189,55 +200,14 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
               <RefreshCw className="mr-2 h-4 w-4" />
               Try Again
             </Button>
-            <Button type="button" variant="outline" onClick={handleBackToSubmittedReports}>
-              Back to Submitted Reports
-            </Button>
           </div>
         </div>
       </div>
     );
   }
 
-  const reportCategory = displayValue(report.category) || "Contractor";
-  const customerTitle = displayValue(report.customerName) || "Customer details";
-  const formattedVisitDate = formatDate(report.visitDate) || "—";
-
   return (
     <div className="w-full space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={handleBackToSubmittedReports}
-            className="h-9 w-9 shrink-0"
-            title="Back to Submitted Reports"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-foreground">
-              {reportCategory} Visit Report
-            </h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {formattedVisitDate} • {customerTitle}
-            </p>
-          </div>
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleBackToSubmittedReports}
-          className="h-9 text-xs font-semibold"
-        >
-          Back to Submitted Reports
-        </Button>
-      </div>
-
       {/* Split Workspace Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
         {/* Left Column: Primary Operational Details (70% Width) */}

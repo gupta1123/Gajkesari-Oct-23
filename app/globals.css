@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Keep meeting datalist suggestions without Chrome's native dropdown indicator. */
+.meeting-datalist-input::-webkit-calendar-picker-indicator {
+  display: none !important;
+}
+
 /* Mobile bottom navigation safe area support */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .safe-area-pb {
@@ -345,4 +350,37 @@
 
 .dark .german-steel-map .leaflet-tile-pane {
   filter: invert(1) hue-rotate(180deg) saturate(0.35) brightness(0.8);
+}
+
+/*
+ * Dashboard data tables use the same open, cardless presentation as the
+ * Visits list. This is desktop-only so the purpose-built mobile record cards
+ * keep their borders, backgrounds, spacing, and elevation.
+ */
+@media (min-width: 768px) {
+  main [data-slot="card"]:has(table) {
+    gap: 0;
+    border-color: transparent;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding-block: 0;
+  }
+
+  main [data-slot="card"]:has(table) > [data-slot="card-header"],
+  main [data-slot="card"]:has(table) > [data-slot="card-content"],
+  main [data-slot="card"]:has(table) > [data-slot="card-footer"] {
+    padding-inline: 0;
+  }
+
+  main [data-slot="card"]:has(table) > [data-slot="card-header"] {
+    border-bottom-color: transparent;
+  }
+
+  main :is(.rounded-md, .rounded-lg, .rounded-xl):has(table) {
+    border-color: transparent;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
 }

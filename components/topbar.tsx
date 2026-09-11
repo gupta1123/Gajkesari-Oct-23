@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Heading, Text } from "@/components/ui/typography";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import type { ReactNode } from "react";
 
 interface TopbarProps {
   heading?: string;
@@ -13,9 +14,10 @@ interface TopbarProps {
   backHref?: string;
   onBack?: () => void;
   viewRole?: 'admin' | 'manager';
+  action?: ReactNode;
 }
 
-export default function Topbar({ heading, subheading, backHref, onBack, viewRole }: TopbarProps) {
+export default function Topbar({ heading, subheading, backHref, onBack, viewRole, action }: TopbarProps) {
   return (
     <header className="sticky top-0 z-30 flex h-14 w-full items-center gap-3 border-b border-border/60 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:backdrop-blur sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -54,6 +56,7 @@ export default function Topbar({ heading, subheading, backHref, onBack, viewRole
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {action}
         {viewRole && (
           <Badge
             variant="outline"

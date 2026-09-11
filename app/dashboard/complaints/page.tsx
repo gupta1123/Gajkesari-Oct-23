@@ -25,6 +25,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, Image as ImageIcon, Trash2, Calendar as CalendarIcon2, ChevronLeft, ChevronRight, Check, ChevronsUpDown } from 'lucide-react';
 import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
+import { usePagedStoreNames } from '@/components/use-paged-store-names';
+import { resolveTaskAssignerId } from '@/lib/task-assignment';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
+import { useDashboardHeader } from '@/components/dashboard-header-context';
 
 const toast = {
     success: (msg: string, _opts?: Record<string, unknown>) => console.log('SUCCESS:', msg),
@@ -54,11 +58,6 @@ interface Employee {
     firstName: string;
     lastName: string;
     role: string;
-}
-
-interface Store {
-    id: number;
-    storeName: string;
 }
 
 interface AttachmentResponse {
@@ -114,7 +113,6 @@ const Complaints = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [filterEmployees, setFilterEmployees] = useState<{ id: number; name: string }[]>([]);
-    const [stores, setStores] = useState<Store[]>([]);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -125,7 +123,6 @@ const Complaints = () => {
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [isLoadingImages, setIsLoadingImages] = useState(false);
     const [isTabLoading, setIsTabLoading] = useState(false);
-    const [isStoresLoading, setIsStoresLoading] = useState(false);
     const [teamId, setTeamId] = useState<number | null>(null);
     const [teamIds, setTeamIds] = useState<number[]>([]);
     const [isManager, setIsManager] = useState(false);
@@ -135,9 +132,7 @@ const Complaints = () => {
     const [updatingTaskFields, setUpdatingTaskFields] = useState<Set<string>>(new Set());
     
     // SearchableSelect state variables
-    const [selectedStore, setSelectedStore] = useState<string[]>([]);
     const [employeeOptions, setEmployeeOptions] = useState<SearchableSelectOption[]>([]);
-    const [storeOptions, setStoreOptions] = useState<SearchableSelectOption[]>([]);
     const [isAssignPopoverOpen, setIsAssignPopoverOpen] = useState(false);
     const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
     const [filterEmployeeSearch, setFilterEmployeeSearch] = useState("");
@@ -146,6 +141,19 @@ const Complaints = () => {
     const statusOptions = ['Assigned', 'Work In Progress', 'Complete'] as const;
 
     const { token, userRole, userData, currentUser } = useAuth();
+    const {
+        stores,
+        searchInput: storeSearchInput,
+        isLoading: isStoresLoading,
+        isLoadingMore: isStoresLoadingMore,
+        error: storeLoadError,
+        loadMore: loadMoreStores,
+        onInputChange: handleStoreSearchInput,
+        reset: resetStoreSearch,
+    } = usePagedStoreNames({
+        enabled: Boolean(token && isModalOpen),
+        employeeId: newTask.assignedToId,
+    });
 
     // Determine user role and load team data for managers
     useEffect(() => {
@@ -295,20 +303,6 @@ const Complaints = () => {
         }
     }, [token]);
 
-    const fetchStores = useCallback(async (employeeId?: number, searchTerm: string = '', page: number = 0, size: number = 500, sortByParam: string = 'storeName', sortOrder: string = 'asc') => {
-        if (!token || !employeeId) return;
-        
-        setIsStoresLoading(true);
-        try {
-            const data = await API.getStoreNames(employeeId, searchTerm);
-            setStores(data as unknown as Store[]);
-        } catch (error) {
-            console.error('Error fetching stores:', error);
-        } finally {
-            setIsStoresLoading(false);
-        }
-    }, [token]);
-
     // Hydrate filters on mount before fetching
     useEffect(() => {
         try {
@@ -435,14 +429,10 @@ const Complaints = () => {
         setEmployeeOptions(options);
     }, [allEmployees, teamMembers, isManager]);
 
-    // Populate SearchableSelect options for store dropdown
-    useEffect(() => {
-        const options: SearchableSelectOption[] = stores.map(store => ({
-            value: store.id.toString(),
-            label: store.storeName
-        })).sort((a, b) => a.label.localeCompare(b.label));
-        setStoreOptions(options);
-    }, [stores]);
+    const storeOptions = useMemo<SearchableSelectOption[]>(() => stores.map((store) => ({
+        value: store.id.toString(),
+        label: store.storeName,
+    })), [stores]);
 
     const createTask = async () => {
         if (!token) return;
@@ -463,7 +453,7 @@ const Complaints = () => {
             const payload = {
                 ...newTask,
                 assignedToName: selectedAssignedToName,
-                assignedById: userData?.employeeId || 86,
+                assignedById: resolveTaskAssignerId(userData?.employeeId),
                 dueDate: newTask.dueDate.split('T')[0]
             };
 
@@ -478,6 +468,7 @@ const Complaints = () => {
 
             if (response.ok) {
                 fetchTasks();
+                clearUnsavedChanges();
                 setIsModalOpen(false);
                 resetForm();
             } else {
@@ -575,8 +566,7 @@ const Complaints = () => {
                 storeId: 0,
                 storeName: ''
             });
-            setStores([]);
-            setSelectedStore([]);
+            resetStoreSearch();
             return;
         }
 
@@ -584,6 +574,7 @@ const Complaints = () => {
         const selectedEmployee = assignmentEmployees.find(emp => emp.id === employeeId);
         
         if (selectedEmployee) {
+            resetStoreSearch();
             setNewTask({
                 ...newTask,
                 assignedToId: employeeId,
@@ -591,8 +582,6 @@ const Complaints = () => {
                 storeId: 0,
                 storeName: ''
             });
-            fetchStores(employeeId);
-            setSelectedStore([]);
         }
         setIsAssignPopoverOpen(false);
     };
@@ -604,7 +593,6 @@ const Complaints = () => {
                 storeId: 0,
                 storeName: ''
             });
-            setSelectedStore([]);
             return;
         }
 
@@ -617,7 +605,6 @@ const Complaints = () => {
                 storeId: storeId,
                 storeName: selectedStoreObj.storeName
             });
-            setSelectedStore([option.value]);
         }
     };
 
@@ -706,9 +693,29 @@ const Complaints = () => {
             taskType: 'complaint',
             imageCount: 0
         });
-        setSelectedStore([]);
-        setStores([]);
+        resetStoreSearch();
         setActiveTab('general');
+    };
+
+    const complaintDraftIsDirty = isModalOpen && Boolean(
+        newTask.taskTitle.trim() ||
+        newTask.taskDesciption.trim() ||
+        newTask.dueDate ||
+        newTask.assignedToId ||
+        newTask.storeId ||
+        newTask.priority !== 'low' ||
+        activeTab !== 'general'
+    );
+    const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+        isDirty: complaintDraftIsDirty,
+        onDiscard: resetForm,
+    });
+
+    const closeComplaintDraft = () => {
+        confirmDiscard(() => {
+            setIsModalOpen(false);
+            resetForm();
+        });
     };
 
     const paginatedTasks = useMemo(() => {
@@ -796,14 +803,21 @@ const Complaints = () => {
         return filterEmployees.find((emp) => emp.id.toString() === filters.employee)?.name || 'All employees';
     }, [filters.employee, filterEmployees]);
 
+    const headerAction = useMemo(() => (
+        <Button size="sm" className="h-8 px-3 text-xs" onClick={() => setIsModalOpen(true)}>
+            <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> New
+        </Button>
+    ), []);
+
+    useDashboardHeader({
+        heading: 'Complaints',
+        subheading: 'Track and manage customer complaints',
+        action: headerAction,
+    });
+
     return (
         <div className="mx-auto w-full max-w-none py-4">
             <div className="mb-4 flex items-center justify-between gap-2">
-                <div className="order-2 ml-auto flex items-center gap-2 lg:shrink-0">
-                    <Button size="sm" className="h-9" onClick={() => setIsModalOpen(true)}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> New
-                    </Button>
-                </div>
                 <div className="order-1 flex-shrink-0">
                     <Button variant="outline" size="sm" className="lg:hidden" onClick={() => setIsFilterDrawerOpen(true)}>
                         <Filter className="mr-2 h-4 w-4" />
@@ -960,10 +974,7 @@ const Complaints = () => {
 
             <Dialog open={isModalOpen} onOpenChange={(open: boolean) => {
                 if (open) setIsModalOpen(true);
-                else {
-                    setIsModalOpen(false);
-                    resetForm();
-                }
+                else closeComplaintDraft();
             }}>
                 <DialogContent>
                     <DialogHeader>
@@ -1007,10 +1018,7 @@ const Complaints = () => {
                                     </Select>
                                 </div>
                                 <div className="flex justify-between mt-4">
-                                    <Button variant="outline" onClick={() => {
-                                        setIsModalOpen(false);
-                                        resetForm();
-                                    }}>Cancel</Button>
+                                    <Button variant="outline" onClick={closeComplaintDraft}>Cancel</Button>
                                     <Button onClick={handleNext} disabled={isTabLoading}>
                                         {isTabLoading ? (
                                             <>
@@ -1145,10 +1153,13 @@ const Complaints = () => {
                                         options={storeOptions}
                                         value={selectedStoreOption}
                                         onChange={handleStoreOptionSelect}
+                                        inputValue={storeSearchInput}
+                                        onInputChange={handleStoreSearchInput}
+                                        onMenuScrollToBottom={loadMoreStores}
                                         placeholder={
-                                            isStoresLoading ? "Loading stores..." : 
+                                            isStoresLoading ? "Loading stores..." :
                                             !newTask.assignedToId ? "Select employee first" : 
-                                            "Select a store"
+                                            "Search and select a store"
                                         }
                                         className="w-[280px]"
                                         classNamePrefix="select"
@@ -1156,9 +1167,11 @@ const Complaints = () => {
                                         isSearchable
                                         isClearable
                                         isDisabled={!newTask.assignedToId}
-                                        isLoading={isStoresLoading}
+                                        isLoading={isStoresLoading || isStoresLoadingMore}
                                         backspaceRemovesValue
-                                        noOptionsMessage={() => "No matching stores found"}
+                                        noOptionsMessage={() => storeLoadError
+                                            ? "Could not load stores. Please try again."
+                                            : "No matching stores found"}
                                     />
                                 </div>
                                 <div className="flex justify-between mt-4">

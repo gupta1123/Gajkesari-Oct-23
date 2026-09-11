@@ -43,6 +43,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 const API_BASE_URL = "https://api.gajkesaristeels.in";
 
@@ -107,6 +108,17 @@ export default function ExpensesPage() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [rejectionIds, setRejectionIds] = useState<number[]>([]);
   const [rejectionReason, setRejectionReason] = useState('');
+  const resetRejectionDraft = () => {
+    setRejectionIds([]);
+    setRejectionReason('');
+  };
+  const { clearUnsavedChanges: clearRejectionChanges, confirmDiscard: confirmRejectionDiscard } = useUnsavedChanges({
+    isDirty: rejectionIds.length > 0 && Boolean(rejectionReason.trim()),
+    onDiscard: resetRejectionDraft,
+  });
+  const requestCloseRejection = () => {
+    if (!reviewBusy) confirmRejectionDiscard(resetRejectionDraft);
+  };
 
   const employeeOptions = useMemo<SearchableOption[]>(() => employeeDirectory
     .map((employee) => ({
@@ -220,8 +232,8 @@ export default function ExpensesPage() {
         ...employee,
         expenses: employee.expenses.map(expense => uniqueIds.includes(expense.id) ? { ...expense, status: action } : expense),
       })));
-      setRejectionIds([]);
-      setRejectionReason('');
+      clearRejectionChanges();
+      resetRejectionDraft();
     } catch (error) {
       console.error(error);
     } finally {
@@ -338,6 +350,31 @@ export default function ExpensesPage() {
     URL.revokeObjectURL(url);
   };
 
+  const renderCards = () => (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {filteredEmployees.length === 0 ? (
+        <div className="col-span-full py-12 text-center">
+          <Text tone="muted">No expenses found for the selected period.</Text>
+        </div>
+      ) : (
+        filteredEmployees.map((employee) => (
+          <EmployeeExpenseCard
+            key={employee.id}
+            employee={employee}
+            showExpenses={expandedCardId === employee.id}
+            onToggleExpenses={() => toggleCardExpansion(employee.id)}
+            onApprove={handleApprove}
+            busy={reviewBusy}
+            onReject={handleReject}
+            onApproveMultiple={handleApproveMultiple}
+            onRejectMultiple={handleRejectMultiple}
+            onViewDetails={setSelectedExpense}
+          />
+        ))
+      )}
+    </div>
+  );
+
   return (
     <div className="mx-auto w-full max-w-none py-4 px-4 sm:px-6">
       <div className="mb-4 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
@@ -435,7 +472,7 @@ export default function ExpensesPage() {
               <Text>Loading expenses...</Text>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <Card key={i}>
                 <CardHeader>
@@ -459,40 +496,23 @@ export default function ExpensesPage() {
             ))}
           </div>
         </div>
-      ) : viewMode === "card" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredEmployees.length === 0 ? (
-            <div className="col-span-full text-center py-12">
-              <Text tone="muted">No expenses found for the selected period.</Text>
-            </div>
-          ) : (
-            filteredEmployees.map((employee) => (
-              <EmployeeExpenseCard 
-                key={employee.id} 
-                employee={employee} 
-                showExpenses={expandedCardId === employee.id}
-                onToggleExpenses={() => toggleCardExpansion(employee.id)}
-                onApprove={handleApprove}
-                busy={reviewBusy}
-                onReject={handleReject}
-                onApproveMultiple={handleApproveMultiple}
-                onRejectMultiple={handleRejectMultiple}
-                onViewDetails={setSelectedExpense}
-              />
-            ))
-          )}
-        </div>
       ) : (
-        <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
-          <CardHeader className="py-3 px-4 border-b">
-            <CardTitle className="text-sm font-semibold text-foreground">Expenses Table</CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Detailed view of all expenses for the selected period
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto w-full">
-              <Table className="w-full text-xs font-poppins">
+        <>
+          <div className="md:hidden">{renderCards()}</div>
+          <div className="hidden md:block">
+            {viewMode === "card" ? (
+              renderCards()
+            ) : (
+              <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
+                <CardHeader className="border-b px-4 py-3">
+                  <CardTitle className="text-sm font-semibold text-foreground">Expenses Table</CardTitle>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Detailed view of all expenses for the selected period
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="w-full overflow-x-auto">
+                    <Table className="w-full font-poppins text-xs">
                 <TableHeader className="bg-muted/30">
                   <TableRow>
                     <TableHead className="text-xs font-medium text-muted-foreground whitespace-nowrap h-10">Employee</TableHead>
@@ -592,10 +612,13 @@ export default function ExpensesPage() {
                       ))
                   )}
                 </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </>
       )}
 
       <ExpenseDetailsDialog
@@ -606,7 +629,7 @@ export default function ExpensesPage() {
         }}
       />
 
-      <Dialog open={rejectionIds.length > 0} onOpenChange={open => { if (!open && !reviewBusy) setRejectionIds([]); }}>
+      <Dialog open={rejectionIds.length > 0} onOpenChange={open => { if (!open) requestCloseRejection(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject {rejectionIds.length > 1 ? 'expenses' : 'expense'}</DialogTitle>
@@ -615,7 +638,7 @@ export default function ExpensesPage() {
           <Label htmlFor="expense-rejection-reason">Reason</Label>
           <textarea id="expense-rejection-reason" className="min-h-24 w-full rounded-md border bg-background p-3 text-sm" value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} maxLength={500} disabled={reviewBusy} />
           <DialogFooter>
-            <Button variant="outline" disabled={reviewBusy} onClick={() => setRejectionIds([])}>Cancel</Button>
+            <Button variant="outline" disabled={reviewBusy} onClick={requestCloseRejection}>Cancel</Button>
             <Button variant="destructive" disabled={reviewBusy || !rejectionReason.trim()} onClick={() => void reviewExpenses(rejectionIds, 'rejected', rejectionReason)}>{reviewBusy ? 'Saving…' : 'Reject'}</Button>
           </DialogFooter>
         </DialogContent>

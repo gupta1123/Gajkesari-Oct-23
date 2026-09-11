@@ -68,6 +68,7 @@ import Image from 'next/image';
 import BrandTab from './BrandTab';
 import VisitTasksTab from './visit-tasks-tab';
 import { normalizeVisitTask } from '@/lib/visit-task';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
 
 type Priority = 'low' | 'medium' | 'high';
 
@@ -388,6 +389,32 @@ export default function VisitDetailPage() {
       priority: 'low',
     }));
   };
+
+  const noteDraftIsDirty = isNoteModalVisible && (
+    isNoteEditMode
+      ? noteContent !== (notes.find((note) => note.id === editingNoteId)?.content || '')
+      : Boolean(noteContent.trim())
+  );
+  const checkoutDraftIsDirty = isCheckoutModalOpen && (
+    checkoutOutcome !== (visitDetail?.outcome || 'Interested') ||
+    checkoutFeedback !== (visitDetail?.feedback || '')
+  );
+  const requirementDraftIsDirty = isRequirementModalOpen && Boolean(
+    newTask.taskTitle.trim() || newTask.taskDesciption.trim() || newTask.dueDate ||
+    newTask.priority !== 'low' || activeRequirementTab !== 'general'
+  );
+  const complaintDraftIsDirty = isComplaintModalOpen && Boolean(
+    complaintTask.taskTitle.trim() || complaintTask.taskDesciption.trim() || complaintTask.dueDate ||
+    complaintTask.priority !== 'low' || activeComplaintTab !== 'general'
+  );
+  const { clearUnsavedChanges: clearNoteChanges, confirmDiscard: confirmNoteDiscard } = useUnsavedChanges({ isDirty: noteDraftIsDirty });
+  const { clearUnsavedChanges: clearCheckoutChanges, confirmDiscard: confirmCheckoutDiscard } = useUnsavedChanges({ isDirty: checkoutDraftIsDirty });
+  const { clearUnsavedChanges: clearRequirementChanges, confirmDiscard: confirmRequirementDiscard } = useUnsavedChanges({ isDirty: requirementDraftIsDirty });
+  const { clearUnsavedChanges: clearComplaintChanges, confirmDiscard: confirmComplaintDiscard } = useUnsavedChanges({ isDirty: complaintDraftIsDirty });
+  const requestCloseNoteModal = () => confirmNoteDiscard(closeNoteModal);
+  const requestCloseCheckoutModal = () => confirmCheckoutDiscard(closeCheckoutModal);
+  const requestCloseRequirementModal = () => confirmRequirementDiscard(closeRequirementModal);
+  const requestCloseComplaintModal = () => confirmComplaintDiscard(closeComplaintModal);
 
   const giftAttachment = useMemo(
     () => visitDetail?.attachmentResponse?.find(
@@ -723,6 +750,7 @@ export default function VisitDetailPage() {
       }
 
       setCheckoutMessage(response || "Checked out successfully.");
+      clearCheckoutChanges();
       setIsCheckoutModalOpen(false);
       await fetchVisitDetail(String(visitDetail.id));
     } catch (checkoutErr) {
@@ -874,6 +902,7 @@ export default function VisitDetailPage() {
         await refreshNotes();
       }
       
+      clearNoteChanges();
       setIsNoteModalVisible(false);
       setNoteContent('');
       setIsNoteEditMode(false);
@@ -966,6 +995,7 @@ export default function VisitDetailPage() {
       const createdTask = normalizeVisitTask({ ...taskToCreate, ...data });
 
       if (taskType === 'requirement') {
+        clearRequirementChanges();
         setRequirements(prevTasks => [createdTask, ...prevTasks]);
         setNewTask({
           id: 0,
@@ -994,6 +1024,7 @@ export default function VisitDetailPage() {
         setIsRequirementModalOpen(false);
         setActiveRequirementTab('general');
       } else {
+        clearComplaintChanges();
         setComplaints(prevTasks => [createdTask, ...prevTasks]);
         setComplaintTask({
           id: 0,
@@ -1874,7 +1905,7 @@ export default function VisitDetailPage() {
       {/* Notes Modal */}
       <Dialog open={isNoteModalVisible} onOpenChange={(open) => {
         if (open) setIsNoteModalVisible(true);
-        else closeNoteModal();
+        else requestCloseNoteModal();
       }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1892,7 +1923,7 @@ export default function VisitDetailPage() {
               className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
             />
             <div className="flex flex-col sm:flex-row justify-end gap-2">
-              <Button variant="outline" onClick={closeNoteModal} className="w-full sm:w-auto">Cancel</Button>
+              <Button variant="outline" onClick={requestCloseNoteModal} className="w-full sm:w-auto">Cancel</Button>
               <Button onClick={saveNote} disabled={isNoteSaving || !noteContent.trim()} className="w-full sm:w-auto">
                 {isNoteSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {isNoteEditMode ? 'Update Note' : 'Save Note'}
@@ -1905,7 +1936,7 @@ export default function VisitDetailPage() {
       {/* Checkout Modal */}
       <Dialog open={isCheckoutModalOpen} onOpenChange={(open) => {
         if (open) setIsCheckoutModalOpen(true);
-        else closeCheckoutModal();
+        else requestCloseCheckoutModal();
       }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1943,7 +1974,7 @@ export default function VisitDetailPage() {
             )}
 
             <div className="flex flex-col sm:flex-row justify-end gap-2">
-              <Button variant="outline" onClick={closeCheckoutModal} className="w-full sm:w-auto">Cancel</Button>
+              <Button variant="outline" onClick={requestCloseCheckoutModal} className="w-full sm:w-auto">Cancel</Button>
               <Button onClick={handleCheckoutVisit} disabled={isCheckingOut || !checkoutOutcome.trim()} className="w-full sm:w-auto">
                 {isCheckingOut && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Confirm Check Out
@@ -2011,7 +2042,7 @@ export default function VisitDetailPage() {
                       />
                     </div>
                     <div className="flex flex-col sm:flex-row justify-between gap-2 mt-4">
-                      <Button variant="outline" onClick={closeRequirementModal} className="w-full sm:w-auto">Cancel</Button>
+                      <Button variant="outline" onClick={requestCloseRequirementModal} className="w-full sm:w-auto">Cancel</Button>
                       <Button onClick={() => setActiveRequirementTab('details')} className="w-full sm:w-auto">Next</Button>
                     </div>
                   </div>
@@ -2071,7 +2102,7 @@ export default function VisitDetailPage() {
                     <div className="flex flex-col sm:flex-row justify-between gap-2 mt-4">
                       <div className="flex gap-2">
                         <Button variant="outline" onClick={() => setActiveRequirementTab('general')} className="w-full sm:w-auto">Back</Button>
-                        <Button variant="ghost" onClick={closeRequirementModal} className="w-full sm:w-auto">Cancel</Button>
+                        <Button variant="ghost" onClick={requestCloseRequirementModal} className="w-full sm:w-auto">Cancel</Button>
                       </div>
                       <Button onClick={() => createTask('requirement')} disabled={isCreatingTask} className="w-full sm:w-auto">
                         {isCreatingTask && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -2144,7 +2175,7 @@ export default function VisitDetailPage() {
                       />
                     </div>
                     <div className="flex flex-col sm:flex-row justify-between gap-2 mt-4">
-                      <Button variant="outline" onClick={closeComplaintModal} className="w-full sm:w-auto">Cancel</Button>
+                      <Button variant="outline" onClick={requestCloseComplaintModal} className="w-full sm:w-auto">Cancel</Button>
                       <Button onClick={() => setActiveComplaintTab('details')} className="w-full sm:w-auto">Next</Button>
                     </div>
                   </div>
@@ -2204,7 +2235,7 @@ export default function VisitDetailPage() {
                     <div className="flex flex-col sm:flex-row justify-between gap-2 mt-4">
                       <div className="flex gap-2">
                         <Button variant="outline" onClick={() => setActiveComplaintTab('general')} className="w-full sm:w-auto">Back</Button>
-                        <Button variant="ghost" onClick={closeComplaintModal} className="w-full sm:w-auto">Cancel</Button>
+                        <Button variant="ghost" onClick={requestCloseComplaintModal} className="w-full sm:w-auto">Cancel</Button>
                       </div>
                       <Button onClick={() => createTask('complaint')} disabled={isCreatingTask} className="w-full sm:w-auto">
                         {isCreatingTask && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

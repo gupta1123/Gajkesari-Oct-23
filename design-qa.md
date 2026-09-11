@@ -42,6 +42,96 @@
 
 final result: passed
 
+## Approvals filter layout — 2026-09-11
+
+- Target: Icon's authenticated Approvals page, compared with the authenticated local Gajkesari Approvals page at the same desktop viewport.
+- Replaced the permanently exposed, labeled date-filter card with Icon's compact Show filters / Hide filters control and muted expandable filter panel.
+- Moved the employee selector and request-history status selector into the filter panel. Date controls now use the same compact calendar-popover treatment as Icon, with matched 36px control heights, widths, spacing, border, background, and responsive wrapping.
+- Preserved Gajkesari's Apply and Reset behavior, applied-range summary, pagination, status-specific requests, employee filtering, refresh behavior, and approval APIs.
+- Browser verification covered collapsed filters, expanded pending filters, and expanded request-history filters. All controls remain visible without overlap at the target viewport.
+- TypeScript and whitespace validation passed.
+
+final result: passed
+
+## Attendance filter alignment — 2026-09-11
+
+- Source visual truth: authenticated Icon Steel Attendance page at `https://iconsales.netlify.app/dashboard/attendance`; implementation: authenticated local Gajkesari Attendance page at the same 1280px desktop viewport.
+- Matched Icon's compact bordered filter surface, horizontal control group, 36px filter height, rounded selectors, right-aligned legend, and colored status pills.
+- Preserved Gajkesari's additional role and employee selectors, existing API behavior, saved filter state, employee filtering, and attendance data.
+- [P2, fixed] The first implementation clipped the final Absent legend pill at 1280px. Tightened the four Gajkesari control widths so every filter and legend item is visible in one row without horizontal page overflow.
+- Smaller screens retain wrapping for filters and horizontal overflow for the legend instead of compressing labels.
+- Paired Icon and Gajkesari browser captures were inspected in this task. TypeScript and whitespace validation passed.
+
+final result: passed
+
+## Expenses card layout — 2026-09-10
+
+### Target and evidence
+
+- Source visual truth: authenticated Icon Expenses page at `https://iconsales.netlify.app/dashboard/expenses`, captured in Chrome as `.design-qa/icon-expenses-reference.png` (1512 × 771 px).
+- Implementation: authenticated local Gajkesari Expenses page at `http://localhost:3000/dashboard/expenses`, captured in Chrome as `.design-qa/gajkesari-expenses-after.png` (1512 × 771 px).
+- State: light theme, expanded sidebar, Admin view, All employees, All Months, 2026, Cards mode, and all cards collapsed. Product data and employee names differ intentionally between the two applications.
+- Full-view comparison: `.design-qa/expense-card-comparison.png`, with the source and implementation placed side by side at their native 1512 × 771 dimensions and 1× screenshot density.
+- Focused comparison: `.design-qa/expense-card-focused-comparison.png`, comparing the filters, controls, first card row, status tiles, and collapsed expense controls at the same scale.
+
+### Findings and comparison history
+
+- [P1, fixed] Gajkesari previously used three desktop grid columns with 24px gaps, producing wider cards and a different page density from Icon. The Expenses card grid and loading skeleton now use one column on mobile, two at `md`, three at `lg`, and four at `xl`, with a consistent 16px gap.
+- [P2, fixed] The old cards used taller header/content padding, larger avatars and controls, and less compact status presentation. The card padding, avatar, typography, summary tiles, radius, border, and collapsed `Show Expenses (N)` control now match Icon's compact card composition.
+- [P2, fixed] Cards/Table mode could replace the card layout on narrow screens. Mobile now consistently presents the responsive card layout, while the desktop toggle continues to switch between cards and the detailed table.
+- Post-fix evidence shows four equally sized cards in the first desktop row, aligned status tiles and controls, and the same horizontal/vertical rhythm as Icon. No actionable P0, P1, or P2 differences remain in the requested card layout.
+
+### Fidelity surfaces
+
+- Fonts and typography: existing application font and Icon-matched weights, sizes, line heights, uppercase total label, truncation, and status hierarchy are aligned.
+- Spacing and layout rhythm: matching four-column desktop grid, 16px gaps, compact card padding, equal card heights, rounded corners, and aligned internal rows.
+- Colors and visual tokens: existing foreground, muted, border, primary, and approved/pending/rejected semantic tokens visually match the reference in light mode and retain dark-mode support.
+- Image quality and assets: no new image assets are used in the card body; employee initials remain code-native text inside the existing avatar treatment.
+- Copy and content: `Total Expenses`, `Approved`, `Pending`, `Rejected`, and `Show Expenses (N)` match the reference. Gajkesari amounts and names remain sourced from its own data.
+
+### Verification
+
+- Browser-verified the final Cards state and the Cards/Table toggle with live authenticated Gajkesari data; restored the page to Cards mode after testing.
+- Card expand/collapse remains wired to the existing expense details and approval actions; API and business logic were not changed.
+- Responsive grid behavior is encoded at the same breakpoints as Icon, and narrow screens always retain cards.
+- TypeScript passed, all 27 automated tests passed, and `git diff --check` passed.
+
+final result: passed
+
+## Meeting plan input controls — 2026-09-10
+
+### Target and evidence
+
+- Source visual truth: `/var/folders/df/_ytqcm0j3g1fl9sl2scxp8x00000gn/T/TemporaryItems/NSIRD_screencaptureui_4jXjb6/Screenshot 2026-09-10 at 6.22.52 PM.png` (3024 × 1964 px), supplied as the before-state showing the unwanted native datalist arrow and sticky zero values.
+- Implementation screenshot: `.design-qa/meeting-plan-after.png` (1512 × 771 px), captured from authenticated Chrome at `http://localhost:3000/dashboard/meetings` with the New Meeting dialog on the Expense & Gift Plan step.
+- Full-view comparison: `.design-qa/meeting-plan-comparison.png`. The source was normalized to 1512 px wide; the implementation was captured at its native 1512 × 771 CSS viewport and 1× screenshot density.
+- Focused comparison: `.design-qa/meeting-plan-focused-comparison.png`, showing the expense and gift input rows before and after the change.
+
+### Findings and comparison history
+
+- [P2, fixed] Chrome rendered a native datalist dropdown indicator inside Expense head, although the field is visually intended to behave like a normal text input. The indicator is now hidden while datalist suggestions remain available.
+- [P2, fixed] Emptying Amount, Quantity, or Estimated amount immediately converted the empty string back to `0`, so Backspace appeared not to work. The draft form state now preserves an empty value while editing and converts it to a number only when preparing the API payload.
+- Post-fix interaction evidence: entered `1445` in Amount and cleared it; entered `189` in Estimated amount and cleared it; cleared Quantity and restored its default value. All three controls remained editable and empty after deletion.
+- The same fixes were applied to both the New Meeting dialog and the editable meeting-draft detail form.
+- No actionable P0, P1, or P2 differences remain for the requested controls.
+
+### Fidelity surfaces
+
+- Fonts and typography: unchanged; labels, helper copy, input text, and action weights retain the existing meeting dialog hierarchy.
+- Spacing and layout rhythm: unchanged; hiding the native indicator removes only the unwanted glyph and does not shift the grid, padding, or field dimensions.
+- Colors and visual tokens: unchanged; existing input borders, focus ring, backgrounds, and semantic action colors remain intact.
+- Image quality and assets: no image assets are involved in these controls.
+- Copy and content: unchanged apart from empty numeric inputs no longer displaying forced zero values.
+
+### Verification
+
+- Browser-verified the Expense & Gift Plan step in authenticated Chrome.
+- Confirmed the datalist indicator is absent and autocomplete remains wired through the existing datalist options.
+- Confirmed Amount, Quantity, and Estimated amount accept values and can be cleared normally.
+- TypeScript passed, all 27 automated tests passed, and `git diff --check` passed.
+
+final result: passed
+
 ## Shared top navbar alignment — 2026-09-03
 
 ### Target and evidence
@@ -131,5 +221,16 @@ final result: passed
 - Browser verification: initial load displayed roads and place names around Surat using zoom-11 tiles; View all produced zoom 6; Reset view restored zoom 11; manual Zoom in produced zoom 12. Restored the detailed default afterward.
 - Fidelity: same source tiles and exact dark filter as German Steel; city geography intentionally follows Gajkesari's real employee data rather than copying Bengaluru.
 - TypeScript passed, all 10 employee-map tests passed, and scoped whitespace checks passed.
+
+final result: passed
+
+## Expense card overlap — 2026-09-11
+
+- Target: the supplied 1280px Gajkesari screenshot and Icon's Expense card implementation; implementation checked on the authenticated local Expenses page at the same viewport.
+- [P1, fixed] Employee details could consume the total's space. The identity block now owns only the remaining width and truncates cleanly while the total keeps a fixed, right-aligned area.
+- [P1, fixed] Expanded expense rows placed metadata, amount, and all actions on one horizontal line. Each row now uses dedicated checkbox, flexible detail, and action columns, with the amount stacked above the fixed-width action group.
+- Long employee names, categories, and monetary values now truncate within their own regions instead of overlapping adjacent content. Full monetary values remain available through native hover text.
+- The authenticated browser check confirms four-column card headers, status summaries, and the fully expanded three-row expense card fit without collisions at the target viewport.
+- TypeScript and whitespace validation passed. No expense data, approval actions, API requests, or filtering behavior changed.
 
 final result: passed

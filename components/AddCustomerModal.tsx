@@ -12,6 +12,7 @@ import { isManagerRoleValue } from '@/lib/auth';
 import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Search, Check } from 'lucide-react';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
 
 interface CustomerData {
   id?: number;
@@ -73,6 +74,26 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   const [isFieldOfficerPopoverOpen, setIsFieldOfficerPopoverOpen] = useState(false);
   const [fieldOfficerSearchTerm, setFieldOfficerSearchTerm] = useState("");
   const [dobDisplayValue, setDobDisplayValue] = useState<string>('');
+  const initialCustomerData = useMemo<CustomerData>(() => existingData || {
+    clientFirstName: '',
+    clientLastName: '',
+    email: '',
+    dateOfBirth: '',
+    dob: '',
+  }, [existingData]);
+  const customerFormIsDirty = isOpen && JSON.stringify(customerData) !== JSON.stringify(initialCustomerData);
+  const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+    isDirty: customerFormIsDirty,
+    onDiscard: () => {
+      setCustomerData(initialCustomerData);
+      setActiveTab('basic');
+      setPrimaryContactError(null);
+      setSecondaryContactError(null);
+      setFieldOfficerSearchTerm('');
+      setIsFieldOfficerPopoverOpen(false);
+    },
+  });
+  const requestClose = () => confirmDiscard(onClose);
 
   const fieldOfficerOptions = useMemo(() => {
     return employees.map((employee) => ({
@@ -233,6 +254,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       if (response.ok) {
         const data = await response.json();
         console.log(data)
+        clearUnsavedChanges();
         onClose(); // Close the modal after successful submission
         if (onCustomerAdded) {
           onCustomerAdded(); // Refresh the customers list
@@ -350,7 +372,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   }, [isOpen, existingData]);
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) requestClose(); }}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>Add Customer</DialogTitle>
@@ -584,7 +606,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
           </TabsContent>
         </Tabs>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={requestClose}>
             Cancel
           </Button>
           {activeTab !== 'basic' && (

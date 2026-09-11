@@ -25,6 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useState, useEffect } from "react";
 import { Users, Plus, Edit, Save, X, MapPin, User, Building, Crown, Navigation, Loader2 } from "lucide-react";
 import { API } from "@/lib/api";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 type Team = {
   id: number;
@@ -223,6 +224,28 @@ export default function TeamSettings() {
   const [isRemovingCity, setIsRemovingCity] = useState(false);
   const [cityToRemove, setCityToRemove] = useState<{ city: string; employeeId: number } | null>(null);
   const [isRemoveCityDialogOpen, setIsRemoveCityDialogOpen] = useState(false);
+  const addTeamIsDirty = isAddTeamOpen && Boolean(
+    newTeam.name || newTeam.regionalManager || newTeam.cities.length || newTeam.fieldOfficers.length
+  );
+  const editTeamIsDirty = Boolean(
+    isEditTeamOpen && editingTeam &&
+    JSON.stringify(editingTeam) !== JSON.stringify(teams.find((team) => team.id === editingTeam.id))
+  );
+  const { clearUnsavedChanges: clearAddTeamChanges, confirmDiscard: confirmAddTeamDiscard } = useUnsavedChanges({
+    isDirty: addTeamIsDirty,
+  });
+  const { clearUnsavedChanges: clearEditTeamChanges, confirmDiscard: confirmEditTeamDiscard } = useUnsavedChanges({
+    isDirty: editTeamIsDirty,
+  });
+  const resetNewTeam = () => setNewTeam({ name: "", regionalManager: "", cities: [], fieldOfficers: [] });
+  const closeAddTeam = () => confirmAddTeamDiscard(() => {
+    resetNewTeam();
+    setIsAddTeamOpen(false);
+  });
+  const closeEditTeam = () => confirmEditTeamDiscard(() => {
+    setIsEditTeamOpen(false);
+    setEditingTeam(null);
+  });
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
@@ -261,13 +284,9 @@ export default function TeamSettings() {
       };
       
       setTeams([...teams, newTeamObj]);
+      clearAddTeamChanges();
       setIsAddTeamOpen(false);
-      setNewTeam({
-        name: "",
-        regionalManager: "",
-        cities: [],
-        fieldOfficers: []
-      });
+      resetNewTeam();
     }
   };
 
@@ -281,6 +300,7 @@ export default function TeamSettings() {
       setTeams(teams.map(team => 
         team.id === editingTeam.id ? editingTeam : team
       ));
+      clearEditTeamChanges();
       setIsEditTeamOpen(false);
       setEditingTeam(null);
     }
@@ -398,7 +418,10 @@ export default function TeamSettings() {
       <div className="flex justify-between items-center">
         <div>
         </div>
-        <Dialog open={isAddTeamOpen} onOpenChange={setIsAddTeamOpen}>
+        <Dialog open={isAddTeamOpen} onOpenChange={(open) => {
+          if (open) setIsAddTeamOpen(true);
+          else closeAddTeam();
+        }}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
@@ -507,7 +530,7 @@ export default function TeamSettings() {
               </div>
               
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setIsAddTeamOpen(false)}>
+                <Button variant="outline" onClick={closeAddTeam}>
                   Cancel
                 </Button>
                 <Button onClick={handleAddTeam}>
@@ -592,7 +615,10 @@ export default function TeamSettings() {
       </div>
 
       {/* Edit Team Dialog */}
-      <Dialog open={isEditTeamOpen} onOpenChange={setIsEditTeamOpen}>
+      <Dialog open={isEditTeamOpen} onOpenChange={(open) => {
+        if (open) setIsEditTeamOpen(true);
+        else closeEditTeam();
+      }}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Team</DialogTitle>
@@ -696,7 +722,7 @@ export default function TeamSettings() {
               </div>
               
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setIsEditTeamOpen(false)}>
+                <Button variant="outline" onClick={closeEditTeam}>
                   Cancel
                 </Button>
                 <Button onClick={handleSaveTeam}>

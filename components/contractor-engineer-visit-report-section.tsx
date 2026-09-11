@@ -387,10 +387,26 @@ function FormSection({
 
 type ContractorEngineerVisitReportSectionProps = {
   initialTab?: string;
+  initialStartDate?: string;
+  initialEndDate?: string;
+  initialSearch?: string;
+  initialCategory?: string;
+  initialProjectType?: string;
+  initialPotential?: string;
+  initialPage?: number;
+  initialPageSize?: number;
 };
 
 export default function ContractorEngineerVisitReportSection({
   initialTab,
+  initialStartDate,
+  initialEndDate,
+  initialSearch,
+  initialCategory,
+  initialProjectType,
+  initialPotential,
+  initialPage,
+  initialPageSize,
 }: ContractorEngineerVisitReportSectionProps) {
   const [form, setForm] = useState<ContractorEngineerVisitReportFormData>(() => createInitialForm());
   const [activeReportTab, setActiveReportTab] = useState(
@@ -398,11 +414,11 @@ export default function ContractorEngineerVisitReportSection({
   );
   const [activeFormStep, setActiveFormStep] = useState(0);
   const [reports, setReports] = useState<ContractorEngineerVisitReport[]>([]);
-  const [reportStartDate, setReportStartDate] = useState(() => todayIso());
-  const [reportEndDate, setReportEndDate] = useState(() => todayIso());
+  const [reportStartDate, setReportStartDate] = useState(() => initialStartDate || todayIso());
+  const [reportEndDate, setReportEndDate] = useState(() => initialEndDate || todayIso());
   const [isReportsLoading, setIsReportsLoading] = useState(false);
-  const [reportPage, setReportPage] = useState(0);
-  const [reportPageSize, setReportPageSize] = useState(10);
+  const [reportPage, setReportPage] = useState(initialPage ?? 0);
+  const [reportPageSize, setReportPageSize] = useState(initialPageSize ?? 10);
   const [reportTotalElements, setReportTotalElements] = useState(0);
   const [reportTotalPages, setReportTotalPages] = useState(0);
   const [reportsError, setReportsError] = useState<string | null>(null);
@@ -410,10 +426,10 @@ export default function ContractorEngineerVisitReportSection({
   const [isSavingReport, setIsSavingReport] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formMessage, setFormMessage] = useState<string | null>(null);
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [submittedCategory, setSubmittedCategory] = useState("all");
-  const [submittedProjectType, setSubmittedProjectType] = useState("all");
-  const [submittedPotential, setSubmittedPotential] = useState("all");
+  const [submittedSearch, setSubmittedSearch] = useState(initialSearch || "");
+  const [submittedCategory, setSubmittedCategory] = useState(initialCategory || "all");
+  const [submittedProjectType, setSubmittedProjectType] = useState(initialProjectType || "all");
+  const [submittedPotential, setSubmittedPotential] = useState(initialPotential || "all");
   const [isFiltersOpen, setIsFiltersOpen] = useState(true);
 
   const activeFilterCount = useMemo(() => {
@@ -424,6 +440,22 @@ export default function ContractorEngineerVisitReportSection({
       submittedPotential !== "all" && submittedPotential,
     ].filter(Boolean).length;
   }, [submittedCategory, submittedPotential, submittedProjectType, submittedSearch]);
+
+  const detailQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      tab: "contractorEngineerVisitReport",
+      contractorReportTab: "submittedReports",
+      contractorStart: reportStartDate,
+      contractorEnd: reportEndDate,
+      contractorCategory: submittedCategory,
+      contractorProjectType: submittedProjectType,
+      contractorPotential: submittedPotential,
+      contractorPage: String(reportPage),
+      contractorPageSize: String(reportPageSize),
+    });
+    if (submittedSearch.trim()) params.set("contractorSearch", submittedSearch.trim());
+    return params.toString();
+  }, [reportEndDate, reportPage, reportPageSize, reportStartDate, submittedCategory, submittedPotential, submittedProjectType, submittedSearch]);
 
   const setField = useCallback(
     <K extends keyof ContractorEngineerVisitReportFormData>(
@@ -1106,6 +1138,7 @@ export default function ContractorEngineerVisitReportSection({
           pageSize={reportPageSize}
           totalPages={reportTotalPages}
           totalElements={reportTotalElements}
+          detailQuery={detailQuery}
           onPageChange={setReportPage}
           onPageSizeChange={(size) => {
             setReportPageSize(size);

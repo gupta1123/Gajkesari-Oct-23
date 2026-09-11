@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { tokenHasFieldOfficerRole } from './lib/web-access'
 
 function isTokenExpired(token: string | undefined): boolean {
   if (!token) return true;
@@ -29,9 +30,10 @@ export function middleware(request: NextRequest) {
   );
 
   const invalidOrExpired = !token || isTokenExpired(token);
+  const isBlockedFieldOfficer = tokenHasFieldOfficerRole(token);
 
-  // If accessing a protected route without a valid token, redirect to login
-  if (isProtectedRoute && invalidOrExpired) {
+  // Reject invalid sessions and Field Officer accounts before protected UI renders.
+  if (isProtectedRoute && (invalidOrExpired || isBlockedFieldOfficer)) {
     const res = NextResponse.redirect(new URL('/login', request.url));
     // Clear cookie to avoid loops
     res.cookies.set('authToken', '', { path: '/', maxAge: 0 });
@@ -39,6 +41,12 @@ export function middleware(request: NextRequest) {
   }
 
   const hasValidToken = !!token && !invalidOrExpired;
+
+  if (request.nextUrl.pathname === '/login' && isBlockedFieldOfficer) {
+    const res = NextResponse.next();
+    res.cookies.set('authToken', '', { path: '/', maxAge: 0 });
+    return res;
+  }
 
   // If accessing login page with a valid token, redirect to dashboard
   if (request.nextUrl.pathname === '/login' && hasValidToken) {

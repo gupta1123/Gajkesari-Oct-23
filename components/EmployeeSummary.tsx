@@ -22,6 +22,7 @@ import {
     requestEmployeeTaDaExcelSummary,
 } from "@/lib/employee-ta-da-excel-export";
 import { API, APIRequestError, type SalaryCalculationJob } from "@/lib/api";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 interface SummaryData {
     employeeName: string;
@@ -413,9 +414,17 @@ const EmployeeSummary: React.FC = () => {
         setAdjustmentError(null);
     };
 
+    const originalAdjustmentInput = adjustmentEmployee
+        ? (getSalaryAdjustmentAmount(adjustmentEmployee) === 0 ? "" : String(getSalaryAdjustmentAmount(adjustmentEmployee)))
+        : "";
+    const { clearUnsavedChanges: clearAdjustmentChanges, confirmDiscard: confirmAdjustmentDiscard } = useUnsavedChanges({
+        isDirty: isAdjustmentModalOpen && adjustmentAmountInput !== originalAdjustmentInput,
+        onDiscard: resetAdjustmentModal,
+    });
+
     const closeAdjustmentModal = () => {
         if (isApplyingAdjustment) return;
-        resetAdjustmentModal();
+        confirmAdjustmentDiscard(resetAdjustmentModal);
     };
 
     const handleApplySalaryAdjustment = async () => {
@@ -462,6 +471,7 @@ const EmployeeSummary: React.FC = () => {
             }
 
             await loadSummaryTable();
+            clearAdjustmentChanges();
             resetAdjustmentModal();
         } catch (error) {
             setAdjustmentError(error instanceof Error ? error.message : 'Failed to apply TA adjustment.');
@@ -704,8 +714,7 @@ const EmployeeSummary: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <Card className="gap-0 border-border/70 py-0 shadow-sm">
-                <CardContent className="space-y-4 p-4">
+            <div className="space-y-4">
                     {excelExportError && (
                         <div
                             role="alert"
@@ -766,8 +775,8 @@ const EmployeeSummary: React.FC = () => {
 
                     {/* Filters Section */}
                     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:gap-2">
-                            <div className="min-w-0 space-y-1.5 lg:w-[220px] lg:shrink-0">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:flex-nowrap lg:gap-3">
+                            <div className="min-w-[180px] flex-1 space-y-1.5">
                                 <div className="flex items-center justify-between">
                                     <Label className="text-xs font-medium text-foreground">Employee</Label>
                                     {selectedEmployeeIds.length > 0 && (
@@ -881,7 +890,7 @@ const EmployeeSummary: React.FC = () => {
                                     </PopoverContent>
                                 </Popover>
                             </div>
-                            <div className="space-y-1.5 lg:w-[180px] lg:shrink-0">
+                            <div className="min-w-[150px] flex-1 space-y-1.5">
                                 <Label className="text-xs font-medium text-foreground">From date</Label>
                                 <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
                                     <PopoverTrigger asChild>
@@ -908,7 +917,7 @@ const EmployeeSummary: React.FC = () => {
                                     </PopoverContent>
                                 </Popover>
                             </div>
-                            <div className="space-y-1.5 lg:w-[180px] lg:shrink-0">
+                            <div className="min-w-[150px] flex-1 space-y-1.5">
                                 <Label className="text-xs font-medium text-foreground">To date</Label>
                                 <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
                                     <PopoverTrigger asChild>
@@ -935,13 +944,13 @@ const EmployeeSummary: React.FC = () => {
                                     </PopoverContent>
                                 </Popover>
                             </div>
-                            <div className="flex w-full min-w-0 flex-col justify-end gap-1.5 lg:ml-auto lg:w-auto lg:max-w-full">
-                                <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap lg:justify-end">
+                            <div className="flex w-full min-w-0 flex-col justify-end gap-1.5 lg:w-auto lg:shrink-0">
+                                <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap lg:flex-nowrap lg:justify-end">
                                     <Button
                                         type="button"
                                         variant="outline"
                                         onClick={handleResetFilters}
-                                        className="h-9 flex-1 text-sm font-medium shadow-none sm:flex-none lg:w-[92px]"
+                                        className="h-9 flex-1 text-sm font-medium shadow-none sm:flex-none"
                                         disabled={summaryLoading || filtersAreAtDefaults}
                                     >
                                         <RotateCcw className="mr-2 h-4 w-4" />
@@ -949,7 +958,7 @@ const EmployeeSummary: React.FC = () => {
                                     </Button>
                                     <Button
                                         onClick={() => void fetchSummaryData()}
-                                        className="h-9 flex-1 text-sm font-medium shadow-none sm:flex-none lg:w-[112px]"
+                                        className="h-9 flex-1 text-sm font-medium shadow-none sm:flex-none"
                                         disabled={summaryLoading || salaryJobIsActive}
                                     >
                                         {summaryLoading ? (
@@ -964,7 +973,7 @@ const EmployeeSummary: React.FC = () => {
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="h-9 flex-1 text-sm shadow-none sm:flex-none lg:w-[124px]"
+                                        className="h-9 flex-1 text-sm shadow-none sm:flex-none"
                                         onClick={handleExportCsv}
                                         disabled={summaryLoading || filteredSummaryData.length === 0}
                                     >
@@ -974,7 +983,7 @@ const EmployeeSummary: React.FC = () => {
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="h-9 flex-1 text-sm shadow-none sm:flex-none lg:w-[134px]"
+                                        className="h-9 flex-1 text-sm shadow-none sm:flex-none"
                                         onClick={handleExportExcel}
                                         disabled={summaryLoading || isExcelExporting || filteredSummaryData.length === 0}
                                         title="Download the filtered employee TA/DA summary as Excel"
@@ -1029,12 +1038,12 @@ const EmployeeSummary: React.FC = () => {
                                 ))}
                             </div>
 
-                            <div className="hidden md:block rounded-lg border bg-card">
-                                <div className="p-4 border-b">
+                            <div className="hidden md:block">
+                                <div className="mb-2">
                                     <Skeleton className="h-5 w-64" />
                                     <Skeleton className="h-4 w-40 mt-2" />
                                 </div>
-                                <div className="p-4 space-y-2">
+                                <div className="space-y-2">
                                     {[...Array(6)].map((_, i) => (
                                         <div key={i} className="flex items-center justify-between p-3 border rounded">
                                             <Skeleton className="h-4 w-40" />
@@ -1202,8 +1211,8 @@ const EmployeeSummary: React.FC = () => {
 
                             {/* Desktop view */}
                             <div className="hidden md:block">
-                                <div className="rounded-lg border bg-card">
-                                    <div className="border-b p-4">
+                                <div>
+                                    <div className="mb-2">
                                         <h3 className="text-sm font-semibold text-foreground">Summary results</h3>
                                         <p className="mt-0.5 text-xs text-muted-foreground">{getDateRangeDisplay()}</p>
                                     </div>
@@ -1274,8 +1283,7 @@ const EmployeeSummary: React.FC = () => {
                             </div>
                         </>
                     )}
-                </CardContent>
-            </Card>
+            </div>
 
             <Dialog open={isAdjustmentModalOpen} onOpenChange={(open) => (open ? setIsAdjustmentModalOpen(true) : closeAdjustmentModal())}>
                 <DialogContent className="sm:max-w-lg">

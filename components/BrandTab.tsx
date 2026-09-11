@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit, Trash2, CheckCircle, XCircle, Building2, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 type Brand = {
     id: number;
@@ -42,6 +43,18 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState<boolean>(false);
     const [brandPendingDelete, setBrandPendingDelete] = useState<Brand | null>(null);
     const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+    const editingBrand = editingBrandId === null ? null : brands.find((brand) => brand.id === editingBrandId);
+    const brandDraftIsDirty = isAdding
+        ? Boolean(newBrand.brandName.trim() || newBrand.pros.length || newBrand.cons.length)
+        : Boolean(isEditing && editingBrand && JSON.stringify(newBrand) !== JSON.stringify({
+            brandName: editingBrand.brandName,
+            pros: editingBrand.pros,
+            cons: editingBrand.cons,
+        }));
+    const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+        isDirty: brandDraftIsDirty,
+    });
 
     const cancelBrandDraft = () => {
         setIsAdding(false);
@@ -120,6 +133,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
 
                 if (response.ok) {
                     setBrands([...brands, { ...brand, id: new Date().getTime() }]);
+                    clearUnsavedChanges();
                     setNewBrand({ brandName: "", pros: [], cons: [] });
                     setIsAdding(false);
                 } else {
@@ -179,6 +193,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
 
                 if (response.ok) {
                     setBrands(updatedBrands);
+                    clearUnsavedChanges();
                     setNewBrand({ brandName: "", pros: [], cons: [] });
                     setIsEditing(false);
                     setEditingBrandId(null);
@@ -334,7 +349,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                         </div>
                         <div className="flex justify-end gap-2 border-t border-border pt-3">
                             <Button
-                                onClick={cancelBrandDraft}
+                                onClick={() => confirmDiscard(cancelBrandDraft)}
                                 variant="outline"
                                 size="sm"
                             >

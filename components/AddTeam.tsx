@@ -17,6 +17,7 @@ import { hasAdminSetupPrivileges } from "@/lib/auth";
 import { buildCityOptions, mergeCityOptions, normalizeCityKey } from "@/lib/city-options";
 import { getTeamManagers } from "@/lib/team-access";
 import { API } from "@/lib/api";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
@@ -135,9 +136,15 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
         setModalError(null);
     };
 
-    const requestCloseModal = () => {
-        setIsModalOpen(false);
-    };
+    const teamFormIsDirty = isModalOpen && Boolean(
+        selectedOfficeManager.length || selectedCities.length || selectedEmployees.length
+    );
+    const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+        isDirty: teamFormIsDirty,
+        onDiscard: resetForm,
+    });
+
+    const requestCloseModal = () => confirmDiscard(() => setIsModalOpen(false));
 
     const fetchOfficeManagers = useCallback(async () => {
         try {
@@ -364,6 +371,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
 
             if (response.ok) {
                 await onCreated?.();
+                clearUnsavedChanges();
                 setIsModalOpen(false);
                 resetForm();
             } else {

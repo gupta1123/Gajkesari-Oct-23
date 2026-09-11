@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
     Check, 
     X, 
@@ -12,11 +12,21 @@ import {
     RefreshCw,
     CheckCircle2,
     XCircle,
-    MessageSquareText
+    MessageSquareText,
+    ChevronLeft,
+    ChevronRight,
+    RotateCcw,
+    Filter
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { isManagerRoleValue, normalizeRoleValue } from '@/lib/auth';
-import { API, type TeamDataDto } from '@/lib/api';
+import {
+    API,
+    APIRequestError,
+    type AttendanceApprovalRequestDto,
+    type AttendanceRequestStatus,
+    type TeamDataDto,
+} from '@/lib/api';
 import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 import { isAdminEmployeeRole } from '@/lib/employee-role';
 
@@ -29,25 +39,22 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect, type SearchableOption } from '@/components/ui/searchable-select2';
-
-const API_BASE_URL = 'https://api.gajkesaristeels.in';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { SpacedCalendar } from '@/components/ui/spaced-calendar';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 
 // Types
-interface ApprovalRequest {
-    id: number;
-    employeeId: number;
-    employeeName: string;
-    requestDate: string;
-    requestedStatus: string;
-    logDate: string;
-    actionDate: string | null;
-    status: string;
-    description?: string; 
-    reason?: string;
+type ApprovalRequest = AttendanceApprovalRequestDto & {
     isDuplicate?: boolean;
     duplicateCount?: number;
     duplicateIndex?: number;
-}
+};
 
 interface EmployeeDirectoryEntry {
     id: number;
@@ -61,8 +68,33 @@ interface EmployeeDirectoryEntry {
 type ApprovalTypeValue = 'full day' | 'half day';
 type ApprovalTypeState = Record<number, ApprovalTypeValue>;
 
+const getDefaultDateRange = () => {
+    const today = new Date();
+    const toLocalDate = (date: Date) => {
+        const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+        return localDate.toISOString().slice(0, 10);
+    };
+    return {
+        start: toLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)),
+        end: toLocalDate(today),
+    };
+};
+
+const parseLocalDate = (value: string) => value ? new Date(`${value}T00:00:00`) : undefined;
+
+const formatLocalDate = (date: Date | undefined) => {
+    if (!date) return '';
+    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+    return localDate.toISOString().slice(0, 10);
+};
+
+const formatFilterDate = (value: string, fallback: string) => value
+    ? parseLocalDate(value)?.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) ?? fallback
+    : fallback;
+
 export default function ApprovalsPage() {
     const { token, userData } = useAuth();
+    const defaultDateRange = useMemo(getDefaultDateRange, []);
     
     // Data State
     const [requests, setRequests] = useState<ApprovalRequest[]>([]);
@@ -75,8 +107,19 @@ export default function ApprovalsPage() {
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [eligibleEmployees, setEligibleEmployees] = useState<EmployeeDirectoryEntry[]>([]);
     const [activeTab, setActiveTab] = useState('pending');
+    const [showFilters, setShowFilters] = useState(false);
     const [approvalType, setApprovalType] = useState<ApprovalTypeState>({});
     const [savingIds, setSavingIds] = useState<number[]>([]);
+    const [historyStatus, setHistoryStatus] = useState<Exclude<AttendanceRequestStatus, 'pending'>>('approved');
+    const [startDate, setStartDate] = useState(defaultDateRange.start);
+    const [endDate, setEndDate] = useState(defaultDateRange.end);
+    const [appliedStartDate, setAppliedStartDate] = useState(defaultDateRange.start);
+    const [appliedEndDate, setAppliedEndDate] = useState(defaultDateRange.end);
+    const [dateRangeError, setDateRangeError] = useState<string | null>(null);
+    const [currentPage, setCurrentPage] = useState(0);
+    const [pageSize, setPageSize] = useState(20);
+    const [totalPages, setTotalPages] = useState(0);
+    const [totalElements, setTotalElements] = useState(0);
     
     // Role State
     const [isManager, setIsManager] = useState(false);
@@ -89,18 +132,12 @@ export default function ApprovalsPage() {
         const fetchCurrentUser = async () => {
             if (!token) return;
             try {
-                const response = await fetch(`${API_BASE_URL}/user/manage/current-user`, {
-                    headers: { 'Authorization': `Bearer ${token}` },
-                });
+                const data = await API.getCurrentUser();
+                const role = data.authorities?.[0]?.authority;
+                const normalizedRole = normalizeRoleValue(role);
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    const role = data.authorities?.[0]?.authority;
-                    const normalizedRole = normalizeRoleValue(role);
-                    
-                    setIsManager(isManagerRoleValue(role));
-                    setIsFieldOfficer(normalizedRole === 'ROLE_FIELD OFFICER' || normalizedRole === 'FIELD OFFICER');
-                }
+                setIsManager(isManagerRoleValue(role));
+                setIsFieldOfficer(normalizedRole === 'ROLE_FIELD OFFICER' || normalizedRole === 'FIELD OFFICER');
             } catch (error) {
                 console.error('Error fetching user:', error);
             }
@@ -122,10 +159,6 @@ export default function ApprovalsPage() {
         };
         loadTeamData();
     }, [isManager, isFieldOfficer, userData?.employeeId]);
-
-    useEffect(() => {
-        if (token) fetchRequests();
-    }, [token, teamId, teamMemberIds, isManager, isFieldOfficer, userData?.employeeId]);
 
     useEffect(() => {
         if (!token) return;
@@ -154,29 +187,34 @@ export default function ApprovalsPage() {
     }, [token]);
 
     // --- 2. API Logic ---
-    const fetchRequests = async () => {
+    const requestStatus: AttendanceRequestStatus = activeTab === 'pending' ? 'pending' : historyStatus;
+
+    const fetchRequests = useCallback(async () => {
         if (!token) return;
-        if ((isManager || isFieldOfficer) && teamId === null) return;
+        if ((isManager || isFieldOfficer) && teamId === null) {
+            setRequests([]);
+            setTotalElements(0);
+            setTotalPages(0);
+            setLoading(false);
+            return;
+        }
         
         try {
-            if (requests.length === 0) setLoading(true);
-            else setIsRefreshing(true);
-
-            const results = await Promise.all(['pending', 'approved', 'rejected'].map(async (status) => {
-                const response = await fetch(`${API_BASE_URL}/request/getByStatus?status=${status}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (!response.ok) throw new Error('Unable to load attendance requests.');
-                const records = await response.json();
-                if (!Array.isArray(records)) throw new Error('Invalid attendance response.');
-                return records as ApprovalRequest[];
-            }));
-            const data = Array.from(new Map(results.flat().map(request => [request.id, request])).values());
+            setIsRefreshing(true);
+            const pageData = await API.getAttendanceRequestsByStatus(
+                requestStatus,
+                appliedStartDate,
+                appliedEndDate,
+                currentPage,
+                pageSize,
+            );
 
             const scopedData = isManager || isFieldOfficer
-                ? data.filter((request) => teamMemberIds.includes(request.employeeId) || request.employeeId === userData?.employeeId)
-                : data;
+                ? pageData.content.filter((request) => teamMemberIds.includes(request.employeeId) || request.employeeId === userData?.employeeId)
+                : pageData.content;
             setRequests(scopedData);
+            setTotalElements(pageData.totalElements);
+            setTotalPages(pageData.totalPages);
             setError(null);
         } catch (err) {
             setError('Failed to fetch requests.');
@@ -184,6 +222,49 @@ export default function ApprovalsPage() {
             setLoading(false);
             setIsRefreshing(false);
         }
+    }, [
+        token,
+        isManager,
+        isFieldOfficer,
+        teamId,
+        teamMemberIds,
+        userData?.employeeId,
+        requestStatus,
+        appliedStartDate,
+        appliedEndDate,
+        currentPage,
+        pageSize,
+    ]);
+
+    useEffect(() => {
+        void fetchRequests();
+    }, [fetchRequests]);
+
+    const applyDateRange = () => {
+        if (!startDate || !endDate) {
+            setDateRangeError('Select both a start date and an end date.');
+            return;
+        }
+        if (startDate > endDate) {
+            setDateRangeError('Start date cannot be after end date.');
+            return;
+        }
+        setDateRangeError(null);
+        setCurrentPage(0);
+        setAppliedStartDate(startDate);
+        setAppliedEndDate(endDate);
+        if (currentPage === 0 && startDate === appliedStartDate && endDate === appliedEndDate) {
+            void fetchRequests();
+        }
+    };
+
+    const resetDateRange = () => {
+        setStartDate(defaultDateRange.start);
+        setEndDate(defaultDateRange.end);
+        setAppliedStartDate(defaultDateRange.start);
+        setAppliedEndDate(defaultDateRange.end);
+        setDateRangeError(null);
+        setCurrentPage(0);
     };
 
     const handleAction = async (id: number, action: 'approved' | 'rejected') => {
@@ -196,29 +277,22 @@ export default function ApprovalsPage() {
         setActionFeedback(null);
 
         try {
-            const response = await fetch(
-                `${API_BASE_URL}/request/updateStatus?id=${id}&status=${action}&attendance=${encodeURIComponent(type)}`,
-                {
-                    method: 'PUT',
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        requestId: id.toString()
-                    }
-                }
-            );
-            if (!response.ok) {
-                const failure = await response.json().catch(() => null);
-                const detail = typeof failure?.message === 'string' ? failure.message : '';
-                if (response.status === 404 && /log not found/i.test(detail)) {
-                    throw new Error('No attendance log exists for this date. An administrator needs to resolve the missing log before approval.');
-                }
-                throw new Error(`Unable to update attendance request (HTTP ${response.status}).${detail ? ` ${detail}` : ' Please try again.'}`);
-            }
+            await API.updateAttendanceRequestStatus(id, action, type);
             setRequests(prev => prev.map(request => request.id === id ? { ...request, status: action, requestedStatus: type } : request));
             setError(null);
             setActionFeedback({ message: `Attendance request ${action}.`, type: 'success' });
+            if (requests.length === 1 && currentPage > 0) {
+                setCurrentPage((page) => page - 1);
+            } else {
+                await fetchRequests();
+            }
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unable to update attendance request. Please try again.';
+            const missingLog = err instanceof APIRequestError
+                && err.status === 404
+                && /log not found/i.test(err.message);
+            const message = missingLog
+                ? 'No attendance log exists for this date. An administrator needs to resolve the missing log before approval.'
+                : err instanceof Error ? err.message : 'Unable to update attendance request. Please try again.';
             setError(message);
             setActionFeedback({ message, type: 'error' });
         } finally {
@@ -275,33 +349,74 @@ export default function ApprovalsPage() {
         };
     }), [eligibleEmployees]);
 
-    const stats = useMemo(() => {
-        const pending = requests.filter(r => r.status?.toLowerCase() === 'pending').length;
-        return { pending, total: requests.length };
-    }, [requests]);
-
     // --- Helpers ---
     const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-    const formatDate = (date: string) => new Date(date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+    const formatDate = (date: string) => date
+        ? new Date(date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+        : 'Not available';
 
     if (loading) return <LoadingSkeleton />;
 
     return (
         <div className="mx-auto w-full max-w-none py-4 px-4 sm:px-6">
-            <Tabs defaultValue="pending" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-                <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-                    <TabsList className="grid h-9 w-full grid-cols-2 p-1 sm:w-[320px]">
+            <Tabs
+                defaultValue="pending"
+                value={activeTab}
+                onValueChange={(value) => {
+                    setActiveTab(value);
+                    setCurrentPage(0);
+                    setActionFeedback(null);
+                }}
+                className="space-y-4"
+            >
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <TabsList className="relative z-10 grid h-9 w-full shrink-0 grid-cols-2 p-1 sm:w-[320px]">
                         <TabsTrigger value="pending" className="text-xs">Pending requests</TabsTrigger>
                         <TabsTrigger value="history" className="text-xs">Request history</TabsTrigger>
                     </TabsList>
                     
-                    <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-                        <div className="min-w-[220px] flex-1 sm:max-w-[300px]">
+                    <div className="flex items-center justify-end gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 whitespace-nowrap text-xs shadow-none"
+                            onClick={() => setShowFilters((visible) => !visible)}
+                            aria-expanded={showFilters}
+                            aria-controls="approval-filters"
+                        >
+                            <Filter className="mr-1.5 h-3.5 w-3.5" />
+                            {showFilters ? 'Hide filters' : 'Show filters'}
+                        </Button>
+                        <div className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5 text-amber-600" />
+                            <span><span className="font-semibold text-foreground">{totalElements}</span> {requestStatus}</span>
+                            <span className="text-border">•</span>
+                            <span>Page <span className="font-semibold text-foreground">{totalPages === 0 ? 0 : currentPage + 1}</span> of {totalPages}</span>
+                        </div>
+                        <Button 
+                            variant="outline" 
+                            size="icon" 
+                            onClick={fetchRequests} 
+                            disabled={isRefreshing}
+                            className="h-9 w-9 shrink-0 shadow-none"
+                            aria-label="Refresh approval requests"
+                        >
+                            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                        </Button>
+                    </div>
+                </div>
+
+                {showFilters && (
+                    <div id="approval-filters" className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+                        <div className="w-full sm:w-[200px] sm:shrink-0">
                             <Label className="sr-only">Employee</Label>
                             <SearchableSelect
                                 options={employeeOptions}
                                 value={selectedEmployeeId || undefined}
-                                onSelect={(option) => setSelectedEmployeeId(option?.value ?? '')}
+                                onSelect={(option) => {
+                                    setSelectedEmployeeId(option?.value ?? '');
+                                    setCurrentPage(0);
+                                }}
                                 placeholder="All employees"
                                 searchPlaceholder="Search employees..."
                                 emptyMessage="No employees found"
@@ -309,24 +424,84 @@ export default function ApprovalsPage() {
                                 triggerClassName="h-9 w-full bg-background text-xs shadow-none"
                             />
                         </div>
-                        <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
-                            <Clock className="h-3.5 w-3.5 text-amber-600" />
-                            <span><span className="font-semibold text-foreground">{stats.pending}</span> pending</span>
-                            <span className="text-border">•</span>
-                            <span><span className="font-semibold text-foreground">{stats.total}</span> total</span>
-                        </div>
-                        <Button 
-                            variant="outline" 
-                            size="icon" 
-                            onClick={fetchRequests} 
-                            disabled={isRefreshing}
-                            className="h-9 w-9 shrink-0"
-                            aria-label="Refresh approval requests"
-                        >
-                            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+
+                        {activeTab === 'history' && (
+                            <Select
+                                value={historyStatus}
+                                onValueChange={(value: Exclude<AttendanceRequestStatus, 'pending'>) => {
+                                    setHistoryStatus(value);
+                                    setCurrentPage(0);
+                                }}
+                            >
+                                <SelectTrigger className="h-9 w-[140px] shrink-0 bg-background text-xs shadow-none" aria-label="History status">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="approved">Approved</SelectItem>
+                                    <SelectItem value="rejected">Rejected</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        )}
+
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" className="h-9 w-[140px] shrink-0 justify-start bg-background px-3 text-xs font-normal shadow-none" aria-label="From date">
+                                    <Calendar className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="truncate">{formatFilterDate(startDate, 'From date')}</span>
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="end">
+                                <SpacedCalendar
+                                    initialFocus
+                                    mode="single"
+                                    selected={parseLocalDate(startDate)}
+                                    defaultMonth={parseLocalDate(startDate || endDate)}
+                                    onSelect={(date) => {
+                                        const nextStartDate = formatLocalDate(date);
+                                        setStartDate(nextStartDate);
+                                        if (nextStartDate && endDate && nextStartDate > endDate) setEndDate('');
+                                        setDateRangeError(null);
+                                    }}
+                                />
+                            </PopoverContent>
+                        </Popover>
+
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" className="h-9 w-[140px] shrink-0 justify-start bg-background px-3 text-xs font-normal shadow-none" aria-label="To date">
+                                    <Calendar className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="truncate">{formatFilterDate(endDate, 'To date')}</span>
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="end">
+                                <SpacedCalendar
+                                    initialFocus
+                                    mode="single"
+                                    selected={parseLocalDate(endDate)}
+                                    defaultMonth={parseLocalDate(endDate || startDate)}
+                                    disabled={(date) => Boolean(startDate && formatLocalDate(date) < startDate)}
+                                    onSelect={(date) => {
+                                        setEndDate(formatLocalDate(date));
+                                        setDateRangeError(null);
+                                    }}
+                                />
+                            </PopoverContent>
+                        </Popover>
+
+                        <Button type="button" size="sm" className="h-9 px-4 text-xs" onClick={applyDateRange} disabled={isRefreshing}>
+                            Apply
                         </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-xs" onClick={resetDateRange} disabled={isRefreshing}>
+                            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                            Reset
+                        </Button>
+                        <p className="w-full text-xs text-muted-foreground lg:ml-auto lg:w-auto">
+                            Showing {formatFilterDate(appliedStartDate, appliedStartDate)} to {formatFilterDate(appliedEndDate, appliedEndDate)}
+                        </p>
                     </div>
-                </div>
+                )}
+
+                {dateRangeError && <p role="alert" className="text-xs text-destructive">{dateRangeError}</p>}
 
                 {actionFeedback && (
                     <div className={`p-3 rounded-md text-xs border ${actionFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' : 'bg-destructive/10 text-destructive border-destructive/20'}`}>
@@ -365,6 +540,56 @@ export default function ApprovalsPage() {
                         </div>
                     </div>
                 </Card>
+
+                <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                        <Label htmlFor="approvalPageSize" className="text-xs text-muted-foreground">Rows per page:</Label>
+                        <Select
+                            value={String(pageSize)}
+                            onValueChange={(value) => {
+                                setPageSize(Number(value));
+                                setCurrentPage(0);
+                            }}
+                        >
+                            <SelectTrigger id="approvalPageSize" className="h-8 w-20 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="10">10</SelectItem>
+                                <SelectItem value="20">20</SelectItem>
+                                <SelectItem value="50">50</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <span className="text-xs text-muted-foreground">{totalElements} requests</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+                            disabled={currentPage === 0 || isRefreshing}
+                        >
+                            <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+                            Previous
+                        </Button>
+                        <span className="min-w-[88px] text-center text-xs text-muted-foreground">
+                            Page {totalPages === 0 ? 0 : currentPage + 1} of {totalPages}
+                        </span>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
+                            disabled={totalPages === 0 || currentPage >= totalPages - 1 || isRefreshing}
+                        >
+                            Next
+                            <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                        </Button>
+                    </div>
+                </div>
             </Tabs>
         </div>
     );

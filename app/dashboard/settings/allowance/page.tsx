@@ -23,6 +23,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useState } from "react";
 import { DollarSign, Plus, Edit, Save, X } from "lucide-react";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 type Employee = {
   id: number;
@@ -90,6 +91,23 @@ export default function AllowanceSettings() {
     amount: "",
     applicableTo: ""
   });
+  const addAllowanceIsDirty = isAddAllowanceOpen && Object.values(newAllowance).some(Boolean);
+  const employeeAllowanceIsDirty = Boolean(
+    editingEmployeeId &&
+    tempEmployeeData &&
+    JSON.stringify(tempEmployeeData) !== JSON.stringify(employees.find((employee) => employee.id === editingEmployeeId))
+  );
+  const { clearUnsavedChanges: clearNewAllowanceChanges, confirmDiscard: confirmNewAllowanceDiscard } = useUnsavedChanges({
+    isDirty: addAllowanceIsDirty,
+  });
+  const { clearUnsavedChanges: clearEmployeeAllowanceChanges, confirmDiscard: confirmEmployeeAllowanceDiscard } = useUnsavedChanges({
+    isDirty: employeeAllowanceIsDirty,
+  });
+  const resetNewAllowance = () => setNewAllowance({ name: "", type: "", amount: "", applicableTo: "" });
+  const closeNewAllowance = () => confirmNewAllowanceDiscard(() => {
+    resetNewAllowance();
+    setIsAddAllowanceOpen(false);
+  });
 
   const handleEditEmployee = (employee: Employee) => {
     setEditingEmployeeId(employee.id);
@@ -100,26 +118,25 @@ export default function AllowanceSettings() {
     setEmployees(employees.map(emp => 
       emp.id === editingEmployeeId && tempEmployeeData ? tempEmployeeData : emp
     ));
+    clearEmployeeAllowanceChanges();
     setEditingEmployeeId(null);
     setTempEmployeeData(null);
   };
 
   const handleCancelEdit = () => {
-    setEditingEmployeeId(null);
-    setTempEmployeeData(null);
+    confirmEmployeeAllowanceDiscard(() => {
+      setEditingEmployeeId(null);
+      setTempEmployeeData(null);
+    });
   };
 
   const handleAddAllowance = () => {
     if (newAllowance.name && newAllowance.type && newAllowance.amount) {
       // In a real app, this would make an API call to add the allowance
       console.log("Adding new allowance:", newAllowance);
+      clearNewAllowanceChanges();
       setIsAddAllowanceOpen(false);
-      setNewAllowance({
-        name: "",
-        type: "",
-        amount: "",
-        applicableTo: ""
-      });
+      resetNewAllowance();
     }
   };
 
@@ -127,7 +144,10 @@ export default function AllowanceSettings() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
 
-        <Dialog open={isAddAllowanceOpen} onOpenChange={setIsAddAllowanceOpen}>
+        <Dialog open={isAddAllowanceOpen} onOpenChange={(open) => {
+          if (open) setIsAddAllowanceOpen(true);
+          else closeNewAllowance();
+        }}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
@@ -199,7 +219,7 @@ export default function AllowanceSettings() {
               </div>
               
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setIsAddAllowanceOpen(false)}>
+                <Button variant="outline" onClick={closeNewAllowance}>
                   Cancel
                 </Button>
                 <Button onClick={handleAddAllowance}>

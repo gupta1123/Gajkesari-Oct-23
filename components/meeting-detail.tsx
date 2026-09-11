@@ -25,6 +25,7 @@ import {
 import { endOfMonth, format, startOfMonth } from "date-fns";
 
 import { useAuth } from "@/components/auth-provider";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +56,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
+import { usePagedStoreNames } from "@/components/use-paged-store-names";
 import {
   ATTENDEE_CATEGORIES,
   AttendancePayload,
@@ -116,6 +119,10 @@ type ReportView =
 
 type RequestForm = {
   meetingType: string;
+  storeId: string;
+  storeName: string;
+  objective: string;
+  expectedBusinessImpact: string;
   meetingDate: string;
   meetingTime: string;
   city: string;
@@ -126,6 +133,15 @@ type RequestForm = {
   expectedBudget: string;
   companyContribution: string;
   allowWalkInAttendees: boolean;
+};
+
+type PlannedExpenseDraft = Omit<MeetingExpense, "amount"> & {
+  amount: number | "";
+};
+
+type PlannedGiftDraft = Omit<MeetingGift, "quantity" | "estimatedAmount"> & {
+  quantity: number | "";
+  estimatedAmount?: number | "";
 };
 
 type ExecutionForm = {
@@ -729,18 +745,31 @@ const getMarketDatabaseRows = (meetings: Meeting[]) => {
 const getDraftMissingItems = (meeting: Meeting) => {
   const missing: string[] = [];
   if (!meeting.meetingType) missing.push("meeting type");
+  if (!meeting.storeId) missing.push("store");
+  if (!meeting.objective?.trim()) missing.push("objective");
+  if (!meeting.expectedBusinessImpact?.trim()) missing.push("expected business impact");
   if (!meeting.meetingDate) missing.push("date");
   if (!meeting.meetingTime) missing.push("time");
   if (!meeting.city) missing.push("city");
   if (!meeting.state) missing.push("state");
   if (!meeting.location) missing.push("location");
   if (meeting.expectedBudget == null) missing.push("expected budget");
+  if (meeting.plan?.plannedExpenseDetails == null || meeting.plan.plannedExpenseDetails === "") {
+    missing.push("planned expenses");
+  }
+  if (meeting.plan?.plannedGiftDetails == null || meeting.plan.plannedGiftDetails === "") {
+    missing.push("planned gifts");
+  }
   if (!meeting.attendees?.length) missing.push("named attendees");
   return missing;
 };
 
 const requestFormFromMeeting = (meeting: Meeting): RequestForm => ({
   meetingType: meeting.meetingType || "Dealer",
+  storeId: meeting.storeId == null ? "" : String(meeting.storeId),
+  storeName: meeting.storeName || meeting.dealerName || meeting.customerReference || "",
+  objective: meeting.objective || "",
+  expectedBusinessImpact: meeting.expectedBusinessImpact || "",
   meetingDate: meeting.meetingDate || "",
   meetingTime: timeForInput(meeting.meetingTime),
   city: meeting.city || "",
@@ -1241,6 +1270,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
 
   const [requestForm, setRequestForm] = useState<RequestForm | null>(null);
   const [attendees, setAttendees] = useState<MeetingAttendee[]>([]);
+  const [plannedExpenseDrafts, setPlannedExpenseDrafts] = useState<PlannedExpenseDraft[]>([]);
+  const [plannedGiftDrafts, setPlannedGiftDrafts] = useState<PlannedGiftDraft[]>([]);
   const [approvalDecision, setApprovalDecision] = useState<ApprovalDecision>("approve");
   const [approvalRemarks, setApprovalRemarks] = useState("");
   const [correctionStage, setCorrectionStage] = useState<CorrectionStage>("REQUEST");
@@ -1276,6 +1307,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   const [isReportFiltersOpen, setIsReportFiltersOpen] = useState(false);
   const [reportFilters, setReportFilters] = useState<ReportFilterState>(emptyReportFilters);
   const [reportMeetings, setReportMeetings] = useState<Meeting[]>([]);
+  const [savedEditSnapshot, setSavedEditSnapshot] = useState("");
 
   const loadConfig = async () => {
     meetingsApi
@@ -1301,16 +1333,19 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       const data = await meetingsApi.getMeetingById(meetingId);
       setMeeting(data);
       setAdminTab(getAdminMeetingPresentation(data).defaultTab);
-      setRequestForm(requestFormFromMeeting(data));
-      setAttendees(data.attendees?.length ? data.attendees.map((attendee) => ({ ...attendee })) : [attendeeDraft()]);
-      setExecutionForm({
+      const nextRequestForm = requestFormFromMeeting(data);
+      const savedPlannedExpenses = getPlannedExpenses(data);
+      const savedPlannedGifts = getPlannedGifts(data);
+      const nextPlannedExpenses = savedPlannedExpenses.length ? savedPlannedExpenses.map((expense) => ({ ...expense })) : [{ expenseHead: "", amount: "" as const, paidBy: "COMPANY" as const }];
+      const nextPlannedGifts = savedPlannedGifts.length ? savedPlannedGifts.map((gift) => ({ ...gift })) : [{ giftItem: "", quantity: 1, estimatedAmount: "" as const }];
+      const nextAttendees = data.attendees?.length ? data.attendees.map((attendee) => ({ ...attendee })) : [attendeeDraft()];
+      const nextExecutionForm = {
         actualMeetingDate: data.actualMeetingDate || data.meetingDate || "",
         actualMeetingTime: timeForInput(data.actualMeetingTime || data.meetingTime),
         actualLocation: data.actualLocation || data.location || "",
         executionRemarks: data.executionRemarks || "",
-      });
-      setAttendance(
-        (data.attendees || []).reduce<Record<number, { present: boolean; remarks: string }>>((acc, attendee) => {
+      };
+      const nextAttendance = (data.attendees || []).reduce<Record<number, { present: boolean; remarks: string }>>((acc, attendee) => {
           if (attendee.id != null) {
             acc[attendee.id] = {
               present: attendee.present === true,
@@ -1318,12 +1353,11 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
             };
           }
           return acc;
-        }, {})
-      );
-      setGifts(data.gifts?.length ? data.gifts.map((gift) => ({ ...gift })) : [giftDraft()]);
+        }, {});
+      const nextGifts = data.gifts?.length ? data.gifts.map((gift) => ({ ...gift })) : [giftDraft()];
       const editableExpenses = (data.expenses || []).filter((expense) => !isGiftExpenseHead(expense.expenseHead));
-      setExpenses(editableExpenses.length ? editableExpenses.map((expense) => ({ ...expense })) : [expenseDraft(data.actualMeetingDate || data.meetingDate)]);
-      setFinalReport({
+      const nextExpenses = editableExpenses.length ? editableExpenses.map((expense) => ({ ...expense })) : [expenseDraft(data.actualMeetingDate || data.meetingDate)];
+      const nextFinalReport = {
         meetingSummary: data.meetingSummary || "",
         keyDiscussionPoints: data.keyDiscussionPoints || "",
         leadsGenerated: data.leadsGenerated || "",
@@ -1332,7 +1366,27 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
         interestedCustomers: data.interestedCustomers || "",
         competitorInformation: data.competitorInformation || "",
         actualBusinessOutcome: data.actualBusinessOutcome || "",
-      });
+      };
+      setRequestForm(nextRequestForm);
+      setPlannedExpenseDrafts(nextPlannedExpenses);
+      setPlannedGiftDrafts(nextPlannedGifts);
+      setAttendees(nextAttendees);
+      setExecutionForm(nextExecutionForm);
+      setAttendance(nextAttendance);
+      setGifts(nextGifts);
+      setExpenses(nextExpenses);
+      setFinalReport(nextFinalReport);
+      setSavedEditSnapshot(JSON.stringify({
+        requestForm: nextRequestForm,
+        plannedExpenseDrafts: nextPlannedExpenses,
+        plannedGiftDrafts: nextPlannedGifts,
+        attendees: nextAttendees,
+        executionForm: nextExecutionForm,
+        attendance: nextAttendance,
+        gifts: nextGifts,
+        expenses: nextExpenses,
+        finalReport: nextFinalReport,
+      }));
       setFinalApprovalRemarks(data.finalReportApprovalRemarks || "");
       setAuditHistory(data.auditHistory || []);
       setReportFilters(currentMeetingReportFilters(data));
@@ -1373,6 +1427,32 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     () => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
     [expenses]
   );
+
+  const currentEditSnapshot = useMemo(() => JSON.stringify({
+    requestForm,
+    plannedExpenseDrafts,
+    plannedGiftDrafts,
+    attendees,
+    executionForm,
+    attendance,
+    gifts,
+    expenses,
+    finalReport,
+  }), [
+    requestForm,
+    plannedExpenseDrafts,
+    plannedGiftDrafts,
+    attendees,
+    executionForm,
+    attendance,
+    gifts,
+    expenses,
+    finalReport,
+  ]);
+  const { confirmDiscard: confirmMeetingDiscard } = useUnsavedChanges({
+    isDirty: Boolean(savedEditSnapshot && currentEditSnapshot !== savedEditSnapshot),
+  });
+  const leaveMeetingDetail = () => confirmMeetingDiscard(() => router.push("/dashboard/meetings"));
 
   const actualExpenseTotal = useMemo(
     () => {
@@ -1500,13 +1580,50 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     () => expenses.reduce((options, expense) => withCurrentOption(options, expense.expenseHead), expenseHeadOptions),
     [expenseHeadOptions, expenses]
   );
+  const requestStoreDirectory = usePagedStoreNames({
+    enabled: Boolean(meeting && ["DRAFT", "CORRECTION_REQUIRED"].includes(meeting.status)),
+    employeeId: meeting?.creatorId,
+    allowUnscoped: true,
+    pageSize: 100,
+  });
+  const requestStoreOptions = useMemo<SearchableOption[]>(() => {
+    const options = requestStoreDirectory.stores.map((store) => ({
+      value: String(store.id),
+      label: store.storeName,
+    }));
+    if (requestForm?.storeId && requestForm.storeName && !options.some((option) => option.value === requestForm.storeId)) {
+      options.unshift({ value: requestForm.storeId, label: requestForm.storeName });
+    }
+    return options;
+  }, [requestForm?.storeId, requestForm?.storeName, requestStoreDirectory.stores]);
+  const cleanedPlannedExpenses = useMemo(
+    () => plannedExpenseDrafts
+      .filter((expense) => expense.expenseHead.trim())
+      .map((expense) => ({ ...expense, expenseHead: expense.expenseHead.trim(), amount: Number(expense.amount || 0) })),
+    [plannedExpenseDrafts]
+  );
+  const cleanedPlannedGifts = useMemo(
+    () => plannedGiftDrafts
+      .filter((gift) => gift.giftItem.trim())
+      .map((gift) => ({
+        ...gift,
+        giftItem: gift.giftItem.trim(),
+        quantity: Number(gift.quantity || 0),
+        estimatedAmount: Number(gift.estimatedAmount || 0),
+      })),
+    [plannedGiftDrafts]
+  );
 
   const isAdmin = hasAdminSetupPrivileges(userRole, currentUser);
   const hasBackendActionContract = Array.isArray(meeting?.allowedActions);
   const isActionAllowed = (action: Parameters<typeof hasMeetingAction>[1], legacyFallback: boolean) =>
     Boolean(meeting && (hasMeetingAction(meeting, action) || (!hasBackendActionContract && legacyFallback)));
 
-  const canEditRequest = isActionAllowed("EDIT_REQUEST", Boolean(meeting && ["DRAFT", "CORRECTION_REQUIRED"].includes(meeting.status)));
+  const canEditRequest = Boolean(
+    meeting
+      && ["DRAFT", "CORRECTION_REQUIRED"].includes(meeting.status)
+      && (hasMeetingAction(meeting, "EDIT_REQUEST") || !isAdmin)
+  );
   const canSubmit = Boolean(!isAdmin && isActionAllowed("SUBMIT", Boolean(meeting && ["DRAFT", "CORRECTION_REQUIRED"].includes(meeting.status))));
   const canApprove = isActionAllowed("APPROVE", meeting?.status === "PENDING_APPROVAL");
   const canReject = isActionAllowed("REJECT", meeting?.status === "PENDING_APPROVAL");
@@ -1549,8 +1666,20 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
 
   const saveRequest = async () => {
     if (!meeting || !requestForm) return;
-    if (!requestForm.meetingDate || !requestForm.meetingTime || !requestForm.city.trim() || !requestForm.state.trim()) {
-      setError("Meeting date, time, city, and state are required.");
+    if (!requestForm.storeId) {
+      setError("Select the store for this meeting.");
+      return;
+    }
+    if (!requestForm.objective.trim()) {
+      setError("Enter the meeting objective.");
+      return;
+    }
+    if (!requestForm.expectedBusinessImpact.trim()) {
+      setError("Enter the expected business impact.");
+      return;
+    }
+    if (!requestForm.meetingDate || !requestForm.meetingTime || !requestForm.city.trim() || !requestForm.state.trim() || !requestForm.location.trim()) {
+      setError("Meeting date, time, city, state, and location are required.");
       return;
     }
     const namedAttendeeCount = normaliseAttendees(attendees).length;
@@ -1565,27 +1694,48 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
       setError("Company contribution must be between 0 and the expected budget.");
       return;
     }
+    if (cleanedPlannedExpenses.length === 0) {
+      setError("Add at least one planned expense.");
+      return;
+    }
+    if (cleanedPlannedExpenses.some((expense) => !Number.isFinite(expense.amount) || expense.amount < 0)) {
+      setError("Every planned expense needs a valid non-negative amount.");
+      return;
+    }
+    if (cleanedPlannedGifts.length === 0) {
+      setError("Add at least one planned gift.");
+      return;
+    }
+    if (cleanedPlannedGifts.some((gift) => !Number.isFinite(gift.quantity) || gift.quantity <= 0)) {
+      setError("Every planned gift needs a quantity greater than zero.");
+      return;
+    }
     const dealerContribution = Math.max(expectedBudget - companyContribution, 0);
 
     await runAction(
       () =>
         meetingsApi.editMeetingRequest(meeting.id, {
           meetingType: requestForm.meetingType,
+          storeId: Number(requestForm.storeId),
+          objective: requestForm.objective.trim(),
+          expectedBusinessImpact: requestForm.expectedBusinessImpact.trim(),
           meetingDate: requestForm.meetingDate,
           meetingTime: timeForApi(requestForm.meetingTime),
           city: requestForm.city.trim(),
           state: requestForm.state.trim(),
           location: requestForm.location.trim(),
-          customerReference: requestForm.customerReference.trim() || undefined,
+          customerReference: requestForm.customerReference.trim() || requestForm.storeName || undefined,
           expectedAttendees: expectedPeople,
           expectedBudget,
+          expectedGiftsMaterials: JSON.stringify(cleanedPlannedGifts),
           allowWalkInAttendees: requestForm.allowWalkInAttendees,
           plan: {
             expectedBudget,
             companyContribution,
             dealerContribution,
-            plannedExpenseDetails: meeting.plan?.plannedExpenseDetails,
-            plannedGiftDetails: meeting.plan?.plannedGiftDetails,
+            plannedExpenseDetails: cleanedPlannedExpenses,
+            expectedGiftsMaterials: cleanedPlannedGifts,
+            plannedGiftDetails: cleanedPlannedGifts,
           },
         }),
       "Meeting request updated."
@@ -1609,14 +1759,100 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   };
 
   const submitForApproval = async () => {
-    if (!meeting) return;
-    const attendeeCount = normaliseAttendees(attendees).length || meeting.attendees?.length || 0;
-    if (attendeeCount === 0) {
+    if (!meeting || !requestForm) return;
+    const cleanedAttendees = normaliseAttendees(attendees);
+    if (cleanedAttendees.length === 0) {
       setError("Add named attendees before submitting for approval.");
       setActiveTab("attendees");
       return;
     }
-    await runAction(() => meetingsApi.submitForApproval(meeting.id), "Meeting submitted for approval.");
+    const duplicateError = getDuplicateMobileError(cleanedAttendees);
+    if (duplicateError) {
+      setError(duplicateError);
+      setActiveTab("attendees");
+      return;
+    }
+    if (cleanedAttendees.some((attendee) => !attendee.name || !attendee.mobileNumber || !attendee.category)) {
+      setError("Every attendee needs a name, mobile number, and category.");
+      setActiveTab("attendees");
+      return;
+    }
+    if (!requestForm.storeId || !requestForm.objective.trim() || !requestForm.expectedBusinessImpact.trim()) {
+      setError("Select a store and enter the meeting objective and expected business impact before submitting.");
+      setActiveTab("request");
+      return;
+    }
+    if (!requestForm.meetingDate || !requestForm.meetingTime || !requestForm.city.trim() || !requestForm.state.trim() || !requestForm.location.trim()) {
+      setError("Meeting date, time, city, state, and location are required.");
+      setActiveTab("request");
+      return;
+    }
+    if (cleanedPlannedExpenses.length === 0 || cleanedPlannedGifts.length === 0) {
+      setError("Add at least one planned expense and one planned gift before submitting.");
+      setActiveTab("request");
+      return;
+    }
+    if (cleanedPlannedExpenses.some((expense) => !Number.isFinite(expense.amount) || expense.amount < 0)) {
+      setError("Every planned expense needs a valid non-negative amount.");
+      setActiveTab("request");
+      return;
+    }
+    if (cleanedPlannedGifts.some((gift) => !Number.isFinite(gift.quantity) || gift.quantity <= 0)) {
+      setError("Every planned gift needs a quantity greater than zero.");
+      setActiveTab("request");
+      return;
+    }
+    const expectedPeople = Number(requestForm.expectedAttendees || cleanedAttendees.length);
+    if (!Number.isFinite(expectedPeople) || expectedPeople < cleanedAttendees.length) {
+      setError("Expected people cannot be lower than named attendees.");
+      setActiveTab("request");
+      return;
+    }
+    const expectedBudget = Number(requestForm.expectedBudget || 0);
+    const companyContribution = Number(requestForm.companyContribution || 0);
+    if (!Number.isFinite(expectedBudget) || expectedBudget < 0 || !Number.isFinite(companyContribution) || companyContribution < 0 || companyContribution > expectedBudget) {
+      setError("Enter a valid expected budget and company contribution.");
+      setActiveTab("request");
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await meetingsApi.editMeetingRequest(meeting.id, {
+        meetingType: requestForm.meetingType,
+        storeId: Number(requestForm.storeId),
+        objective: requestForm.objective.trim(),
+        expectedBusinessImpact: requestForm.expectedBusinessImpact.trim(),
+        meetingDate: requestForm.meetingDate,
+        meetingTime: timeForApi(requestForm.meetingTime),
+        city: requestForm.city.trim(),
+        state: requestForm.state.trim(),
+        location: requestForm.location.trim(),
+        customerReference: requestForm.customerReference.trim() || requestForm.storeName || undefined,
+        expectedAttendees: expectedPeople,
+        expectedBudget,
+        expectedGiftsMaterials: JSON.stringify(cleanedPlannedGifts),
+        allowWalkInAttendees: requestForm.allowWalkInAttendees,
+        plan: {
+          expectedBudget,
+          companyContribution,
+          dealerContribution: Math.max(expectedBudget - companyContribution, 0),
+          plannedExpenseDetails: cleanedPlannedExpenses,
+          expectedGiftsMaterials: cleanedPlannedGifts,
+          plannedGiftDetails: cleanedPlannedGifts,
+        },
+      });
+      await meetingsApi.saveExpectedAttendees(meeting.id, cleanedAttendees);
+      await meetingsApi.submitForApproval(meeting.id);
+      setMessage("Meeting submitted for approval.");
+      await loadMeeting();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit the meeting plan.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const approvalAction = async (action: "approve" | "reject" | "correction") => {
@@ -3347,7 +3583,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => router.push("/dashboard/meetings")}
+            onClick={leaveMeetingDetail}
             className="shrink-0 rounded-xl h-9"
           >
             <ArrowLeft className="h-4 w-4 mr-1.5" />
@@ -3478,6 +3714,57 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground">Store</Label>
+                    <SearchableSelect
+                      options={requestStoreOptions}
+                      value={requestForm.storeId || undefined}
+                      onSelect={(option) => setRequestForm((current) => current ? {
+                        ...current,
+                        storeId: option?.value || "",
+                        storeName: option?.label || "",
+                        customerReference: current.customerReference || option?.label || "",
+                      } : current)}
+                      placeholder="Select store"
+                      searchPlaceholder="Search loaded stores..."
+                      emptyMessage={requestStoreDirectory.error || "No stores available"}
+                      allowClear
+                      loading={requestStoreDirectory.isLoading}
+                      triggerClassName="h-9 w-full rounded-lg"
+                      contentClassName="w-[min(420px,calc(100vw-2rem))]"
+                    />
+                    {requestStoreDirectory.hasMore && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => void requestStoreDirectory.loadMore()}
+                        disabled={requestStoreDirectory.isLoadingMore}
+                      >
+                        {requestStoreDirectory.isLoadingMore ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                        Load more stores
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Meeting objective</Label>
+                    <Textarea
+                      className="min-h-20 rounded-lg"
+                      value={requestForm.objective}
+                      onChange={(event) => updateRequestForm("objective", event.target.value)}
+                      placeholder="Describe what this meeting should achieve"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Expected business impact</Label>
+                    <Textarea
+                      className="min-h-20 rounded-lg"
+                      value={requestForm.expectedBusinessImpact}
+                      onChange={(event) => updateRequestForm("expectedBusinessImpact", event.target.value)}
+                      placeholder="Describe the expected sales, relationship, or market outcome"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
                     <Label className="text-xs font-bold text-muted-foreground">Expected budget (INR)</Label>
                     <Input type="number" className="rounded-lg h-9" value={requestForm.expectedBudget} onChange={(event) => updateRequestForm("expectedBudget", event.target.value)} />
                   </div>
@@ -3518,6 +3805,143 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                     <Input className="rounded-lg h-9" value={requestDealerContribution} readOnly aria-readonly="true" />
                     <p className="text-[11px] text-muted-foreground">Calculated automatically from the expected budget.</p>
                   </div>
+                  <section className="space-y-3 rounded-xl border border-border/30 bg-muted/5 p-4 sm:col-span-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xs font-bold text-foreground">Planned expenses</h3>
+                        <p className="text-[11px] text-muted-foreground">Required before the meeting plan can be submitted.</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => setPlannedExpenseDrafts((items) => [...items, { expenseHead: "", amount: "", paidBy: "COMPANY" }])}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" /> Add expense
+                      </Button>
+                    </div>
+                    <datalist id="meeting-detail-expense-heads">
+                      {expenseHeadOptions.map((head) => <option key={head} value={head} />)}
+                    </datalist>
+                    {plannedExpenseDrafts.map((expense, index) => (
+                      <div key={index} className="grid gap-3 rounded-lg border border-border/20 bg-background/50 p-3 md:grid-cols-[minmax(180px,1fr)_140px_140px_auto] md:items-end">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Expense head</Label>
+                          <Input
+                            list="meeting-detail-expense-heads"
+                            className="meeting-datalist-input h-9"
+                            value={expense.expenseHead}
+                            onChange={(event) => setPlannedExpenseDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, expenseHead: event.target.value } : item))}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Amount</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            className="h-9"
+                            value={expense.amount}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setPlannedExpenseDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, amount: value === "" ? "" : Number(value) } : item));
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Paid by</Label>
+                          <Select
+                            value={expense.paidBy || "COMPANY"}
+                            onValueChange={(value) => setPlannedExpenseDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, paidBy: value } : item))}
+                          >
+                            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="COMPANY">Company</SelectItem>
+                              <SelectItem value="DEALER">Dealer</SelectItem>
+                              <SelectItem value="SHARED">Shared</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 text-xs text-destructive"
+                          onClick={() => setPlannedExpenseDrafts((items) => items.length === 1 ? [{ expenseHead: "", amount: "", paidBy: "COMPANY" }] : items.filter((_, itemIndex) => itemIndex !== index))}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </section>
+                  <section className="space-y-3 rounded-xl border border-border/30 bg-muted/5 p-4 sm:col-span-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xs font-bold text-foreground">Planned gifts</h3>
+                        <p className="text-[11px] text-muted-foreground">Required before the meeting plan can be submitted.</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => setPlannedGiftDrafts((items) => [...items, { giftItem: "", quantity: 1, estimatedAmount: "" }])}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" /> Add gift
+                      </Button>
+                    </div>
+                    <datalist id="meeting-detail-gift-items">
+                      {giftItemOptions.map((item) => <option key={item} value={item} />)}
+                    </datalist>
+                    {plannedGiftDrafts.map((gift, index) => (
+                      <div key={index} className="grid gap-3 rounded-lg border border-border/20 bg-background/50 p-3 md:grid-cols-[minmax(180px,1fr)_120px_150px_auto] md:items-end">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Gift / material</Label>
+                          <Input
+                            list="meeting-detail-gift-items"
+                            className="meeting-datalist-input h-9"
+                            value={gift.giftItem}
+                            onChange={(event) => setPlannedGiftDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, giftItem: event.target.value } : item))}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Quantity</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            className="h-9"
+                            value={gift.quantity}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setPlannedGiftDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: value === "" ? "" : Number(value) } : item));
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Estimated amount</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            className="h-9"
+                            value={gift.estimatedAmount ?? ""}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setPlannedGiftDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, estimatedAmount: value === "" ? "" : Number(value) } : item));
+                            }}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 text-xs text-destructive"
+                          onClick={() => setPlannedGiftDrafts((items) => items.length === 1 ? [{ giftItem: "", quantity: 1, estimatedAmount: "" }] : items.filter((_, itemIndex) => itemIndex !== index))}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </section>
                   <label className="flex items-center gap-2 rounded-xl border border-border/20 bg-muted/10 p-3 text-xs font-semibold sm:col-span-2 cursor-pointer hover:bg-muted/20 transition-all">
                     <Checkbox
                       checked={requestForm.allowWalkInAttendees}
@@ -3540,6 +3964,10 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   <ReadOnlyField label="City" value={meeting.city} />
                   <ReadOnlyField label="State" value={meeting.state} />
                   <ReadOnlyField label="Location" value={meeting.location} />
+                  <ReadOnlyField label="Store" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
+                  <ReadOnlyField label="Store ID" value={meeting.storeId} />
+                  <ReadOnlyField label="Objective" value={meeting.objective} />
+                  <ReadOnlyField label="Expected business impact" value={meeting.expectedBusinessImpact} />
                   <ReadOnlyField label="Reference" value={meeting.customerReference} />
                   <ReadOnlyField label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
                   <ReadOnlyField label="Expected people" value={meeting.expectedAttendees} />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -155,6 +156,15 @@ export default function TargetSettings() {
     year: "2023"
   });
   const [isAddingTarget, setIsAddingTarget] = useState(false);
+  const targetDraftIsDirty = isAddingTarget && (
+    newTarget.city !== '' || newTarget.target !== '' || newTarget.month !== '7' || newTarget.year !== '2023'
+  );
+  const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({ isDirty: targetDraftIsDirty });
+  const resetTargetDraft = () => setNewTarget({ city: "", target: "", month: "7", year: "2023" });
+  const cancelTargetDraft = () => confirmDiscard(() => {
+    resetTargetDraft();
+    setIsAddingTarget(false);
+  });
 
   const filteredCityTargets = selectedCity === "All Cities" 
     ? mockCityTargets 
@@ -168,13 +178,9 @@ export default function TargetSettings() {
     if (newTarget.city && newTarget.target) {
       // In a real app, this would make an API call to add the target
       console.log("Adding new target:", newTarget);
+      clearUnsavedChanges();
       setIsAddingTarget(false);
-      setNewTarget({
-        city: "",
-        target: "",
-        month: "7",
-        year: "2023"
-      });
+      resetTargetDraft();
     }
   };
 
@@ -391,7 +397,7 @@ export default function TargetSettings() {
               </div>
               
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setIsAddingTarget(false)}>
+                <Button variant="outline" onClick={cancelTargetDraft}>
                   Cancel
                 </Button>
                 <Button onClick={handleAddTarget}>

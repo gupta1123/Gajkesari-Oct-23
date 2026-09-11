@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/sheet';
 import AddTeam from '@/components/AddTeam';
 import { API } from '@/lib/api';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
 
 interface Team {
     id: number;
@@ -272,6 +273,30 @@ const Teams: React.FC = () => {
             fetchCities();
         }
     }, [fetchTeams, fetchCities, token]);
+
+    // Full directories for the filter dropdowns so every manager/officer is
+    // listed, not just those already assigned to a team.
+    const [managerDirectory, setManagerDirectory] = useState<TeamManager[]>([]);
+    const [officerDirectory, setOfficerDirectory] = useState<FieldOfficer[]>([]);
+
+    useEffect(() => {
+        if (!token) return;
+        let active = true;
+        (async () => {
+            try {
+                const [managers, officers] = await Promise.all([
+                    API.getEmployeeDirectory({ status: 'active', officeManager: true }),
+                    API.getFieldOfficers(),
+                ]);
+                if (!active) return;
+                setManagerDirectory(((managers as unknown as TeamManager[]) ?? []).filter((m) => m && m.id != null));
+                setOfficerDirectory(((officers as unknown as FieldOfficer[]) ?? []).filter((o) => o && o.id != null));
+            } catch (error) {
+                console.error('Error loading employee directories for filters:', error);
+            }
+        })();
+        return () => { active = false; };
+    }, [token]);
 
     const openTeamPanel = async (team: Team, section: TeamPanelSection = 'overview') => {
         const primaryManager = getPrimaryTeamManager(team);
@@ -570,6 +595,15 @@ const Teams: React.FC = () => {
         () => teams.find((team) => team.id === panelTeamId) ?? null,
         [teams, panelTeamId]
     );
+    const teamPanelIsDirty = isTeamPanelOpen && Boolean(
+        selectedCities.length ||
+        selectedFieldOfficers.length ||
+        (panelTeam && JSON.stringify([...selectedManagerIds].sort()) !== JSON.stringify(getTeamManagers(panelTeam).map((manager) => manager.id).sort()))
+    );
+    const { confirmDiscard: confirmTeamPanelDiscard } = useUnsavedChanges({
+        isDirty: teamPanelIsDirty,
+    });
+    const requestCloseTeamPanel = () => confirmTeamPanelDiscard(closeTeamPanel);
 
     const filteredOfficeManagers = useMemo(() => {
         const query = managerSearchTerm.trim().toLowerCase();
@@ -581,8 +615,11 @@ const Teams: React.FC = () => {
 
     const managerFilterOptions = useMemo(() => {
         const managersById = new Map<number, TeamManager>();
+        managerDirectory.forEach((manager) => managersById.set(manager.id, manager));
         teams.forEach((team) => {
-            getTeamManagers(team).forEach((manager) => managersById.set(manager.id, manager));
+            getTeamManagers(team).forEach((manager) => {
+                if (!managersById.has(manager.id)) managersById.set(manager.id, manager);
+            });
         });
         const managers = Array.from(managersById.values());
         const nameCounts = managers.reduce((counts, manager) => {
@@ -600,7 +637,7 @@ const Teams: React.FC = () => {
                 };
             })
             .sort((left, right) => left.label.localeCompare(right.label));
-    }, [teams]);
+    }, [managerDirectory, teams]);
 
     const cityFilterOptions = useMemo(
         () => buildCityOptions(teams.flatMap((team) => getTeamAssignedCities(team)))
@@ -611,8 +648,11 @@ const Teams: React.FC = () => {
 
     const fieldOfficerFilterOptions = useMemo(() => {
         const officersById = new Map<number, FieldOfficer>();
+        officerDirectory.forEach((officer) => officersById.set(officer.id, officer));
         teams.forEach((team) => {
-            team.fieldOfficers.forEach((officer) => officersById.set(officer.id, officer));
+            team.fieldOfficers.forEach((officer) => {
+                if (!officersById.has(officer.id)) officersById.set(officer.id, officer);
+            });
         });
         return Array.from(officersById.values())
             .map((officer) => ({
@@ -620,7 +660,7 @@ const Teams: React.FC = () => {
                 label: `${officer.firstName} ${officer.lastName}`.trim() || `Field Officer ${officer.id}`,
             }))
             .sort((left, right) => left.label.localeCompare(right.label));
-    }, [teams]);
+    }, [officerDirectory, teams]);
 
     const filteredTeams = useMemo(() => {
         const normalizedCityFilter = normalizeCityKey(cityFilter);
@@ -937,7 +977,10 @@ const Teams: React.FC = () => {
             </Card>
 
             {/* Slide-over Team Management Sheet */}
-            <Sheet open={isTeamPanelOpen} onOpenChange={setIsTeamPanelOpen}>
+            <Sheet open={isTeamPanelOpen} onOpenChange={(open) => {
+                if (open) setIsTeamPanelOpen(true);
+                else requestCloseTeamPanel();
+            }}>
                 <SheetContent className="w-full sm:max-w-md">
                     {panelTeam && (
                         <div className="flex h-full flex-col">

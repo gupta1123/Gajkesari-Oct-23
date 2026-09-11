@@ -15,7 +15,6 @@ import {
 import { API, type DailyBreakdownDto, type EmployeeUserDto } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -287,8 +286,7 @@ export default function DistanceRecalculation() {
 
   return (
     <div className="space-y-4">
-      <Card className="gap-0 border-border/70 py-0 shadow-sm">
-        <CardContent className="space-y-4 p-4">
+      <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase text-muted-foreground">Employees</Label>
@@ -456,8 +454,7 @@ export default function DistanceRecalculation() {
               )}
             </Button>
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -466,11 +463,8 @@ export default function DistanceRecalculation() {
       )}
 
       {(responseText || isSubmitting || isRefreshingVerification || verificationSummaries.length > 0) && (
-        <Card className="gap-0 border-border/70 py-0 shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-base font-semibold">Calculated Amount</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 p-4 pt-2">
+        <div className="space-y-4">
+          <h3 className="text-base font-semibold">Calculated Amount</h3>
             {isSubmitting || isRefreshingVerification ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -479,7 +473,7 @@ export default function DistanceRecalculation() {
             ) : verificationSummaries.length > 0 ? (
               <>
                 {hasMultipleEmployeeResults ? (
-                  <div className="overflow-x-auto rounded-lg border bg-card">
+                  <div className="overflow-x-auto">
                     <Table className="min-w-[640px] text-xs">
                       <TableHeader>
                         <TableRow className="bg-muted/30">
@@ -552,8 +546,7 @@ export default function DistanceRecalculation() {
                 Recalculation completed. Calculated amount will appear here when verification data is available.
               </div>
             )}
-          </CardContent>
-        </Card>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,18 @@
 // Authentication service for WebSalesV3
 import { teamHasManager } from './team-access';
+import {
+  FIELD_OFFICER_WEB_ACCESS_ERROR,
+  isFieldOfficerRoleValue,
+  isFieldOfficerWebUser,
+  normalizeRoleValue,
+} from './web-access';
+
+export {
+  FIELD_OFFICER_WEB_ACCESS_ERROR,
+  isFieldOfficerRoleValue,
+  isFieldOfficerWebUser,
+  normalizeRoleValue,
+} from './web-access';
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 const SECONDARY_API_BASE_URL = 'https://api.gajkesaristeels.in';
@@ -7,11 +20,6 @@ const LOGIN_ENDPOINT = `${API_BASE_URL}/user/token`;
 const LOGOUT_ENDPOINT = `${API_BASE_URL}/user/logout`;
 const USER_ROLE_ENDPOINT = `${API_BASE_URL}/user/manage/get`;
 const CURRENT_USER_ENDPOINT = `${SECONDARY_API_BASE_URL}/user/manage/current-user`;
-
-export const normalizeRoleValue = (value: string | null | undefined): string | null => {
-  if (!value) return null;
-  return value.trim().replace(/\s+/g, ' ').toUpperCase();
-};
 
 export const isManagerRoleValue = (value: string | null | undefined): boolean => {
   const normalized = normalizeRoleValue(value);
@@ -90,10 +98,8 @@ export const getCorrectedRoleFlags = (
   const authorityRole = authorities.length > 0 ? normalizeRoleValue(authorities[0].authority) : null;
 
   const isManager = isManagerRoleValue(userRole) || isManagerRoleValue(authorityRole);
-  const isFieldOfficer = normalizedRole === 'ROLE_FIELD OFFICER' || 
-                         normalizedRole === 'FIELD OFFICER' ||
-                         authorityRole === 'ROLE_FIELD OFFICER' || 
-                         authorityRole === 'FIELD OFFICER';
+  const isFieldOfficer = isFieldOfficerRoleValue(normalizedRole) ||
+                         isFieldOfficerRoleValue(authorityRole);
   const isAdmin = normalizedRole === 'ROLE_ADMIN' || 
                   normalizedRole === 'ADMIN' ||
                   authorityRole === 'ROLE_ADMIN' || 
@@ -128,7 +134,6 @@ const parseTokenResponse = (raw: string): { token: string; role: string } => {
     throw new Error(`Unexpected login response: "${trimmed}"`);
   }
 
-  const role = parts[0];
   let tokenCandidate = parts[parts.length - 1];
 
   // Handle "ROLE_ADMIN Bearer <token>" formats
@@ -142,6 +147,11 @@ const parseTokenResponse = (raw: string): { token: string; role: string } => {
   if (!tokenCandidate.includes('.')) {
     throw new Error(`Parsed token looks invalid: "${tokenCandidate}"`);
   }
+
+  const role = parts
+    .slice(0, -1)
+    .filter((part) => part.toLowerCase() !== 'bearer')
+    .join(' ');
 
   return {
     token: tokenCandidate,
@@ -350,10 +360,15 @@ export const authService = {
         throw parseError;
       }
 
+      if (isFieldOfficerWebUser({ loginRole: role })) {
+        throw new Error(FIELD_OFFICER_WEB_ACCESS_ERROR);
+      }
+
       // Store token in localStorage
       tokenManager.setToken(token);
 
       // Fetch detailed user role information
+      let userRoleData: UserRoleResponse | null = null;
       try {
         console.log('Fetching role for username:', credentials.username);
         console.log('Raw token response:', tokenData);
@@ -369,9 +384,10 @@ export const authService = {
         });
 
         if (roleResponse.ok) {
-          const userRoleData: UserRoleResponse = await roleResponse.json();
-          tokenManager.setUserRole(userRoleData);
-          console.log('User role data stored:', userRoleData);
+          const fetchedUserRoleData: UserRoleResponse = await roleResponse.json();
+          userRoleData = fetchedUserRoleData;
+          tokenManager.setUserRole(fetchedUserRoleData);
+          console.log('User role data stored:', fetchedUserRoleData);
         } else {
           console.warn('Failed to fetch user role data:', roleResponse.status, roleResponse.statusText);
           const errorText = await roleResponse.text();
@@ -381,7 +397,13 @@ export const authService = {
         console.warn('Error fetching user role data:', roleError);
       }
 
+      if (isFieldOfficerWebUser({ loginRole: role, userRole: userRoleData?.roles })) {
+        tokenManager.removeToken();
+        throw new Error(FIELD_OFFICER_WEB_ACCESS_ERROR);
+      }
+
       // Fetch current user details
+      let currentUserData: CurrentUserDto | null = null;
       try {
         const currentUserResponse = await fetch(CURRENT_USER_ENDPOINT, {
           credentials: 'include',
@@ -393,9 +415,10 @@ export const authService = {
         });
 
         if (currentUserResponse.ok) {
-          const currentUserData: CurrentUserDto = await currentUserResponse.json();
-          tokenManager.setCurrentUser(currentUserData);
-          console.log('Current user data stored:', currentUserData);
+          const fetchedCurrentUserData: CurrentUserDto = await currentUserResponse.json();
+          currentUserData = fetchedCurrentUserData;
+          tokenManager.setCurrentUser(fetchedCurrentUserData);
+          console.log('Current user data stored:', fetchedCurrentUserData);
         } else {
           console.warn('Failed to fetch current user data:', currentUserResponse.status);
         }
@@ -403,10 +426,18 @@ export const authService = {
         console.warn('Error fetching current user data:', currentUserError);
       }
 
+      if (isFieldOfficerWebUser({
+        loginRole: role,
+        userRole: userRoleData?.roles,
+        currentUser: currentUserData,
+      })) {
+        tokenManager.removeToken();
+        throw new Error(FIELD_OFFICER_WEB_ACCESS_ERROR);
+      }
+
       // Fetch teamId to correct role detection (for managers/field officers)
       // This is the key fix: if we can fetch teamId, user is definitely a manager or field officer
       try {
-        const userRoleData = tokenManager.getUserData();
         if (userRoleData?.employeeId) {
           console.log('Attempting to fetch teamId for employeeId:', userRoleData.employeeId);
           
@@ -459,6 +490,16 @@ export const authService = {
         // Don't throw - this is expected for admins and regular users
         tokenManager.setTeamId(null);
         tokenManager.setCorrectedRoleFlags(null);
+      }
+
+      if (isFieldOfficerWebUser({
+        loginRole: role,
+        userRole: userRoleData?.roles,
+        currentUser: currentUserData,
+        correctedRoleFlags: tokenManager.getCorrectedRoleFlags(),
+      })) {
+        tokenManager.removeToken();
+        throw new Error(FIELD_OFFICER_WEB_ACCESS_ERROR);
       }
 
       return {
@@ -528,5 +569,9 @@ export const authService = {
 
   getCorrectedRoleFlags: (): { isManager: boolean; isFieldOfficer: boolean } | null => {
     return tokenManager.getCorrectedRoleFlags();
+  },
+
+  clearSession: (): void => {
+    tokenManager.removeToken();
   }
 };

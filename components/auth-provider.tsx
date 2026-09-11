@@ -1,7 +1,12 @@
 'use client';
 
 import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
-import { authService, UserRoleResponse, CurrentUserDto } from '@/lib/auth';
+import {
+  authService,
+  CurrentUserDto,
+  isFieldOfficerWebUser,
+  UserRoleResponse,
+} from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 
 interface AuthContextType {
@@ -58,6 +63,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedCorrectedRoleFlags = authService.getCorrectedRoleFlags();
     
     if (storedToken) {
+      const isBlockedFieldOfficer = isFieldOfficerWebUser({
+        userRole: storedUserRole,
+        currentUser: storedCurrentUser,
+        correctedRoleFlags: storedCorrectedRoleFlags,
+      });
+
+      if (isBlockedFieldOfficer) {
+        authService.clearSession();
+        setToken(null);
+        setIsAuthenticated(false);
+        setUserRole(null);
+        setUserData(null);
+        setCurrentUser(null);
+        setTeamId(null);
+        setCorrectedRoleFlags(null);
+        setIsLoading(false);
+        router.replace('/login');
+        return;
+      }
+
       const exp = getTokenExpiry(storedToken);
       const nowSec = Math.floor(Date.now() / 1000);
       if (exp && exp <= nowSec) {

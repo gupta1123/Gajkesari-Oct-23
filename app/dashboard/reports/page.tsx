@@ -39,7 +39,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import NewCustomersReport from "@/components/NewCustomersReport";
 import SalesPerformanceReport from "@/components/SalesPerformanceReport";
 import dayjs from 'dayjs';
-import { API } from '@/lib/api';
+import {
+    API,
+    type CustomerVisitDetailDto,
+    type FieldOfficerVisitStats,
+} from '@/lib/api';
 import { hasManagerPrivileges } from '@/lib/auth';
 import { getUniqueFieldOfficersFromTeams } from '@/lib/team-access';
 import ContractorEngineerVisitReportSection from '@/components/contractor-engineer-visit-report-section';
@@ -47,28 +51,9 @@ import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-erro
 import { SearchableSelect } from '@/components/ui/searchable-select2';
 import { formatCityLabel } from '@/lib/city-options';
 
-const API_BASE_URL = 'https://api.gajkesaristeels.in';
-
-interface AttendanceStats {
-    absences: number;
-    halfDays: number;
-    fullDays: number;
-}
-
-interface VisitsByCustomerType {
-    [key: string]: number; 
-}
-
-interface FieldOfficerStatsResponse {
-    totalVisits: number;
-    attendanceStats: AttendanceStats;
-    completedVisits: number;
-    visitsByCustomerType: VisitsByCustomerType;
-}
-
 const CUSTOMER_CATEGORIES = ["Shop", "Site Visit", "Architect", "Engineer", "Builder", "Others"] as const;
 
-type ReportSummaryData = FieldOfficerStatsResponse & {
+type ReportSummaryData = FieldOfficerVisitStats & {
     categorizedVisits: Record<(typeof CUSTOMER_CATEGORIES)[number], number>;
 };
 
@@ -120,19 +105,6 @@ type FieldOfficerOption = {
     label: string;
 };
 
-interface VisitDetail {
-    avgIntentLevel: number;
-    avgMonthlySales: number;
-    visitCount: number;
-    lastVisited: string; 
-    city: string;
-    taluka: string;
-    state: string;
-    customerName: string;
-    customerType: string; 
-    storeId: number; 
-}
-
 const formatSalesNumber = (num: number): string => {
     if (num >= 10000000) { // Crores
         const val = num / 10000000;
@@ -148,20 +120,6 @@ const formatSalesNumber = (num: number): string => {
     }
     return num.toString();
 };
-
-async function fetchWithRetry(url: string, options: RequestInit, retries = 6, delay = 1000): Promise<Response> {
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await fetch(url, options);
-            if (!response.ok) throw new Error(await response.text() || response.statusText);
-            return response;
-        } catch (err) {
-            if (i === retries - 1) throw err;
-            await new Promise(res => setTimeout(res, delay));
-        }
-    }
-    throw new Error('Failed after retries');
-}
 
 const ReportsPageContent: React.FC = () => {
     const { token, userRole, currentUser, userData } = useAuth();
@@ -197,7 +155,7 @@ const ReportsPageContent: React.FC = () => {
     const [showReport, setShowReport] = useState<boolean>(false);
     const [reportSummary, setReportSummary] = useState<ReportSummaryData | null>(null);
 
-    const [visitDetails, setVisitDetails] = useState<VisitDetail[] | null>(null);
+    const [visitDetails, setVisitDetails] = useState<CustomerVisitDetailDto[] | null>(null);
     const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
     const [detailsError, setDetailsError] = useState<string | null>(null);
     const [selectedCustomerTypeForDetails, setSelectedCustomerTypeForDetails] = useState<string | null>(null);
@@ -287,6 +245,10 @@ const ReportsPageContent: React.FC = () => {
     };
 
     const fetchCustomerTypeDetails = async (displayCategory: string) => {
+        if (!token) {
+            setDetailsError('Authentication token not found. Please sign in again.');
+            return;
+        }
         if (!selectedEmployeeId || !startDate || !endDate || dateRangeInvalid) {
             setDetailsError("Please generate the main report first.");
             return;
@@ -299,9 +261,12 @@ const ReportsPageContent: React.FC = () => {
         const apiCustomerType = displayCategoryToApiTypeMap[displayCategory] || displayCategory.toLowerCase();
 
         try {
-            const url = `${API_BASE_URL}/v2/visits/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${apiCustomerType}`;
-            const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
-            const data: VisitDetail[] = await response.json();
+            const data = await API.getCustomerVisitDetails(
+                Number(selectedEmployeeId),
+                startDate,
+                endDate,
+                apiCustomerType,
+            );
             setVisitDetails(data);
         } catch (err) {
             setDetailsError((err as Error).message || `Failed to fetch details for ${displayCategory}.`);
@@ -312,6 +277,10 @@ const ReportsPageContent: React.FC = () => {
     };
 
     const handleGenerateReport = async () => {
+        if (!token) {
+            setReportError('Authentication token not found. Please sign in again.');
+            return;
+        }
         if (!rangeSelect) {
             setDateRangeError('Please select a Date Range.');
             return;
@@ -327,9 +296,11 @@ const ReportsPageContent: React.FC = () => {
         setDateRangeError(null);
         setReportLoading(true); setReportError(null); setShowReport(false);
         try {
-            const url = `${API_BASE_URL}/v2/visits/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
-            const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
-            const data: FieldOfficerStatsResponse = await response.json();
+            const data = await API.getFieldOfficerVisitStats(
+                Number(selectedEmployeeId),
+                startDate,
+                endDate,
+            );
 
             const apiTypeToDisplayCategoryMap: Record<string, (typeof CUSTOMER_CATEGORIES)[number]> = {
                 "shop": "Shop",
@@ -724,7 +695,17 @@ const ReportsPageContent: React.FC = () => {
                 </TabsContent>
 
                 <TabsContent value="contractorEngineerVisitReport" className="space-y-6">
-                    <ContractorEngineerVisitReportSection />
+                    <ContractorEngineerVisitReportSection
+                        initialTab={requestedContractorReportTab ?? undefined}
+                        initialStartDate={searchParams.get('contractorStart') ?? undefined}
+                        initialEndDate={searchParams.get('contractorEnd') ?? undefined}
+                        initialSearch={searchParams.get('contractorSearch') ?? undefined}
+                        initialCategory={searchParams.get('contractorCategory') ?? undefined}
+                        initialProjectType={searchParams.get('contractorProjectType') ?? undefined}
+                        initialPotential={searchParams.get('contractorPotential') ?? undefined}
+                        initialPage={Math.max(0, Number(searchParams.get('contractorPage')) || 0)}
+                        initialPageSize={Math.max(1, Number(searchParams.get('contractorPageSize')) || 10)}
+                    />
                 </TabsContent>
                 
                 <TabsContent value="newCustomers" className="space-y-6">

@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Loader2, CalendarDays, Clock3, Pencil } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
 
 interface WorkingDaysData {
     fullDayCount: number;
@@ -30,6 +31,13 @@ const WorkingDays: React.FC = () => {
         value !== "" && Number.isInteger(value) && value >= 1;
     const isWorkingDaysFormValid =
         isValidDayCount(editedData.fullDayCount) && isValidDayCount(editedData.halfDayCount);
+    const workingDaysFormIsDirty = editMode && (
+        editedData.fullDayCount !== workingDays.fullDayCount ||
+        editedData.halfDayCount !== workingDays.halfDayCount
+    );
+    const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+        isDirty: workingDaysFormIsDirty,
+    });
 
     // Get auth data from localStorage
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -94,6 +102,7 @@ const WorkingDays: React.FC = () => {
 
             setWorkingDays(payload);
             setEditedData(payload);
+            clearUnsavedChanges();
             setEditMode(false);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Error updating working days';
@@ -130,11 +139,13 @@ const WorkingDays: React.FC = () => {
     };
 
     const cancelEdit = () => {
-        setEditedData({
-            fullDayCount: workingDays.fullDayCount,
-            halfDayCount: workingDays.halfDayCount
+        confirmDiscard(() => {
+            setEditedData({
+                fullDayCount: workingDays.fullDayCount,
+                halfDayCount: workingDays.halfDayCount
+            });
+            setEditMode(false);
         });
-        setEditMode(false);
     };
 
     useEffect(() => {

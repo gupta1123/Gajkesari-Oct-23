@@ -37,7 +37,13 @@ import Topbar from "@/components/topbar";
 import { useRouter } from "next/navigation";
 import { CircleUser } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import { CurrentUserDto, hasManagerPrivileges, normalizeRoleValue } from "@/lib/auth";
+import {
+  authService,
+  CurrentUserDto,
+  hasManagerPrivileges,
+  isFieldOfficerWebUser,
+  normalizeRoleValue,
+} from "@/lib/auth";
 import MobileBottomNav from "@/components/mobile-bottom-nav";
 
 interface DashboardLayoutProps {
@@ -46,6 +52,7 @@ interface DashboardLayoutProps {
   subheading?: string;
   backHref?: string;
   onBack?: () => void;
+  headerAction?: ReactNode;
 }
 
 // Define sidebar categories and items
@@ -123,8 +130,15 @@ export default function DashboardLayout({
   subheading,
   backHref,
   onBack,
+  headerAction,
 }: DashboardLayoutProps) {
-  const { userRole, currentUser } = useAuth();
+  const {
+    correctedRoleFlags,
+    currentUser,
+    isAuthenticated,
+    isLoading: isAuthLoading,
+    userRole,
+  } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const { logout } = useAuth();
@@ -161,7 +175,26 @@ export default function DashboardLayout({
 
   // Check if user is manager
   const isManager = hasManagerPrivileges(userRole, currentUser);
+  const isBlockedFieldOfficer = isFieldOfficerWebUser({
+    userRole,
+    currentUser,
+    correctedRoleFlags,
+  });
   const viewRole: 'admin' | 'manager' = isManager ? 'manager' : 'admin';
+
+  useEffect(() => {
+    if (isAuthLoading) return;
+
+    if (isBlockedFieldOfficer) {
+      authService.clearSession();
+      router.replace('/login');
+      return;
+    }
+
+    if (!isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [isAuthLoading, isAuthenticated, isBlockedFieldOfficer, router]);
 
   useEffect(() => {
     if (!isManager) return;
@@ -213,6 +246,14 @@ export default function DashboardLayout({
       router.push("/login");
     }
   };
+
+  if (isAuthLoading || !isAuthenticated || isBlockedFieldOfficer) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        Checking access...
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen w-full grid ${sidebarCollapsed ? "md:grid-cols-[64px_1fr]" : "md:grid-cols-[184px_1fr] lg:grid-cols-[200px_1fr]"}`}>
@@ -416,7 +457,7 @@ export default function DashboardLayout({
       {/* Main content area */}
       <div className="flex min-w-0 flex-col">
         {/* Topbar */}
-        <Topbar heading={heading} subheading={subheading} backHref={backHref} onBack={onBack} viewRole={viewRole} />
+        <Topbar heading={heading} subheading={subheading} backHref={backHref} onBack={onBack} viewRole={viewRole} action={headerAction} />
         
         {/* Page content */}
         <main className="flex min-w-0 flex-1 flex-col gap-4 p-3 lg:gap-6 lg:p-4 pb-24 md:pb-6">

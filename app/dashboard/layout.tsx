@@ -7,6 +7,7 @@ import {
   DashboardHeaderConfig,
   DashboardHeaderOverrideProvider,
 } from "@/components/dashboard-header-context";
+import { UnsavedChangesProvider } from "@/components/unsaved-changes-provider";
 
 export default function Layout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -139,15 +140,18 @@ export default function Layout({ children }: { children: ReactNode }) {
   const basePage = dynamicHeading || pageHeadings[pathname] || pageHeadings["/dashboard"];
 
   return (
-    <DashboardHeaderOverrideProvider setHeader={setHeaderOverride}>
-      <DashboardLayout
-        heading={headerOverride?.heading || basePage.heading}
-        subheading={headerOverride?.subheading ?? basePage.subheading}
-        backHref={headerOverride ? undefined : basePage.backHref}
-        onBack={headerOverride?.onBack}
-      >
-        {children}
-      </DashboardLayout>
-    </DashboardHeaderOverrideProvider>
+    <UnsavedChangesProvider>
+      <DashboardHeaderOverrideProvider setHeader={setHeaderOverride}>
+        <DashboardLayout
+          heading={headerOverride?.heading || basePage.heading}
+          subheading={headerOverride?.subheading ?? basePage.subheading}
+          backHref={headerOverride ? undefined : basePage.backHref}
+          onBack={headerOverride?.onBack}
+          headerAction={headerOverride?.action}
+        >
+          {children}
+        </DashboardLayout>
+      </DashboardHeaderOverrideProvider>
+    </UnsavedChangesProvider>
   );
 }

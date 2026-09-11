@@ -345,8 +345,7 @@ const Allowance: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <Card className="gap-0 border-border/70 py-0 shadow-sm">
-                <CardContent className="space-y-4 p-4">
+            <div className="space-y-4">
                     <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 sm:flex-row sm:items-center">
                         <Popover open={employeeFilterOpen} onOpenChange={setEmployeeFilterOpen}>
                             <PopoverTrigger asChild>
@@ -592,12 +591,7 @@ const Allowance: React.FC = () => {
 
                             {/* Desktop view - Table */}
                             <div className="hidden min-w-0 overflow-x-auto md:block">
-                                <div className="rounded-lg border bg-card">
-                                    <div className="p-4 border-b">
-                                        <h3 className="text-sm font-semibold text-foreground">Employee Allowances</h3>
-                                        <p className="mt-0.5 text-xs text-muted-foreground">Manage DA, Salary, and vehicle rates per employee</p>
-                                    </div>
-                                    <Table className="table-fixed text-xs font-poppins">
+                                <Table className="table-fixed text-xs font-poppins">
                                         <colgroup>
                                             <col className="w-[24%]" />
                                             <col className="w-[12%]" />
@@ -720,8 +714,7 @@ const Allowance: React.FC = () => {
                                                 </TableRow>
                                             ))}
                                         </TableBody>
-                                    </Table>
-                                </div>
+                                </Table>
                             </div>
 
                             {!isLoading && totalPages > 0 && (
@@ -775,8 +768,7 @@ const Allowance: React.FC = () => {
                             )}
                         </>
                     )}
-                </CardContent>
-            </Card>
+            </div>
         </div>
     );
 };

@@ -39,6 +39,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 interface LeaveRequest {
   id: number;
@@ -63,18 +64,29 @@ export default function CompactLeaveApprovalCard({
   const [isEditing, setIsEditing] = useState(false);
   const [editedType, setEditedType] = useState<"full" | "half">(request.approvedType);
   const [isViewingReason, setIsViewingReason] = useState(false);
+  const resetEdit = () => {
+    setEditedType(request.approvedType);
+    setIsEditing(false);
+  };
+  const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+    isDirty: isEditing && editedType !== request.approvedType,
+    onDiscard: resetEdit,
+  });
 
   const handleApprove = () => {
+    clearUnsavedChanges();
     onStatusChange(request.id, "approved", editedType);
     setIsEditing(false);
   };
 
   const handleReject = () => {
+    clearUnsavedChanges();
     onStatusChange(request.id, "rejected");
     setIsEditing(false);
   };
 
   const handleSaveEdit = () => {
+    clearUnsavedChanges();
     onStatusChange(request.id, request.status, editedType);
     setIsEditing(false);
   };
@@ -242,7 +254,7 @@ export default function CompactLeaveApprovalCard({
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => confirmDiscard(resetEdit)}
                   className="h-7 text-xs px-2"
                 >
                   Cancel

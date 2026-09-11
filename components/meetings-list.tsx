@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -55,13 +56,19 @@ import {
   getMeetingStatusLabel,
   Meeting,
   MeetingAttendee,
+  MeetingExpense,
+  MeetingGift,
   MeetingPage,
+  EXPENSE_HEADS,
   MEETING_TYPES,
   meetingsApi,
 } from "@/lib/meetings-api";
 import { hasAdminSetupPrivileges } from "@/lib/auth";
 import { formatTimeTo12Hour } from "@/lib/utils";
 import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
+import { usePagedStoreNames } from "@/components/use-paged-store-names";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 const ALL_VALUE = "all";
 
@@ -115,6 +122,10 @@ const normalizeStatusOption = (item: BackendStatusOption): StatusOption | null =
 
 type MeetingRequestForm = {
   meetingType: string;
+  storeId: string;
+  storeName: string;
+  objective: string;
+  expectedBusinessImpact: string;
   meetingDate: string;
   meetingTime: string;
   city: string;
@@ -127,12 +138,25 @@ type MeetingRequestForm = {
   allowWalkInAttendees: boolean;
 };
 
-type NewMeetingStep = "request" | "attendees";
+type NewMeetingStep = "request" | "plan" | "attendees";
+
+type PlannedExpenseDraft = Omit<MeetingExpense, "amount"> & {
+  amount: number | "";
+};
+
+type PlannedGiftDraft = Omit<MeetingGift, "quantity" | "estimatedAmount"> & {
+  quantity: number | "";
+  estimatedAmount?: number | "";
+};
 
 const today = () => format(new Date(), "yyyy-MM-dd");
 
 const emptyRequestForm = (): MeetingRequestForm => ({
   meetingType: "Dealer",
+  storeId: "",
+  storeName: "",
+  objective: "",
+  expectedBusinessImpact: "",
   meetingDate: today(),
   meetingTime: "11:00",
   city: "",
@@ -143,6 +167,18 @@ const emptyRequestForm = (): MeetingRequestForm => ({
   expectedBudget: "",
   companyContribution: "",
   allowWalkInAttendees: true,
+});
+
+const emptyPlannedExpense = (): PlannedExpenseDraft => ({
+  expenseHead: "",
+  amount: "",
+  paidBy: "COMPANY",
+});
+
+const emptyPlannedGift = (): PlannedGiftDraft => ({
+  giftItem: "",
+  quantity: 1,
+  estimatedAmount: "",
 });
 
 const emptyAttendee = (): MeetingAttendee => ({
@@ -340,17 +376,63 @@ function NewMeetingDialog({
   const [step, setStep] = useState<NewMeetingStep>("request");
   const [form, setForm] = useState<MeetingRequestForm>(emptyRequestForm());
   const [attendees, setAttendees] = useState<MeetingAttendee[]>([]);
+  const [plannedExpenses, setPlannedExpenses] = useState<PlannedExpenseDraft[]>([emptyPlannedExpense()]);
+  const [plannedGifts, setPlannedGifts] = useState<PlannedGiftDraft[]>([emptyPlannedGift()]);
+  const [expenseHeadOptions, setExpenseHeadOptions] = useState<string[]>([...EXPENSE_HEADS]);
+  const [giftItemOptions, setGiftItemOptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUserChanges, setHasUserChanges] = useState(false);
+  const storeDirectory = usePagedStoreNames({
+    enabled: open,
+    employeeId: creatorId,
+    allowUnscoped: true,
+    pageSize: 100,
+  });
+
+  const storeOptions = useMemo<SearchableOption[]>(() => {
+    const options = storeDirectory.stores.map((store) => ({
+      value: String(store.id),
+      label: store.storeName,
+    }));
+    if (form.storeId && form.storeName && !options.some((option) => option.value === form.storeId)) {
+      options.unshift({ value: form.storeId, label: form.storeName });
+    }
+    return options;
+  }, [form.storeId, form.storeName, storeDirectory.stores]);
+
+  useEffect(() => {
+    if (!open) return;
+    const normalizeConfig = (items: MeetingConfigItem[] | string[] | undefined, fallback: readonly string[]) => {
+      if (!items?.length) return [...fallback];
+      const names = items
+        .map((item) => (typeof item === "string" ? item : item.active === false ? "" : item.name))
+        .map((name) => name.trim())
+        .filter(Boolean);
+      return names.length ? Array.from(new Set(names)) : [...fallback];
+    };
+    meetingsApi.getExpenseHeads()
+      .then((items) => setExpenseHeadOptions(normalizeConfig(items, EXPENSE_HEADS)))
+      .catch(() => setExpenseHeadOptions([...EXPENSE_HEADS]));
+    meetingsApi.getGiftItems()
+      .then((items) => setGiftItemOptions(normalizeConfig(items, [])))
+      .catch(() => setGiftItemOptions([]));
+  }, [open]);
 
   const reset = () => {
     setForm(emptyRequestForm());
     setAttendees([]);
+    setPlannedExpenses([emptyPlannedExpense()]);
+    setPlannedGifts([emptyPlannedGift()]);
+    storeDirectory.reset();
     setError(null);
     setStep("request");
     setHasUserChanges(false);
   };
+
+  const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+    isDirty: open && hasUserChanges,
+  });
 
   const updateForm = <K extends keyof MeetingRequestForm>(field: K, value: MeetingRequestForm[K]) => {
     setHasUserChanges(true);
@@ -369,6 +451,23 @@ function NewMeetingDialog({
   };
 
   const validAttendees = useMemo(() => getValidAttendees(attendees), [attendees]);
+  const validPlannedExpenses = useMemo(
+    () => plannedExpenses
+      .filter((expense) => expense.expenseHead.trim())
+      .map((expense) => ({ ...expense, expenseHead: expense.expenseHead.trim(), amount: Number(expense.amount || 0) })),
+    [plannedExpenses]
+  );
+  const validPlannedGifts = useMemo(
+    () => plannedGifts
+      .filter((gift) => gift.giftItem.trim())
+      .map((gift) => ({
+        ...gift,
+        giftItem: gift.giftItem.trim(),
+        quantity: Number(gift.quantity || 0),
+        estimatedAmount: Number(gift.estimatedAmount || 0),
+      })),
+    [plannedGifts]
+  );
 
   const dealerContribution = useMemo(() => {
     const budget = Number(form.expectedBudget || 0);
@@ -379,18 +478,19 @@ function NewMeetingDialog({
 
   const companyContribution = Number(form.companyContribution || 0);
 
-  const close = (confirmed = false) => {
-    if (!confirmed && hasUserChanges) {
-      if (!window.confirm("You have unsaved changes. Are you sure you want to exit?")) {
-        return;
-      }
-    }
-    reset();
-    onOpenChange(false);
+  const close = (nextOpen = false) => {
+    if (nextOpen) return;
+    confirmDiscard(() => {
+      reset();
+      onOpenChange(false);
+    });
   };
 
   const validateRequest = () => {
     if (!form.meetingType) return "Select a meeting type.";
+    if (!form.storeId) return "Select the store for this meeting.";
+    if (!form.objective.trim()) return "Enter the meeting objective.";
+    if (!form.expectedBusinessImpact.trim()) return "Enter the expected business impact.";
     if (!form.meetingDate) return "Select a meeting date.";
     if (!form.meetingTime) return "Select a meeting time.";
     if (!form.city.trim()) return "Enter the meeting city.";
@@ -405,6 +505,22 @@ function NewMeetingDialog({
     const expectedPeople = Number(form.expectedAttendees || validAttendees.length);
     if (!Number.isFinite(expectedPeople) || expectedPeople < validAttendees.length) {
       return "Expected people cannot be lower than named attendees.";
+    }
+    return null;
+  };
+
+  const validatePlanForSubmit = () => {
+    if (validPlannedExpenses.length === 0) {
+      return "Add at least one planned expense before submitting for approval.";
+    }
+    if (validPlannedExpenses.some((expense) => !Number.isFinite(expense.amount) || expense.amount < 0)) {
+      return "Every planned expense needs a valid non-negative amount.";
+    }
+    if (validPlannedGifts.length === 0) {
+      return "Add at least one planned gift before submitting for approval.";
+    }
+    if (validPlannedGifts.some((gift) => !Number.isFinite(gift.quantity) || gift.quantity <= 0)) {
+      return "Every planned gift needs a quantity greater than zero.";
     }
     return null;
   };
@@ -434,6 +550,13 @@ function NewMeetingDialog({
         return;
       }
 
+      const planError = validatePlanForSubmit();
+      if (planError) {
+        setError(planError);
+        setStep("plan");
+        return;
+      }
+
       const attendeeError = validateAttendeesForSubmit();
       if (attendeeError) {
         setError(attendeeError);
@@ -455,19 +578,26 @@ function NewMeetingDialog({
       const meetingId = await meetingsApi.createMeeting({
         meetingType: form.meetingType,
         ...(canCreateOnBehalf && creatorId ? { creatorId } : {}),
+        storeId: Number(form.storeId) || undefined,
+        objective: form.objective.trim() || undefined,
+        expectedBusinessImpact: form.expectedBusinessImpact.trim() || undefined,
         meetingDate: form.meetingDate || undefined,
         meetingTime: form.meetingTime ? `${form.meetingTime}:00` : undefined,
         city: form.city.trim() || undefined,
         state: form.state.trim() || undefined,
         location: form.location.trim() || undefined,
-        customerReference: form.customerReference.trim() || undefined,
+        customerReference: form.customerReference.trim() || form.storeName || undefined,
         expectedAttendees: Number(form.expectedAttendees || validAttendees.length || 0),
         expectedBudget: Number(form.expectedBudget || 0),
+        expectedGiftsMaterials: JSON.stringify(validPlannedGifts),
         allowWalkInAttendees: form.allowWalkInAttendees,
         plan: {
           expectedBudget: Number(form.expectedBudget || 0),
           companyContribution,
           dealerContribution: Math.max(0, Number(form.expectedBudget || 0) - companyContribution),
+          plannedExpenseDetails: validPlannedExpenses,
+          expectedGiftsMaterials: validPlannedGifts,
+          plannedGiftDetails: validPlannedGifts,
         },
         attendees: validAttendees,
       });
@@ -477,6 +607,7 @@ function NewMeetingDialog({
       }
 
       onCreated();
+      clearUnsavedChanges();
       setHasUserChanges(false);
       onOpenChange(false);
       reset();
@@ -494,7 +625,7 @@ function NewMeetingDialog({
         <DialogHeader>
           <DialogTitle className="text-base font-semibold">New Meeting</DialogTitle>
           <DialogDescription className="text-xs">
-            Create the request first, then add named attendees before submitting for approval.
+            Complete the request, budget plan, and named attendees before submitting for approval.
           </DialogDescription>
         </DialogHeader>
 
@@ -510,12 +641,21 @@ function NewMeetingDialog({
           </Button>
           <Button
             type="button"
+            variant={step === "plan" ? "default" : "outline"}
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => setStep("plan")}
+          >
+            2. Expense & Gift Plan
+          </Button>
+          <Button
+            type="button"
             variant={step === "attendees" ? "default" : "outline"}
             size="sm"
             className="h-8 text-xs"
             onClick={() => setStep("attendees")}
           >
-            2. Named Attendees
+            3. Named Attendees
           </Button>
         </div>
 
@@ -535,6 +675,60 @@ function NewMeetingDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Store</Label>
+              <SearchableSelect
+                options={storeOptions}
+                value={form.storeId || undefined}
+                onSelect={(option) => {
+                  setHasUserChanges(true);
+                  setForm((current) => ({
+                    ...current,
+                    storeId: option?.value || "",
+                    storeName: option?.label || "",
+                    customerReference: current.customerReference || option?.label || "",
+                  }));
+                }}
+                placeholder="Select store"
+                searchPlaceholder="Search loaded stores..."
+                emptyMessage={storeDirectory.error || "No stores available"}
+                allowClear
+                loading={storeDirectory.isLoading}
+                triggerClassName="h-9 w-full bg-background text-xs shadow-none"
+                contentClassName="w-[min(420px,calc(100vw-2rem))]"
+              />
+              {storeDirectory.hasMore && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => void storeDirectory.loadMore()}
+                  disabled={storeDirectory.isLoadingMore}
+                >
+                  {storeDirectory.isLoadingMore ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                  Load more stores
+                </Button>
+              )}
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs font-medium text-foreground">Meeting objective</Label>
+              <Textarea
+                className="min-h-20 text-xs bg-background shadow-none"
+                value={form.objective}
+                onChange={(event) => updateForm("objective", event.target.value)}
+                placeholder="Describe what this meeting should achieve"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs font-medium text-foreground">Expected business impact</Label>
+              <Textarea
+                className="min-h-20 text-xs bg-background shadow-none"
+                value={form.expectedBusinessImpact}
+                onChange={(event) => updateForm("expectedBusinessImpact", event.target.value)}
+                placeholder="Describe the expected sales, relationship, or market outcome"
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-foreground">Expected budget</Label>
@@ -620,6 +814,173 @@ function NewMeetingDialog({
               />
               Allow walk-in attendees during execution
             </label>
+          </div>
+        ) : step === "plan" ? (
+          <div className="space-y-5">
+            <section className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-semibold text-foreground">Planned expenses</h3>
+                  <p className="text-[11px] text-muted-foreground">Add the expense heads and expected amounts for approval.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    setHasUserChanges(true);
+                    setPlannedExpenses((items) => [...items, emptyPlannedExpense()]);
+                  }}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Add expense
+                </Button>
+              </div>
+              <datalist id="new-meeting-expense-heads">
+                {expenseHeadOptions.map((head) => <option key={head} value={head} />)}
+              </datalist>
+              {plannedExpenses.map((expense, index) => (
+                <div key={index} className="grid gap-3 rounded-md border bg-muted/10 p-3 md:grid-cols-[minmax(180px,1fr)_140px_140px_auto] md:items-end">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Expense head</Label>
+                    <Input
+                      list="new-meeting-expense-heads"
+                      className="meeting-datalist-input h-9 text-xs"
+                      value={expense.expenseHead}
+                      onChange={(event) => {
+                        setHasUserChanges(true);
+                        setPlannedExpenses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, expenseHead: event.target.value } : item));
+                      }}
+                      placeholder="Food / venue / travel"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Amount</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      className="h-9 text-xs"
+                      value={expense.amount}
+                      onChange={(event) => {
+                        setHasUserChanges(true);
+                        const value = event.target.value;
+                        setPlannedExpenses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, amount: value === "" ? "" : Number(value) } : item));
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Paid by</Label>
+                    <Select
+                      value={expense.paidBy || "COMPANY"}
+                      onValueChange={(value) => {
+                        setHasUserChanges(true);
+                        setPlannedExpenses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, paidBy: value } : item));
+                      }}
+                    >
+                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="COMPANY">Company</SelectItem>
+                        <SelectItem value="DEALER">Dealer</SelectItem>
+                        <SelectItem value="SHARED">Shared</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 text-xs text-destructive"
+                    onClick={() => {
+                      setHasUserChanges(true);
+                      setPlannedExpenses((items) => items.length === 1 ? [emptyPlannedExpense()] : items.filter((_, itemIndex) => itemIndex !== index));
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </section>
+
+            <section className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-semibold text-foreground">Planned gifts</h3>
+                  <p className="text-[11px] text-muted-foreground">Add each gift or material and its planned quantity.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    setHasUserChanges(true);
+                    setPlannedGifts((items) => [...items, emptyPlannedGift()]);
+                  }}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Add gift
+                </Button>
+              </div>
+              <datalist id="new-meeting-gift-items">
+                {giftItemOptions.map((item) => <option key={item} value={item} />)}
+              </datalist>
+              {plannedGifts.map((gift, index) => (
+                <div key={index} className="grid gap-3 rounded-md border bg-muted/10 p-3 md:grid-cols-[minmax(180px,1fr)_120px_150px_auto] md:items-end">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Gift / material</Label>
+                    <Input
+                      list="new-meeting-gift-items"
+                      className="meeting-datalist-input h-9 text-xs"
+                      value={gift.giftItem}
+                      onChange={(event) => {
+                        setHasUserChanges(true);
+                        setPlannedGifts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, giftItem: event.target.value } : item));
+                      }}
+                      placeholder="Gift item"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Quantity</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      className="h-9 text-xs"
+                      value={gift.quantity}
+                      onChange={(event) => {
+                        setHasUserChanges(true);
+                        const value = event.target.value;
+                        setPlannedGifts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: value === "" ? "" : Number(value) } : item));
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Estimated amount</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      className="h-9 text-xs"
+                      value={gift.estimatedAmount ?? ""}
+                      onChange={(event) => {
+                        setHasUserChanges(true);
+                        const value = event.target.value;
+                        setPlannedGifts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, estimatedAmount: value === "" ? "" : Number(value) } : item));
+                      }}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 text-xs text-destructive"
+                    onClick={() => {
+                      setHasUserChanges(true);
+                      setPlannedGifts((items) => items.length === 1 ? [emptyPlannedGift()] : items.filter((_, itemIndex) => itemIndex !== index));
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </section>
           </div>
         ) : (
           <div className="space-y-3">
@@ -724,11 +1085,23 @@ function NewMeetingDialog({
           </Button>
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
             {step === "request" ? (
-              <Button type="button" size="sm" className="h-9 text-xs" onClick={() => setStep("attendees")} disabled={isSaving}>
+              <Button type="button" size="sm" className="h-9 text-xs" onClick={() => setStep("plan")} disabled={isSaving}>
                 Continue
               </Button>
+            ) : step === "plan" ? (
+              <>
+                <Button type="button" variant="outline" size="sm" className="h-9 text-xs" onClick={() => setStep("request")} disabled={isSaving}>
+                  Back
+                </Button>
+                <Button type="button" size="sm" className="h-9 text-xs" onClick={() => setStep("attendees")} disabled={isSaving}>
+                  Continue
+                </Button>
+              </>
             ) : (
               <>
+                <Button type="button" variant="outline" size="sm" className="h-9 text-xs" onClick={() => setStep("plan")} disabled={isSaving}>
+                  Back
+                </Button>
                 <Button type="button" variant="outline" size="sm" className="h-9 text-xs" onClick={() => createMeeting(false)} disabled={isSaving}>
                   {isSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
                   Save Draft
@@ -748,7 +1121,7 @@ function NewMeetingDialog({
 
 export default function MeetingsList() {
   const router = useRouter();
-  const { userRole, currentUser } = useAuth();
+  const { userRole, currentUser, userData } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [pageInfo, setPageInfo] = useState<MeetingPage<Meeting> | null>(null);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -1307,6 +1680,7 @@ export default function MeetingsList() {
         onOpenChange={setIsNewMeetingOpen}
         meetingTypes={meetingTypes}
         onCreated={() => loadMeetings(filters, 0, pageSize)}
+        creatorId={userData?.employeeId}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -46,6 +46,7 @@ import BrandTab from "@/components/BrandTab";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateToUserFriendly } from "@/lib/utils";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 const ITEMS_PER_PAGE = 3;
 
@@ -148,6 +149,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         dob: null,
     });
     const [isOtherClientType, setIsOtherClientType] = useState(false);
+    const editCustomerBaselineRef = useRef('');
 
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
@@ -188,6 +190,10 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
     const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
     const [complaintEmployeeSearch, setComplaintEmployeeSearch] = useState('');
     const [requirementEmployeeSearch, setRequirementEmployeeSearch] = useState('');
+    const defaultTaskDueDate = useMemo(() => {
+        const today = new Date();
+        return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    }, []);
     const [startDate, setStartDate] = useState(new Date());
     const [endDate, setEndDate] = useState(addDays(new Date(), 5));
     const [showSitesTab, setShowSitesTab] = useState(false);
@@ -367,9 +373,6 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
     }, []);
 
     const resetComplaintTaskState = useCallback(() => {
-        const today = new Date();
-        const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        
         // Find employee by name to get ID
         const employeeNameStr = typeof customerData?.employeeName === 'string' ? customerData.employeeName : '';
         const employee = employees.find(emp => {
@@ -383,7 +386,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         setComplaintTask({
             taskTitle: '',
             taskDesciption: '',
-            dueDate: todayString,
+            dueDate: defaultTaskDueDate,
             assignedToId: employee ? employee.id as number : 0,
             assignedToName: employeeNameStr || '',
             assignedById: 86,
@@ -396,12 +399,9 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         });
         setComplaintEmployeeSearch('');
         setComplaintActiveTab('general');
-    }, [customerData?.storeName, customerData?.employeeName, getNumericStoreId, employees]);
+    }, [customerData?.storeName, customerData?.employeeName, defaultTaskDueDate, getNumericStoreId, employees]);
 
     const resetRequirementTaskState = useCallback(() => {
-        const today = new Date();
-        const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        
         // Find employee by name to get ID
         const employeeNameStr = typeof customerData?.employeeName === 'string' ? customerData.employeeName : '';
         const employee = employees.find(emp => {
@@ -415,7 +415,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         setRequirementTask({
             taskTitle: '',
             taskDesciption: '',
-            dueDate: todayString,
+            dueDate: defaultTaskDueDate,
             assignedToId: employee ? employee.id as number : 0,
             assignedToName: employeeNameStr || '',
             assignedById: 86,
@@ -428,7 +428,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         });
         setRequirementEmployeeSearch('');
         setRequirementActiveTab('general');
-    }, [customerData?.storeName, customerData?.employeeName, getNumericStoreId, employees]);
+    }, [customerData?.storeName, customerData?.employeeName, defaultTaskDueDate, getNumericStoreId, employees]);
 
     const closeComplaintModal = useCallback(() => {
         setIsComplaintModalOpen(false);
@@ -440,11 +440,69 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         resetRequirementTaskState();
     }, [resetRequirementTaskState]);
 
+    const customerComplaintDraftIsDirty = isComplaintModalOpen && Boolean(
+        complaintTask.taskTitle.trim() ||
+        complaintTask.taskDesciption.trim() ||
+        complaintTask.dueDate !== defaultTaskDueDate ||
+        complaintTask.priority !== 'low' ||
+        complaintActiveTab !== 'general'
+    );
+    const customerRequirementDraftIsDirty = isRequirementModalOpen && Boolean(
+        requirementTask.taskTitle.trim() ||
+        requirementTask.taskDesciption.trim() ||
+        requirementTask.dueDate !== defaultTaskDueDate ||
+        requirementTask.priority !== 'low' ||
+        requirementActiveTab !== 'general'
+    );
+    const { clearUnsavedChanges: clearComplaintChanges, confirmDiscard: confirmComplaintDiscard } = useUnsavedChanges({
+        isDirty: customerComplaintDraftIsDirty,
+        onDiscard: resetComplaintTaskState,
+    });
+    const { clearUnsavedChanges: clearRequirementChanges, confirmDiscard: confirmRequirementDiscard } = useUnsavedChanges({
+        isDirty: customerRequirementDraftIsDirty,
+        onDiscard: resetRequirementTaskState,
+    });
+    const requestCloseComplaintModal = useCallback(
+        () => confirmComplaintDiscard(closeComplaintModal),
+        [closeComplaintModal, confirmComplaintDiscard],
+    );
+    const requestCloseRequirementModal = useCallback(
+        () => confirmRequirementDiscard(closeRequirementModal),
+        [closeRequirementModal, confirmRequirementDiscard],
+    );
+
     const closeEditCustomerModal = useCallback(() => {
         setIsEditCustomerModalVisible(false);
         setActiveTab('basic-info');
         setHasUnlockedAddressTab(false);
     }, []);
+
+    const editCustomerIsDirty = isEditCustomerModalVisible && Boolean(
+        editCustomerBaselineRef.current &&
+        JSON.stringify(formData) !== editCustomerBaselineRef.current
+    );
+    const { clearUnsavedChanges: clearEditCustomerChanges, confirmDiscard: confirmEditCustomerDiscard } = useUnsavedChanges({
+        isDirty: editCustomerIsDirty,
+        onDiscard: () => {
+            if (!editCustomerBaselineRef.current) return;
+            setFormData(JSON.parse(editCustomerBaselineRef.current) as Partial<CustomerData>);
+        },
+    });
+    const requestCloseEditCustomerModal = useCallback(() => {
+        confirmEditCustomerDiscard(closeEditCustomerModal);
+    }, [closeEditCustomerModal, confirmEditCustomerDiscard]);
+
+    const customerNoteDraftIsDirty = isModalVisible && (
+        isEditMode
+            ? noteContent !== (notesData.find((note) => note.id === editingNoteId)?.content || '')
+            : Boolean(noteContent.trim())
+    );
+    const { clearUnsavedChanges: clearCustomerNoteChanges, confirmDiscard: confirmCustomerNoteDiscard } = useUnsavedChanges({
+        isDirty: customerNoteDraftIsDirty,
+    });
+    const requestCloseNoteModal = useCallback(() => {
+        confirmCustomerNoteDiscard(handleCloseNoteModal);
+    }, [confirmCustomerNoteDiscard, handleCloseNoteModal]);
 
     const handleCustomerTabChange = useCallback((value: string) => {
         if (value === 'address-info' && !hasUnlockedAddressTab) {
@@ -472,6 +530,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
             if (response.ok) {
                 await fetchNotesData(storeId as string);
+                clearCustomerNoteChanges();
                 handleCloseNoteModal();
                 console.log('Note added successfully!');
             }
@@ -508,6 +567,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
             if (response.ok) {
                 await fetchNotesData(storeId as string);
+                clearCustomerNoteChanges();
                 handleCloseNoteModal();
                 console.log('Note updated successfully!');
             }
@@ -762,6 +822,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
             if (response.ok) {
                 await fetchCustomerData(storeId as string);
+                clearEditCustomerChanges();
                 closeEditCustomerModal();
                 console.log('Customer updated successfully!');
             } else {
@@ -822,6 +883,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
             if (response.ok) {
                 console.log('Complaint created successfully!');
+                clearComplaintChanges();
                 await createTask();
                 closeComplaintModal();
             } else {
@@ -858,6 +920,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
             if (response.ok) {
                 console.log('Requirement created successfully!');
+                clearRequirementChanges();
                 await createTask();
                 closeRequirementModal();
             } else {
@@ -1137,6 +1200,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                         onClick={() => {
                                             setActiveTab('basic-info');
                                             setHasUnlockedAddressTab(false);
+                                            editCustomerBaselineRef.current = JSON.stringify(formData);
                                             setIsEditCustomerModalVisible(true);
                                         }}
                                         className="h-10 w-10"
@@ -1757,7 +1821,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                 open={isModalVisible}
                 onOpenChange={(open) => {
                     if (!open) {
-                        handleCloseNoteModal();
+                        requestCloseNoteModal();
                     }
                 }}
             >
@@ -1775,7 +1839,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                         className="min-h-[140px]"
                     />
                     <DialogFooter>
-                        <Button variant="outline" onClick={handleCloseNoteModal}>
+                        <Button variant="outline" onClick={requestCloseNoteModal}>
                             Cancel
                         </Button>
                         <Button
@@ -1825,7 +1889,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                 open={isEditCustomerModalVisible}
                 onOpenChange={(open) => {
                     if (!open) {
-                        closeEditCustomerModal();
+                        requestCloseEditCustomerModal();
                     }
                 }}
             >
@@ -1991,7 +2055,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                     </div>
                                 )}
                                 <div className="flex items-center justify-between pt-4 border-t">
-                                    <Button variant="ghost" onClick={closeEditCustomerModal}>
+                                    <Button variant="ghost" onClick={requestCloseEditCustomerModal}>
                                         Cancel
                                     </Button>
                                     <Button
@@ -2108,7 +2172,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                         <Button variant="outline" onClick={() => setActiveTab("basic-info")} className="h-11 px-6">
                                             Back
                                         </Button>
-                                        <Button variant="ghost" onClick={closeEditCustomerModal} className="h-11 px-6">
+                                        <Button variant="ghost" onClick={requestCloseEditCustomerModal} className="h-11 px-6">
                                             Cancel
                                         </Button>
                                     </div>
@@ -2192,7 +2256,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between pt-4 border-t">
-                                            <Button variant="ghost" onClick={closeComplaintModal}>
+                                            <Button variant="ghost" onClick={requestCloseComplaintModal}>
                                                 Cancel
                                             </Button>
                                             <Button onClick={handleComplaintNext} className="h-11 px-6">
@@ -2271,7 +2335,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                                 Back
                                             </Button>
                                             <div className="flex gap-2">
-                                                <Button variant="ghost" onClick={closeComplaintModal} className="h-11 px-6">
+                                                <Button variant="ghost" onClick={requestCloseComplaintModal} className="h-11 px-6">
                                                     Cancel
                                                 </Button>
                                                 <Button onClick={handleCreateComplaint} className="h-11 px-6">
@@ -2357,7 +2421,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between pt-4 border-t">
-                                            <Button variant="ghost" onClick={closeRequirementModal}>
+                                            <Button variant="ghost" onClick={requestCloseRequirementModal}>
                                                 Cancel
                                             </Button>
                                             <Button onClick={handleRequirementNext} className="h-11 px-6">
@@ -2436,7 +2500,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                                                 Back
                                             </Button>
                                             <div className="flex gap-2">
-                                                <Button variant="ghost" onClick={closeRequirementModal} className="h-11 px-6">
+                                                <Button variant="ghost" onClick={requestCloseRequirementModal} className="h-11 px-6">
                                                     Cancel
                                                 </Button>
                                                 <Button onClick={handleCreateRequirement} className="h-11 px-6">

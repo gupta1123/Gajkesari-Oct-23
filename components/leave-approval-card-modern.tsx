@@ -42,6 +42,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 interface LeaveRequest {
   id: number;
@@ -66,18 +67,29 @@ export default function ModernLeaveApprovalCard({
   const [isEditing, setIsEditing] = useState(false);
   const [editedType, setEditedType] = useState<"full" | "half">(request.approvedType);
   const [isViewingReason, setIsViewingReason] = useState(false);
+  const resetEdit = () => {
+    setEditedType(request.approvedType);
+    setIsEditing(false);
+  };
+  const { clearUnsavedChanges, confirmDiscard } = useUnsavedChanges({
+    isDirty: isEditing && editedType !== request.approvedType,
+    onDiscard: resetEdit,
+  });
 
   const handleApprove = () => {
+    clearUnsavedChanges();
     onStatusChange(request.id, "approved", editedType);
     setIsEditing(false);
   };
 
   const handleReject = () => {
+    clearUnsavedChanges();
     onStatusChange(request.id, "rejected");
     setIsEditing(false);
   };
 
   const handleSaveEdit = () => {
+    clearUnsavedChanges();
     onStatusChange(request.id, request.status, editedType);
     setIsEditing(false);
   };
@@ -243,7 +255,7 @@ export default function ModernLeaveApprovalCard({
           <>
             {isEditing ? (
               <>
-                <Button variant="outline" onClick={() => setIsEditing(false)}>
+                <Button variant="outline" onClick={() => confirmDiscard(resetEdit)}>
                   Cancel
                 </Button>
                 <div className="flex gap-2">
