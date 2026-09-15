@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -16,7 +16,6 @@ import {
   Loader2,
   Lock,
   Plus,
-  RefreshCw,
   Save,
   Send,
   UserCheck,
@@ -25,6 +24,7 @@ import {
 import { endOfMonth, format, startOfMonth } from "date-fns";
 
 import { useAuth } from "@/components/auth-provider";
+import { useDashboardHeader } from "@/components/dashboard-header-context";
 import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1027,11 +1027,8 @@ type MeetingKpiSubMetric = {
 };
 
 type MeetingKpiGridProps = {
-  status?: string;
-  statusValue: ReactNode;
   secondaryLabel: string;
   secondaryValue: ReactNode;
-  secondaryClassName?: string;
   financialLabel: string;
   financialValue: ReactNode;
   financialSubMetrics: MeetingKpiSubMetric[];
@@ -1040,48 +1037,9 @@ type MeetingKpiGridProps = {
   attendanceSubMetrics: MeetingKpiSubMetric[];
 };
 
-const statusDotClass = (status?: string) => {
-  switch (status) {
-    case "APPROVED":
-      return "bg-blue-500 shadow-blue-500/30";
-    case "PENDING_APPROVAL":
-    case "DRAFT":
-      return "bg-amber-500 shadow-amber-500/30";
-    case "EXECUTED":
-    case "EXPENSE_SUBMITTED":
-    case "REPORT_SUBMITTED":
-      return "bg-purple-500 shadow-purple-500/30";
-    case "CLOSED":
-      return "bg-emerald-500 shadow-emerald-500/30";
-    case "REJECTED":
-    case "CANCELLED":
-      return "bg-red-500 shadow-red-500/30";
-    case "CORRECTION_REQUIRED":
-      return "bg-orange-500 shadow-orange-500/30";
-    default:
-      return "bg-muted-foreground shadow-muted-foreground/20";
-  }
-};
-
-function KpiSubMetrics({ metrics }: { metrics: MeetingKpiSubMetric[] }) {
-  return (
-    <div className={`grid border-t bg-muted/20 ${metrics.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-      {metrics.map((metric, index) => (
-        <div key={metric.label} className={`px-5 py-3 ${index > 0 ? "border-l" : ""}`}>
-          <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{metric.label}</div>
-          <div className={`mt-1 text-sm font-bold text-foreground ${metric.valueClassName || ""}`}>{metric.value ?? "-"}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function MeetingKpiGrid({
-  status,
-  statusValue,
   secondaryLabel,
   secondaryValue,
-  secondaryClassName = "",
   financialLabel,
   financialValue,
   financialSubMetrics,
@@ -1090,74 +1048,59 @@ function MeetingKpiGrid({
   attendanceSubMetrics,
 }: MeetingKpiGridProps) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {/* Status Card */}
-      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Status</span>
-          <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${statusBadgeClass(status)}`}>
-            {statusValue}
-          </Badge>
-        </div>
-        <div className="mt-2.5 flex items-center justify-between text-xs">
-          <span className="text-muted-foreground font-semibold">{secondaryLabel}</span>
-          <span className="font-extrabold text-foreground">{secondaryValue}</span>
-        </div>
+    <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
+      <Card className="gap-0 rounded-lg py-0 shadow-none">
+        <CardContent className="flex min-h-[82px] flex-col justify-center p-3 sm:p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium text-muted-foreground">{financialLabel}</div>
+              <div className="mt-1 truncate text-xl font-semibold leading-none tracking-tight text-foreground">{financialValue}</div>
+            </div>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600">
+              <IndianRupee className="h-4 w-4" />
+            </div>
+          </div>
+          {financialSubMetrics.length > 0 && (
+            <div className="mt-2 flex min-w-0 items-center gap-3 overflow-hidden text-[10px] text-muted-foreground">
+              {financialSubMetrics.map((metric) => (
+                <span key={metric.label} className="min-w-0 truncate">
+                  {metric.label}: <strong className={metric.valueClassName || "text-foreground"}>{metric.value}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+        </CardContent>
       </Card>
 
-      {/* Financial Card */}
-      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{financialLabel}</div>
-            <div className="mt-0.5 text-xl font-extrabold text-foreground tracking-tight whitespace-nowrap">{financialValue}</div>
+      <Card className="gap-0 rounded-lg py-0 shadow-none">
+        <CardContent className="flex min-h-[82px] flex-col justify-center p-3 sm:p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium text-muted-foreground">{attendanceLabel}</div>
+              <div className="mt-1 truncate text-xl font-semibold leading-none tracking-tight text-foreground">{attendanceValue}</div>
+            </div>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <UserCheck className="h-4 w-4" />
+            </div>
           </div>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600">
-            <IndianRupee className="h-4.5 w-4.5" />
-          </div>
-        </div>
-        {financialSubMetrics && financialSubMetrics.length > 0 && (
-          <div className="mt-2 flex items-center justify-between text-[11px] border-t border-border/20 pt-1.5">
-            <span className="text-muted-foreground">{financialSubMetrics[0].label}: <strong className="text-foreground">{financialSubMetrics[0].value}</strong></span>
-            {financialSubMetrics[1] && (
-              <span className="text-muted-foreground">{financialSubMetrics[1].label}: <strong className="text-foreground">{financialSubMetrics[1].value}</strong></span>
-            )}
-          </div>
-        )}
+          {attendanceSubMetrics.length > 0 && (
+            <div className="mt-2 truncate text-[10px] text-muted-foreground">
+              {attendanceSubMetrics[0].label}: <strong className="text-foreground">{attendanceSubMetrics[0].value}</strong>
+            </div>
+          )}
+        </CardContent>
       </Card>
 
-      {/* Attendance Card */}
-      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{attendanceLabel}</div>
-            <div className="mt-0.5 text-xl font-extrabold text-foreground tracking-tight whitespace-nowrap">{attendanceValue}</div>
+      <Card className="gap-0 rounded-lg py-0 shadow-none">
+        <CardContent className="flex min-h-[82px] items-center justify-between gap-3 p-3 sm:p-4">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-muted-foreground">{secondaryLabel}</div>
+            <div className="mt-1 truncate text-xl font-semibold leading-none tracking-tight text-foreground">{secondaryValue}</div>
           </div>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-            <UserCheck className="h-4.5 w-4.5" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600">
+            <Gift className="h-4 w-4" />
           </div>
-        </div>
-        {attendanceSubMetrics && attendanceSubMetrics.length > 0 && (
-          <div className="mt-2 flex items-center justify-between text-[11px] border-t border-border/20 pt-1.5">
-            <span className="text-muted-foreground">{attendanceSubMetrics[0].label}: <strong className="text-foreground">{attendanceSubMetrics[0].value}</strong></span>
-          </div>
-        )}
-      </Card>
-
-      {/* Gifts Card */}
-      <Card className="rounded-xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm hover:border-border/60 transition-all">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{secondaryLabel}</div>
-            <div className="mt-0.5 text-xl font-extrabold text-foreground tracking-tight whitespace-nowrap">{secondaryValue}</div>
-          </div>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-600">
-            <Gift className="h-4.5 w-4.5" />
-          </div>
-        </div>
-        <div className="mt-2 flex items-center justify-between text-[11px] border-t border-border/20 pt-1.5">
-          <span className="text-muted-foreground">Allocation Progress</span>
-        </div>
+        </CardContent>
       </Card>
     </div>
   );
@@ -1449,10 +1392,29 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     expenses,
     finalReport,
   ]);
-  const { confirmDiscard: confirmMeetingDiscard } = useUnsavedChanges({
+  const { confirmDiscard } = useUnsavedChanges({
     isDirty: Boolean(savedEditSnapshot && currentEditSnapshot !== savedEditSnapshot),
   });
-  const leaveMeetingDetail = () => confirmMeetingDiscard(() => router.push("/dashboard/meetings"));
+  const handleHeaderBack = useCallback(
+    () => confirmDiscard(() => router.push("/dashboard/meetings")),
+    [confirmDiscard, router]
+  );
+  const headingStatus = useMemo(
+    () => meeting ? (
+      <Badge
+        variant="outline"
+        className={`max-w-[180px] shrink-0 truncate rounded-md px-2 py-0.5 text-[11px] font-semibold ${statusBadgeClass(meeting.status)}`}
+      >
+        {getMeetingStageLabel(meeting)}
+      </Badge>
+    ) : undefined,
+    [meeting]
+  );
+  useDashboardHeader({
+    heading: "Meeting Details",
+    headingAccessory: headingStatus,
+    onBack: handleHeaderBack,
+  });
 
   const actualExpenseTotal = useMemo(
     () => {
@@ -2532,28 +2494,8 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
     return (
       <>
       <div className="flex min-w-0 flex-col gap-4 lg:h-[calc(100vh-6.5rem)] lg:overflow-hidden">
-        <div className="flex shrink-0 flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-xl font-extrabold text-foreground">{meeting.meetingType} Meeting</h1>
-              <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${statusBadgeClass(meeting.status)}`}>
-                {getMeetingStatusLabel(meeting)}
-              </Badge>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
-              <span>{formatDate(meeting.meetingDate)} at {formatMeetingTime(meeting.meetingTime)}</span>
-              <span aria-hidden="true">·</span>
-              <span>{[meeting.city, meeting.state].filter(Boolean).join(", ") || "No location set"}</span>
-              {(meeting.storeName || meeting.dealerName) && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span>{meeting.storeName || meeting.dealerName}</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {(showApprovalDecision || showFinalReviewDecision || canCancel) && (
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             {showApprovalDecision && (
               <Button size="sm" className="h-9 font-bold" onClick={() => setIsApprovalDecisionOpen(true)}>
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
@@ -2573,7 +2515,7 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
               </Button>
             )}
           </div>
-        </div>
+        )}
 
         {showStageNotice && <AdminStageNotice notice={adminPresentation.notice} />}
         <div className="shrink-0"><AdminSummaryStrip metrics={adminSummaryMetrics} /></div>
@@ -3577,61 +3519,18 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
   return (
     <>
     <div className="flex flex-col gap-4 lg:h-[calc(100vh-6.5rem)] lg:overflow-hidden min-w-0">
-      {/* Top Header & Actions Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-border/30 bg-card/40 backdrop-blur-md p-4 shadow-sm shrink-0">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={leaveMeetingDetail}
-            className="shrink-0 rounded-xl h-9"
-          >
-            <ArrowLeft className="h-4 w-4 mr-1.5" />
-            Back
+      {canSubmit && (
+        <div className="flex shrink-0 justify-end">
+          <Button size="sm" onClick={submitForApproval} disabled={isSaving} className="h-9 rounded-xl font-bold">
+            <Send className="mr-1.5 h-3.5 w-3.5" />
+            Submit Plan
           </Button>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-extrabold tracking-tight text-foreground truncate">
-                {meeting.meetingType} Meeting
-              </h1>
-              <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${statusBadgeClass(meeting.status)}`}>
-                {getMeetingStatusLabel(meeting)}
-              </Badge>
-            </div>
-            <div className="text-xs text-muted-foreground font-medium mt-0.5 flex items-center gap-2">
-              <span>{[meeting.city, meeting.state].filter(Boolean).join(", ") || "No location set"}</span>
-              <span>•</span>
-              <span>{formatDate(meeting.meetingDate)} at {formatMeetingTime(meeting.meetingTime)}</span>
-              {meeting.storeName && (
-                <>
-                  <span>•</span>
-                  <span>Store: {meeting.storeName}</span>
-                </>
-              )}
-            </div>
-          </div>
         </div>
-
-        {/* Right Actions */}
-        <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={loadMeeting} disabled={isSaving} className="rounded-xl h-9">
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isSaving ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          {canSubmit && (
-            <Button size="sm" onClick={submitForApproval} disabled={isSaving} className="rounded-xl h-9 font-bold">
-              <Send className="h-3.5 w-3.5 mr-1.5" />
-              Submit Plan
-            </Button>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Top KPI Bar */}
       <div className="shrink-0">
         <MeetingKpiGrid
-          status={meeting.status}
-          statusValue={getMeetingStageLabel(meeting)}
           secondaryLabel={showActualSummary ? "Gifts Issued" : "Planned Gifts"}
           secondaryValue={showActualSummary ? issuedGiftDisplay : plannedGiftDisplay}
           financialLabel="Expected Budget"
@@ -3957,24 +3856,24 @@ export default function MeetingDetail({ meetingId }: { meetingId: number }) {
                   </div>
                 </div>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-                  <ReadOnlyField label="Meeting type" value={meeting.meetingType} />
-                  <ReadOnlyField label="Planned Date" value={formatDate(meeting.meetingDate)} />
-                  <ReadOnlyField label="Planned Time" value={formatMeetingTime(meeting.meetingTime)} />
-                  <ReadOnlyField label="City" value={meeting.city} />
-                  <ReadOnlyField label="State" value={meeting.state} />
-                  <ReadOnlyField label="Location" value={meeting.location} />
-                  <ReadOnlyField label="Store" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
-                  <ReadOnlyField label="Store ID" value={meeting.storeId} />
-                  <ReadOnlyField label="Objective" value={meeting.objective} />
-                  <ReadOnlyField label="Expected business impact" value={meeting.expectedBusinessImpact} />
-                  <ReadOnlyField label="Reference" value={meeting.customerReference} />
-                  <ReadOnlyField label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
-                  <ReadOnlyField label="Expected people" value={meeting.expectedAttendees} />
-                  <ReadOnlyField label="Named attendees" value={meeting.attendees?.length || 0} />
-                  <ReadOnlyField label="Company contribution" value={formatCurrency(meeting.plan?.companyContribution)} />
-                  <ReadOnlyField label="Dealer contribution" value={formatCurrency(meeting.plan?.dealerContribution)} />
-                </div>
+                <dl className="grid gap-x-8 gap-y-6 sm:grid-cols-2 xl:grid-cols-3">
+                  <MeetingNoteBlock label="Meeting type" value={meeting.meetingType} />
+                  <MeetingNoteBlock label="Planned Date" value={formatDate(meeting.meetingDate)} />
+                  <MeetingNoteBlock label="Planned Time" value={formatMeetingTime(meeting.meetingTime)} />
+                  <MeetingNoteBlock label="City" value={meeting.city} />
+                  <MeetingNoteBlock label="State" value={meeting.state} />
+                  <MeetingNoteBlock label="Location" value={meeting.location} />
+                  <MeetingNoteBlock label="Store" value={meeting.storeName || meeting.dealerName || meeting.customerReference} />
+                  <MeetingNoteBlock label="Store ID" value={meeting.storeId} />
+                  <MeetingNoteBlock label="Objective" value={meeting.objective} />
+                  <MeetingNoteBlock label="Expected business impact" value={meeting.expectedBusinessImpact} />
+                  <MeetingNoteBlock label="Reference" value={meeting.customerReference} />
+                  <MeetingNoteBlock label="Expected budget" value={formatCurrency(meeting.expectedBudget)} />
+                  <MeetingNoteBlock label="Expected people" value={meeting.expectedAttendees} />
+                  <MeetingNoteBlock label="Named attendees" value={meeting.attendees?.length || 0} />
+                  <MeetingNoteBlock label="Company contribution" value={formatCurrency(meeting.plan?.companyContribution)} />
+                  <MeetingNoteBlock label="Dealer contribution" value={formatCurrency(meeting.plan?.dealerContribution)} />
+                </dl>
               )}
             </CardContent>
           </Card>

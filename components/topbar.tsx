@@ -11,13 +11,14 @@ import type { ReactNode } from "react";
 interface TopbarProps {
   heading?: string;
   subheading?: string;
+  headingAccessory?: ReactNode;
   backHref?: string;
   onBack?: () => void;
   viewRole?: 'admin' | 'manager';
   action?: ReactNode;
 }
 
-export default function Topbar({ heading, subheading, backHref, onBack, viewRole, action }: TopbarProps) {
+export default function Topbar({ heading, subheading, headingAccessory, backHref, onBack, viewRole, action }: TopbarProps) {
   return (
     <header className="sticky top-0 z-30 flex h-14 w-full items-center gap-3 border-b border-border/60 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:backdrop-blur sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -37,11 +38,14 @@ export default function Topbar({ heading, subheading, backHref, onBack, viewRole
         )}
         {(heading || subheading) && (
           <div className="flex min-w-0 flex-col justify-center gap-0.5">
-            {heading && (
-              <Heading as="h1" size="lg" className="m-0 truncate leading-tight" weight="semibold">
-                {heading}
-              </Heading>
-            )}
+            <div className="flex min-w-0 items-center gap-2">
+              {heading && (
+                <Heading as="h1" size="lg" className="m-0 min-w-0 truncate leading-tight" weight="semibold">
+                  {heading}
+                </Heading>
+              )}
+              {headingAccessory}
+            </div>
             {subheading && (
               <Text
                 as="div"

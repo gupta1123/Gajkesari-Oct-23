@@ -145,6 +145,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <DashboardLayout
           heading={headerOverride?.heading || basePage.heading}
           subheading={headerOverride?.subheading ?? basePage.subheading}
+          headingAccessory={headerOverride?.headingAccessory}
           backHref={headerOverride ? undefined : basePage.backHref}
           onBack={headerOverride?.onBack}
           headerAction={headerOverride?.action}

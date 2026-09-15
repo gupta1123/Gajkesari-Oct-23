@@ -50,6 +50,7 @@ interface DashboardLayoutProps {
   children: ReactNode;
   heading?: string;
   subheading?: string;
+  headingAccessory?: ReactNode;
   backHref?: string;
   onBack?: () => void;
   headerAction?: ReactNode;
@@ -128,6 +129,7 @@ export default function DashboardLayout({
   children, 
   heading,
   subheading,
+  headingAccessory,
   backHref,
   onBack,
   headerAction,
@@ -457,7 +459,7 @@ export default function DashboardLayout({
       {/* Main content area */}
       <div className="flex min-w-0 flex-col">
         {/* Topbar */}
-        <Topbar heading={heading} subheading={subheading} backHref={backHref} onBack={onBack} viewRole={viewRole} action={headerAction} />
+        <Topbar heading={heading} subheading={subheading} headingAccessory={headingAccessory} backHref={backHref} onBack={onBack} viewRole={viewRole} action={headerAction} />
         
         {/* Page content */}
         <main className="flex min-w-0 flex-1 flex-col gap-4 p-3 lg:gap-6 lg:p-4 pb-24 md:pb-6">

@@ -143,6 +143,16 @@ export interface MeetingPlan {
   budgetRemarks?: string | null;
 }
 
+export interface CreateMeetingPlanPayload {
+  expectedBudget?: number;
+  plannedExpenseDetails?: string;
+  expectedGiftsMaterials?: string;
+  plannedGiftDetails?: string;
+  companyContribution?: number;
+  dealerContribution?: number;
+  budgetRemarks?: string | null;
+}
+
 export interface MeetingAuditHistory {
   id: number;
   meetingId: number;
@@ -286,7 +296,6 @@ export interface MeetingDashboardSummary {
 
 export interface CreateMeetingPayload {
   meetingType: string;
-  creatorId?: number;
   meetingDate?: string;
   meetingTime?: string;
   city?: string;
@@ -301,11 +310,13 @@ export interface CreateMeetingPayload {
   expectedGiftsMaterials?: string;
   allowWalkInAttendees?: boolean;
   remarks?: string;
-  plan?: MeetingPlan;
+  plan?: CreateMeetingPlanPayload;
   attendees?: MeetingAttendee[];
 }
 
-export type EditMeetingRequestPayload = Partial<Omit<CreateMeetingPayload, "creatorId">>;
+export type EditMeetingRequestPayload = Partial<Omit<CreateMeetingPayload, "plan">> & {
+  plan?: MeetingPlan;
+};
 
 export interface ApprovalPayload {
   approvalRemarks: string;

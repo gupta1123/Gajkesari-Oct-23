@@ -136,6 +136,8 @@ type MeetingRequestForm = {
   expectedBudget: string;
   companyContribution: string;
   allowWalkInAttendees: boolean;
+  remarks: string;
+  budgetRemarks: string;
 };
 
 type NewMeetingStep = "request" | "plan" | "attendees";
@@ -167,6 +169,8 @@ const emptyRequestForm = (): MeetingRequestForm => ({
   expectedBudget: "",
   companyContribution: "",
   allowWalkInAttendees: true,
+  remarks: "",
+  budgetRemarks: "",
 });
 
 const emptyPlannedExpense = (): PlannedExpenseDraft => ({
@@ -360,7 +364,6 @@ type NewMeetingDialogProps = {
   onOpenChange: (open: boolean) => void;
   meetingTypes: string[];
   onCreated: () => void;
-  canCreateOnBehalf?: boolean;
   creatorId?: number;
 };
 
@@ -369,7 +372,6 @@ function NewMeetingDialog({
   onOpenChange,
   meetingTypes,
   onCreated,
-  canCreateOnBehalf = false,
   creatorId,
 }: NewMeetingDialogProps) {
   const router = useRouter();
@@ -575,9 +577,10 @@ function NewMeetingDialog({
     setError(null);
     setIsSaving(true);
     try {
+      const plannedExpenseDetails = JSON.stringify(validPlannedExpenses);
+      const expectedGiftsMaterials = JSON.stringify(validPlannedGifts);
       const meetingId = await meetingsApi.createMeeting({
         meetingType: form.meetingType,
-        ...(canCreateOnBehalf && creatorId ? { creatorId } : {}),
         storeId: Number(form.storeId) || undefined,
         objective: form.objective.trim() || undefined,
         expectedBusinessImpact: form.expectedBusinessImpact.trim() || undefined,
@@ -589,15 +592,17 @@ function NewMeetingDialog({
         customerReference: form.customerReference.trim() || form.storeName || undefined,
         expectedAttendees: Number(form.expectedAttendees || validAttendees.length || 0),
         expectedBudget: Number(form.expectedBudget || 0),
-        expectedGiftsMaterials: JSON.stringify(validPlannedGifts),
+        expectedGiftsMaterials,
         allowWalkInAttendees: form.allowWalkInAttendees,
+        remarks: form.remarks.trim(),
         plan: {
           expectedBudget: Number(form.expectedBudget || 0),
           companyContribution,
           dealerContribution: Math.max(0, Number(form.expectedBudget || 0) - companyContribution),
-          plannedExpenseDetails: validPlannedExpenses,
-          expectedGiftsMaterials: validPlannedGifts,
-          plannedGiftDetails: validPlannedGifts,
+          plannedExpenseDetails,
+          expectedGiftsMaterials,
+          plannedGiftDetails: expectedGiftsMaterials,
+          budgetRemarks: form.budgetRemarks.trim(),
         },
         attendees: validAttendees,
       });
@@ -807,6 +812,15 @@ function NewMeetingDialog({
                 onChange={(event) => updateForm("customerReference", event.target.value)}
               />
             </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs font-medium text-foreground">Meeting remarks</Label>
+              <Textarea
+                className="min-h-20 bg-background text-xs shadow-none"
+                value={form.remarks}
+                onChange={(event) => updateForm("remarks", event.target.value)}
+                placeholder="Add any notes for this meeting"
+              />
+            </div>
             <label className="flex items-center gap-2 rounded-md border p-3 text-xs md:col-span-2 cursor-pointer">
               <Checkbox
                 checked={form.allowWalkInAttendees}
@@ -981,6 +995,16 @@ function NewMeetingDialog({
                 </div>
               ))}
             </section>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Budget remarks</Label>
+              <Textarea
+                className="min-h-20 bg-background text-xs shadow-none"
+                value={form.budgetRemarks}
+                onChange={(event) => updateForm("budgetRemarks", event.target.value)}
+                placeholder="Add notes about the meeting budget"
+              />
+            </div>
           </div>
         ) : (
           <div className="space-y-3">

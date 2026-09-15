@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 export interface DashboardHeaderConfig {
   heading: string;
   subheading?: string;
+  headingAccessory?: ReactNode;
   onBack?: () => void;
   action?: ReactNode;
 }
@@ -27,12 +28,12 @@ export function DashboardHeaderOverrideProvider({
   );
 }
 
-export function useDashboardHeader({ heading, subheading, onBack, action }: DashboardHeaderConfig) {
+export function useDashboardHeader({ heading, subheading, headingAccessory, onBack, action }: DashboardHeaderConfig) {
   const setHeader = useContext(DashboardHeaderContext);
 
   useEffect(() => {
     if (!setHeader) return;
-    setHeader({ heading, subheading, onBack, action });
+    setHeader({ heading, subheading, headingAccessory, onBack, action });
     return () => setHeader(null);
-  }, [heading, subheading, onBack, action, setHeader]);
+  }, [heading, subheading, headingAccessory, onBack, action, setHeader]);
 }
