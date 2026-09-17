@@ -966,13 +966,35 @@ export default function VisitDetailPage() {
       }
 
       const currentTask = taskType === 'requirement' ? newTask : complaintTask;
+      // Single source of truth: the assignee is always the visit employee.
+      // The disabled "Assigned To" inputs render visitDetail.employeeName,
+      // so the payload MUST use the same visitDetail.employeeId — never a
+      // stale currentTask.assignedToId and never 0 (backend falls back to
+      // the visit employee on read, which surfaced as "Test Officer New"
+      // in the form but "Test Sandeep" after save).
+      const assigneeId = visitDetail?.employeeId ?? 0;
+      const assigneeName = (visitDetail?.employeeName ?? '').trim();
+      const targetStoreId = visitDetail?.storeId ?? 0;
+      if (!assigneeId) {
+        throw new Error('Visit employee is missing, so the assignee cannot be determined. Please reload the visit.');
+      }
+      if (!assigneeName) {
+        throw new Error('Visit employee name is missing. Please reload the visit.');
+      }
+      if (!targetStoreId) {
+        throw new Error('Store is missing for this visit. Please reload the visit.');
+      }
       const taskToCreate = {
-        ...currentTask,
+        taskTitle: currentTask.taskTitle,
+        taskDesciption: currentTask.taskDesciption,
+        dueDate: currentTask.dueDate,
+        priority: currentTask.priority,
+        status: currentTask.status || 'Assigned',
         assignedById: loggedInEmployeeId,
         taskType,
-        storeId: visitDetail?.storeId ?? 0,
-        assignedToId: visitDetail?.employeeId ?? 0,
-        assignedToName: visitDetail?.employeeName ?? '',
+        storeId: targetStoreId,
+        assignedToId: assigneeId,
+        assignedToName: assigneeName,
         storeName: visitDetail?.storeName ?? '',
         visitId: Number(visitId),
       };

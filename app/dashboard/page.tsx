@@ -874,13 +874,22 @@ export default function DashboardPage() {
 
   const handleMarkerClick = useCallback(async (marker: MapMarker) => {
     if (marker.type === 'live') {
-      const employeeId = Number(marker.id);
+      const employeeId = Number(marker.employeeId ?? marker.id);
+      // If this employee's journey is already shown, don't re-select: the
+      // select flow clears the journey markers and reloads, which destroys
+      // the marker (and its popup) before it can open. Return early so the
+      // live-marker popup opens just like home markers do.
+      const highlighted = highlightedEmployee as unknown as Record<string, unknown> | null;
+      const highlightedId = highlighted == null
+        ? null
+        : Number(highlighted.id ?? highlighted.employeeId ?? highlighted.listId);
+      if (highlightedId != null && Number.isFinite(highlightedId) && employeeId === highlightedId) return;
       const employee = employeeList.find(emp => emp.id === employeeId);
       if (employee) {
         await handleEmployeeSelect(employee as ExtendedEmployee);
       }
     }
-  }, [employeeList, handleEmployeeSelect]);
+  }, [employeeList, handleEmployeeSelect, highlightedEmployee]);
 
   // Note: All employee location loading is now handled in handleEmployeeSelect
   // This effect is no longer needed since we load all locations immediately

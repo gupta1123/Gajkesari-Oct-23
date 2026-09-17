@@ -1247,8 +1247,16 @@ export class API {
           // ignore body parsing errors
         }
         const preview = bodySnippet ? ` Body: ${bodySnippet.slice(0, 200)}` : '';
+        // Friendly messages for auth failures (backend often returns an
+        // empty body, e.g. 403 with Content-Length: 0).
+        const friendlyMessage =
+          response.status === 401
+            ? 'Your session has expired. Please sign in again.'
+            : response.status === 403
+              ? 'Access denied. Your account does not have permission to view this data.'
+              : `API request failed: ${response.status} ${response.statusText}.${preview}`;
         throw new APIRequestError(
-          `API request failed: ${response.status} ${response.statusText}.${preview}`,
+          friendlyMessage,
           response.status,
           errorDetails,
         );
@@ -1793,8 +1801,12 @@ Please check your internet connection and try again.`);
     endDate: string,
     customerType: string,
   ): Promise<CustomerVisitDetailDto[]> {
+    // Backend treats customerType case-insensitively; normalize so callers
+    // can pass display values ("Shop", "Site Visit") safely. buildQuery
+    // (URLSearchParams) handles encoding, e.g. "site visit" -> "site+visit".
+    const normalizedCustomerType = customerType?.trim().toLowerCase();
     return this.makeRequest<CustomerVisitDetailDto[]>(
-      `/v2/visits/customer-visit-details?${buildQuery({ employeeId, startDate, endDate, customerType })}`,
+      `/v2/visits/customer-visit-details?${buildQuery({ employeeId, startDate, endDate, customerType: normalizedCustomerType })}`,
     );
   }
 
@@ -2216,35 +2228,32 @@ Please check your internet connection and try again.`);
   }
 
   async getEmployeeJourney(employeeId: number, startDate: string, endDate: string): Promise<EmployeeJourneyPoint[]> {
-    const query = new URLSearchParams({ employeeId: String(employeeId), startDate, endDate });
-    try {
-      return await this.makeRequest<EmployeeJourneyPoint[]>(`/visit/employee-journey?${query}`);
-    } catch (optimizedEndpointError) {
-      console.warn('Optimized employee journey endpoint unavailable; using the existing visit endpoint.', optimizedEndpointError);
-      const result = await this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
-      return (result.visitDto || []).map((visit) => ({
-        id: visit.id,
-        employeeId: visit.employeeId,
-        employeeName: visit.employeeName,
-        storeName: visit.storeName,
-        lat: visit.checkinLatitude ?? visit.visitLatitude ?? visit.storeLatitude ?? 0,
-        lng: visit.checkinLongitude ?? visit.visitLongitude ?? visit.storeLongitude ?? 0,
-        coordinateSource: visit.checkinLatitude != null && visit.checkinLongitude != null
-          ? 'check-in'
-          : visit.visitLatitude != null && visit.visitLongitude != null
-            ? 'visit'
-            : 'store',
-        visitDate: visit.visit_date,
-        checkinDate: visit.checkinDate,
-        checkinTime: visit.checkinTime,
-        checkoutDate: visit.checkoutDate,
-        checkoutTime: visit.checkoutTime,
-        purpose: visit.purpose,
-        city: visit.city,
-        state: visit.state,
-        country: visit.country,
-      }));
-    }
+    // The legacy /visit/employee-journey endpoint is no longer permitted
+    // (403), so go straight to the v2 stats endpoint which returns the same
+    // visits in `visitDto`. No fallback needed.
+    const result = await this.getEmployeeStatsByDateRange(employeeId, startDate, endDate);
+    return (result.visitDto || []).map((visit) => ({
+      id: visit.id,
+      employeeId: visit.employeeId,
+      employeeName: visit.employeeName,
+      storeName: visit.storeName,
+      lat: visit.checkinLatitude ?? visit.visitLatitude ?? visit.storeLatitude ?? 0,
+      lng: visit.checkinLongitude ?? visit.visitLongitude ?? visit.storeLongitude ?? 0,
+      coordinateSource: visit.checkinLatitude != null && visit.checkinLongitude != null
+        ? 'check-in'
+        : visit.visitLatitude != null && visit.visitLongitude != null
+          ? 'visit'
+          : 'store',
+      visitDate: visit.visit_date,
+      checkinDate: visit.checkinDate,
+      checkinTime: visit.checkinTime,
+      checkoutDate: visit.checkoutDate,
+      checkoutTime: visit.checkoutTime,
+      purpose: visit.purpose,
+      city: visit.city,
+      state: visit.state,
+      country: visit.country,
+    }));
   }
 
   async getEmployeeDashboardSummary(employeeId: number, startDate: string, endDate: string): Promise<EmployeeDashboardSummary> {

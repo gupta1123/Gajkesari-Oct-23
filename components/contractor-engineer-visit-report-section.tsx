@@ -498,7 +498,7 @@ export default function ContractorEngineerVisitReportSection({
         start: validatedDateRange.start,
         end: validatedDateRange.end,
         category: submittedCategory,
-        area: submittedSearch,
+        areaFilter: submittedSearch,
         page: reportPage,
         size: reportPageSize,
       });

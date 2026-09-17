@@ -269,7 +269,16 @@ const ReportsPageContent: React.FC = () => {
             );
             setVisitDetails(data);
         } catch (err) {
-            setDetailsError((err as Error).message || `Failed to fetch details for ${displayCategory}.`);
+            // Backend returns 403 with an empty body when the logged-in role
+            // is not allowed to view this officer's details (the summary
+            // stats endpoint may still succeed). Show who/what was denied
+            // instead of the raw "API request failed: 403." string.
+            const status = (err as { status?: number })?.status;
+            setDetailsError(
+                status === 403
+                    ? `Access denied for ${selectedEmployeeName}'s ${displayCategory} visits (${startDate} to ${endDate}). Your account cannot view this officer's details — check team scope or ask an administrator.`
+                    : (err as Error).message || `Failed to fetch details for ${displayCategory}.`
+            );
             setVisitDetails(null);
         } finally {
             setDetailsLoading(false);
@@ -655,7 +664,7 @@ const ReportsPageContent: React.FC = () => {
                                                         .map((detail, index) => (
                                                             <TableRow key={index}>
                                                                 <TableCell className="font-medium text-xs">
-                                                                    <Link href={`/CustomerDetailPage/${detail.storeId}`} className="text-primary hover:text-primary/80 hover:underline">
+                                                                        <Link href={`/dashboard/customers/${detail.storeId}`} className="text-primary hover:text-primary/80 hover:underline">
                                                                         {detail.customerName}
                                                                     </Link>
                                                                 </TableCell>

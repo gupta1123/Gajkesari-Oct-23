@@ -437,6 +437,10 @@ const Complaints = () => {
     const createTask = async () => {
         if (!token) return;
         if (isCreating) return;
+        if (!newTask.assignedToId) {
+            setErrorMessage('Please select an assignee before creating the complaint.');
+            return;
+        }
 
         try {
             setIsCreating(true);

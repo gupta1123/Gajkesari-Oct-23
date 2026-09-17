@@ -59,6 +59,8 @@ export interface ContractorEngineerVisitReportFilters {
   start?: string;
   end?: string;
   category?: string;
+  areaFilter?: string;
+  /** @deprecated Use areaFilter instead. Kept for backwards compat. */
   area?: string;
   page?: number;
   size?: number;
@@ -157,13 +159,14 @@ async function sendJson<T>(path: string, method: "POST" | "PUT", payload: unknow
 
 async function requestReportPage(filters: ContractorEngineerVisitReportFilters = {}): Promise<ContractorEngineerVisitReportPage> {
   const query = new URLSearchParams();
+  const areaFilter = filters.areaFilter?.trim() || filters.area?.trim();
   Object.entries({
     start: filters.start,
     end: filters.end,
     category: filters.category && filters.category !== 'all' ? filters.category : undefined,
-    area: filters.area?.trim(),
+    areaFilter,
     page: filters.page ?? 0,
-    size: Math.min(filters.size ?? 20, 200),
+    size: Math.min(filters.size ?? 10, 200),
   }).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
   });

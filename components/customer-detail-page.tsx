@@ -372,23 +372,33 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         setIsNoteSaving(false);
     }, []);
 
-    const resetComplaintTaskState = useCallback(() => {
-        // Find employee by name to get ID
-        const employeeNameStr = typeof customerData?.employeeName === 'string' ? customerData.employeeName : '';
-        const employee = employees.find(emp => {
+    const findEmployeeByExactName = useCallback((name: unknown) => {
+        const target = typeof name === 'string' ? name.trim().toLowerCase() : '';
+        if (!target) return undefined;
+        return employees.find(emp => {
             const firstName = typeof emp.firstName === 'string' ? emp.firstName : '';
             const lastName = typeof emp.lastName === 'string' ? emp.lastName : '';
-            return `${firstName} ${lastName}` === employeeNameStr || 
-                (typeof firstName === 'string' && employeeNameStr.includes(firstName)) ||
-                (typeof lastName === 'string' && employeeNameStr.includes(lastName));
+            return `${firstName} ${lastName}`.trim().toLowerCase() === target;
         });
-        
+    }, [employees]);
+
+    const resetComplaintTaskState = useCallback(() => {
+        // Single source of truth: derive BOTH id and name from the matched
+        // employee. The old fuzzy `includes(firstName)` match could pair the
+        // displayed name (e.g. "Test Officer New") with a different
+        // employee's id (e.g. "Test Sandeep"), and the backend persists by
+        // assignedToId — hence the mismatch after save.
+        const employee = findEmployeeByExactName(customerData?.employeeName);
+        const matchedName = employee
+            ? `${(employee.firstName as string) || ''} ${(employee.lastName as string) || ''}`.trim()
+            : '';
+
         setComplaintTask({
             taskTitle: '',
             taskDesciption: '',
             dueDate: defaultTaskDueDate,
             assignedToId: employee ? employee.id as number : 0,
-            assignedToName: employeeNameStr || '',
+            assignedToName: matchedName,
             assignedById: 86,
             status: 'Assigned',
             priority: 'low',
@@ -399,25 +409,21 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         });
         setComplaintEmployeeSearch('');
         setComplaintActiveTab('general');
-    }, [customerData?.storeName, customerData?.employeeName, defaultTaskDueDate, getNumericStoreId, employees]);
+    }, [customerData?.storeName, customerData?.employeeName, defaultTaskDueDate, getNumericStoreId, findEmployeeByExactName]);
 
     const resetRequirementTaskState = useCallback(() => {
-        // Find employee by name to get ID
-        const employeeNameStr = typeof customerData?.employeeName === 'string' ? customerData.employeeName : '';
-        const employee = employees.find(emp => {
-            const firstName = typeof emp.firstName === 'string' ? emp.firstName : '';
-            const lastName = typeof emp.lastName === 'string' ? emp.lastName : '';
-            return `${firstName} ${lastName}` === employeeNameStr || 
-                (typeof firstName === 'string' && employeeNameStr.includes(firstName)) ||
-                (typeof lastName === 'string' && employeeNameStr.includes(lastName));
-        });
-        
+        // Single source of truth — see resetComplaintTaskState above.
+        const employee = findEmployeeByExactName(customerData?.employeeName);
+        const matchedName = employee
+            ? `${(employee.firstName as string) || ''} ${(employee.lastName as string) || ''}`.trim()
+            : '';
+
         setRequirementTask({
             taskTitle: '',
             taskDesciption: '',
             dueDate: defaultTaskDueDate,
             assignedToId: employee ? employee.id as number : 0,
-            assignedToName: employeeNameStr || '',
+            assignedToName: matchedName,
             assignedById: 86,
             status: 'Assigned',
             priority: 'low',
@@ -428,7 +434,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         });
         setRequirementEmployeeSearch('');
         setRequirementActiveTab('general');
-    }, [customerData?.storeName, customerData?.employeeName, defaultTaskDueDate, getNumericStoreId, employees]);
+    }, [customerData?.storeName, customerData?.employeeName, defaultTaskDueDate, getNumericStoreId, findEmployeeByExactName]);
 
     const closeComplaintModal = useCallback(() => {
         setIsComplaintModalOpen(false);
@@ -798,14 +804,29 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
         try {
             const dobValue = data.dob || data.dateOfBirth || '';
             const normalizedDob = dobValue ? dobValue.replace(/\//g, '-') : undefined;
+            // Empty strings must be sent as null so the backend (which only
+            // updates non-null fields) skips them. Sending '' for unique
+            // columns like gst_number/email triggers
+            // 406 Duplicate entry '' for key 'store.UK_...'.
+            const trimOrNull = (value: unknown) => {
+                if (value === undefined || value === null) return null;
+                const trimmed = String(value).trim();
+                return trimmed === '' ? null : trimmed;
+            };
 
             const requestData = {
-                clientLastName: data.clientLastName,
-                email: data.email,
-                clientType: data.clientType,
-                brandsInUse: [], // Empty array for now
-                brandProsCons: [], // Empty array for now
-                likes: {}, // Empty object for now
+                clientFirstName: trimOrNull(data.clientFirstName),
+                clientLastName: trimOrNull(data.clientLastName),
+                email: trimOrNull(data.email),
+                clientType: trimOrNull(data.clientType),
+                gstNumber: trimOrNull(data.gstNumber),
+                addressLine1: trimOrNull(data.addressLine1),
+                addressLine2: trimOrNull(data.addressLine2),
+                district: trimOrNull(data.village),
+                subDistrict: trimOrNull(data.taluka),
+                city: trimOrNull(data.city),
+                state: trimOrNull(data.state),
+                pincode: data.pincode ? Number(data.pincode) : null,
                 dob: normalizedDob,
             };
 
@@ -867,6 +888,9 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
     const handleCreateComplaint = async () => {
         try {
+            // Never send assignedToId: 0 — backend does findById(0) which
+            // throws "Employee Not Found!". Omit it so the task is created
+            // without an assignee instead of failing.
             const response = await fetch('https://api.gajkesaristeels.in/task/create', {
                 method: 'POST',
                 headers: {
@@ -875,6 +899,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                 },
                 body: JSON.stringify({
                     ...complaintTask,
+                    assignedToId: complaintTask.assignedToId || undefined,
                     dueDate: complaintTask.dueDate.split('T')[0],
                     storeId: complaintTask.storeId,
                     taskType: 'complaint'
@@ -904,6 +929,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
     const handleCreateRequirement = async () => {
         try {
+            // Never send assignedToId: 0 — see handleCreateComplaint above.
             const response = await fetch('https://api.gajkesaristeels.in/task/create', {
                 method: 'POST',
                 headers: {
@@ -912,6 +938,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                 },
                 body: JSON.stringify({
                     ...requirementTask,
+                    assignedToId: requirementTask.assignedToId || undefined,
                     dueDate: requirementTask.dueDate.split('T')[0],
                     storeId: requirementTask.storeId,
                     taskType: 'requirement'
@@ -980,14 +1007,20 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
             fetchRequirementsData(storeId as string, startDate, endDate);
             fetchComplaintsData(storeId as string, startDate, endDate);
             fetchEmployees();
-            fetchStores();
+            // NOTE: fetchStores() removed — `stores` state is unused on this
+            // page and API.getStoreNames() paginates through ALL store pages
+            // (50+ requests for page=0..N), which looked like a request loop.
             fetchIntentData(storeId as string);
             fetchSalesData(storeId as string);
         }
-    }, [token, storeId, startDate, endDate, fetchCustomerData, fetchNotesData, fetchVisitsData, fetchRequirementsData, fetchComplaintsData, fetchEmployees, fetchStores, fetchIntentData, fetchSalesData]);
+    }, [token, storeId, startDate, endDate, fetchCustomerData, fetchNotesData, fetchVisitsData, fetchRequirementsData, fetchComplaintsData, fetchEmployees, fetchIntentData, fetchSalesData]);
 
     useEffect(() => {
         if (customerData) {
+            // Never overwrite in-progress edits: a background refetch while
+            // the Edit modal is open would otherwise wipe (or blank) what
+            // the user typed. Hydrate only when the modal is closed.
+            if (isEditCustomerModalVisible) return;
             const clientType = (customerData.clientType as string)?.toLowerCase() || '';
             const standardClientTypes = ["shop", "site visit", "architect", "engineer"];
             const isStandardType = standardClientTypes.includes(clientType);
@@ -997,7 +1030,10 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
                 storeName: customerData.storeName as string,
                 clientFirstName: customerData.clientFirstName as string,
                 clientLastName: customerData.clientLastName as string,
-                email: (customerData.email as string) || '',
+                // Hydrate from the same `email` key the detail display and
+                // the /store/edit payload use. typeof-guard so a non-string
+                // (null/number/undefined) never blanks the input.
+                email: typeof customerData.email === 'string' ? customerData.email : '',
                 primaryContact: customerData.primaryContact as number,
                 gstNumber: (customerData.gstNumber as string) || '',
                 clientType: isStandardType ? clientType : 'others',
@@ -1015,7 +1051,7 @@ export default function CustomerDetailPage({ customer }: { customer: Record<stri
 
             setIsOtherClientType(!isStandardType);
         }
-    }, [customerData]);
+    }, [customerData, isEditCustomerModalVisible]);
 
     useEffect(() => {
         const fetchComplaintTaskDetails = async () => {

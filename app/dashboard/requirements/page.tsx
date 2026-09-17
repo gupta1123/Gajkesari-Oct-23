@@ -456,7 +456,11 @@ const Requirements = () => {
 
     const createTask = async () => {
         if (!token) return;
-        
+        if (!newTask.assignedToId) {
+            setErrorMessage('Please select an assignee before creating the requirement.');
+            return;
+        }
+
         setIsCreating(true);
         try {
             const payload = {
@@ -536,32 +540,34 @@ const Requirements = () => {
         if (!token) return;
 
         const fieldKey = `${taskId}-${field}`;
+        if (updatingTaskFields.has(fieldKey)) return;
+
+        const originalTask = tasks.find(t => t.id === taskId);
+        if (!originalTask || originalTask[field] === value) return;
+
         setUpdatingTaskFields(prev => new Set(prev).add(fieldKey));
+        setErrorMessage(null);
+        // Optimistic update, revert on failure (mirrors complaints page).
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: value } : t));
 
         try {
-            const targetTask = tasks.find(t => t.id === taskId);
-            if (!targetTask) return;
-
-            const payload = {
-                ...targetTask,
-                [field]: value
-            };
-
-            const response = await fetch(`${API_BASE_URL}/task/edit?id=${taskId}`, {
+            // Backend contract (api.md): PUT /task/updateTask?taskId= with
+            // only { status, priority }. /task/edit does not exist for this.
+            const response = await fetch(`${API_BASE_URL}/task/updateTask?taskId=${taskId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify(payload),
+                body: JSON.stringify({ [field]: value }),
             });
 
             if (!response.ok) {
                 throw new Error(`Failed to update requirement ${field}`);
             }
-
-            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: value } : t));
         } catch (error) {
+            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: originalTask[field] } : t));
+            setErrorMessage(`Could not update ${field}. Please try again.`);
             console.error(`Error updating requirement ${field}:`, error);
         } finally {
             setUpdatingTaskFields(prev => {
