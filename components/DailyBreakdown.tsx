@@ -5,7 +5,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, User, CalendarIcon, Check, Pencil, ChevronDown, MoreHorizontal } from "lucide-react";
+import { Loader2, User, CalendarIcon, Check, Pencil, ChevronDown, MoreHorizontal, TriangleAlert } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { requestDailyTaDaEdit } from "@/lib/daily-ta-da-edit";
 import { API } from "@/lib/api";
+import { isIncompletePayrollSetupError, readApiErrorMessage } from "@/lib/daily-breakdown-errors";
 import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 // --- Interfaces ---
@@ -114,6 +115,7 @@ const DailyBreakdown: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isBulkUpdating, setIsBulkUpdating] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showAllowanceSetupAction, setShowAllowanceSetupAction] = useState(false);
 
     // Filter States
     const [startDate, setStartDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'));
@@ -160,6 +162,7 @@ const DailyBreakdown: React.FC = () => {
         if (!token || !selectedEmployee) return;
         setIsLoading(true);
         setError(null);
+        setShowAllowanceSetupAction(false);
         setSelectedRecords(new Set());
         
         try {
@@ -168,15 +171,49 @@ const DailyBreakdown: React.FC = () => {
                 `https://api.gajkesaristeels.in/salary-calculation/daily-breakdown?employeeId=${empId}&startDate=${startDate}&endDate=${endDate}`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
-            if (!res.ok) throw new Error("Failed to fetch data");
+            if (!res.ok) {
+                const backendMessage = await readApiErrorMessage(res);
+                const employee = employees.find(item => item.id.toString() === empId);
+                const employeeName = employee
+                    ? `${employee.firstName} ${employee.lastName}`.trim()
+                    : "this employee";
+
+                if (isIncompletePayrollSetupError(res.status, backendMessage)) {
+                    setShowAllowanceSetupAction(true);
+                    throw new Error(
+                        `Daily breakdown is unavailable for ${employeeName} because their payroll setup is incomplete. ` +
+                        "Enter their salary, DA, car rate and bike rate in Allowances, then try again."
+                    );
+                }
+
+                if (res.status === 401) {
+                    throw new Error("Your session has expired. Please sign in again.");
+                }
+
+                if (res.status === 403) {
+                    throw new Error("You do not have permission to view this employee's daily breakdown.");
+                }
+
+                throw new Error(
+                    backendMessage ||
+                    `Daily breakdown could not be calculated (error ${res.status}). Please try again.`
+                );
+            }
             const data = await res.json();
             setDailyBreakdownData(data || []);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Error fetching data");
+            setDailyBreakdownData([]);
+            setError(
+                err instanceof TypeError && err.message === "Failed to fetch"
+                    ? "Unable to connect to the server. Check your internet connection and try again."
+                    : err instanceof Error
+                        ? err.message
+                        : "Daily breakdown could not be loaded. Please try again."
+            );
         } finally {
             setIsLoading(false);
         }
-    }, [token, startDate, endDate, selectedEmployee]);
+    }, [token, startDate, endDate, selectedEmployee, employees]);
 
     useEffect(() => { if (token) fetchEmployees(); }, [token, fetchEmployees]);
 
@@ -217,6 +254,7 @@ const DailyBreakdown: React.FC = () => {
         if (selectedRecords.size === 0 || !token) return;
         setIsBulkUpdating(true);
         setError(null);
+        setShowAllowanceSetupAction(false);
 
         try {
             const updates = Array.from(selectedRecords).map(key => {
@@ -501,7 +539,33 @@ const DailyBreakdown: React.FC = () => {
                     {isLoading ? (
                         <div className="h-64 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
                     ) : error ? (
-                        <div className="p-4 text-destructive bg-destructive/10 rounded-lg text-center">{error}</div>
+                        <div
+                            role="alert"
+                            className={cn(
+                                "flex flex-col items-center gap-3 rounded-lg border px-4 py-8 text-center",
+                                showAllowanceSetupAction
+                                    ? "border-amber-200 bg-amber-50/70 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/25 dark:text-amber-100"
+                                    : "border-destructive/20 bg-destructive/10 text-destructive"
+                            )}
+                        >
+                            <TriangleAlert className="h-6 w-6" aria-hidden="true" />
+                            <div className="max-w-2xl space-y-1">
+                                <p className="font-medium">
+                                    {showAllowanceSetupAction ? "Employee setup required" : "Unable to load daily breakdown"}
+                                </p>
+                                <p className="text-sm leading-relaxed">{error}</p>
+                            </div>
+                            <div className="flex flex-wrap justify-center gap-2">
+                                {showAllowanceSetupAction && (
+                                    <Button asChild size="sm">
+                                        <Link href="/dashboard/settings?tab=allowance">Open Allowances</Link>
+                                    </Button>
+                                )}
+                                <Button variant="outline" size="sm" onClick={fetchDailyBreakdown}>
+                                    Try again
+                                </Button>
+                            </div>
+                        </div>
                     ) : dailyBreakdownData.length === 0 ? (
                         <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">No records found.</div>
                     ) : (
