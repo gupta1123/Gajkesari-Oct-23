@@ -491,6 +491,12 @@ export interface StoreSearchParams {
   sortOrder?: 'asc' | 'desc';
 }
 
+export interface BulkStoreEmployeeUpdateRequest {
+  sourceEmployeeId: number;
+  targetEmployeeId: number;
+  storeIds: number[];
+}
+
 export interface StoreNameDto {
   id: number;
   storeName: string;
@@ -1000,6 +1006,7 @@ export class API {
   }
 
   static async getStoresFilteredPaginated(params: {
+    employeeId?: number;
     storeName?: string;
     ownerName?: string;
     city?: string;
@@ -1029,6 +1036,10 @@ export class API {
 
   static async deleteStore(storeId: number): Promise<void> {
     return apiService.deleteStore(storeId);
+  }
+
+  static async bulkEditStoreEmployee(payload: BulkStoreEmployeeUpdateRequest): Promise<unknown> {
+    return apiService.bulkEditStoreEmployee(payload);
   }
 
   static async exportStores(): Promise<string> {
@@ -1284,7 +1295,8 @@ export class API {
         const successTextEndpoints = [
           '/employee-user/create',
           '/attendance-log/createAttendanceLog',
-          '/employee/edit'
+          '/employee/edit',
+          '/store/bulk-edit-employee'
         ];
         
         if (visitEndpoints.some(visitEndpoint => endpoint.includes(visitEndpoint)) && response.ok) {
@@ -1991,6 +2003,7 @@ Please check your internet connection and try again.`);
   }
 
   async getStoresFilteredPaginated(params: {
+    employeeId?: number;
     storeName?: string;
     ownerName?: string;
     city?: string;
@@ -2042,6 +2055,13 @@ Please check your internet connection and try again.`);
   async deleteStore(storeId: number): Promise<void> {
     return this.makeRequest<void>(`/store/deleteById?id=${storeId}`, {
       method: 'DELETE',
+    });
+  }
+
+  async bulkEditStoreEmployee(payload: BulkStoreEmployeeUpdateRequest): Promise<unknown> {
+    return this.makeRequest<unknown>('/store/bulk-edit-employee', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
   }
 

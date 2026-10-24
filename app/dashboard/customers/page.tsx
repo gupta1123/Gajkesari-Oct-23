@@ -24,17 +24,25 @@ import {
     DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Check, ChevronDown, ChevronUp, Phone, User, DollarSign, Target, Filter, X, Download, Columns, Home, MoreHorizontal, ChevronLeft, ChevronRight, Briefcase, Cake } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronDown, ChevronUp, Phone, User, DollarSign, Target, Filter, X, Download, Columns, Home, MoreHorizontal, ChevronLeft, ChevronRight, Briefcase, Cake, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { Checkbox } from "@/components/ui/checkbox";
 import { API, type StoreDto, type StoreResponse, type TeamDataDto, type EmployeeUserDto } from "@/lib/api";
 import AddCustomerModal from "@/components/AddCustomerModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
-import { isManagerRoleValue, normalizeRoleValue, getCorrectedRoleFlags } from "@/lib/auth";
+import { isFieldOfficerRoleValue, isManagerRoleValue, normalizeRoleValue, getCorrectedRoleFlags } from "@/lib/auth";
 import { getTeamIds, getUniqueFieldOfficersFromTeams } from "@/lib/team-access";
 import { formatDateToUserFriendly } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -256,6 +264,15 @@ function CustomerListContent() {
     const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("all");
     const [mobileSelectedEmployeeId, setMobileSelectedEmployeeId] = useState<string>("all");
+    const [isReassignMode, setIsReassignMode] = useState(false);
+    const [selectedStoreIds, setSelectedStoreIds] = useState<number[]>([]);
+    const [targetEmployeeId, setTargetEmployeeId] = useState<string>("all");
+    const [isReassignConfirmOpen, setIsReassignConfirmOpen] = useState(false);
+    const [isReassigning, setIsReassigning] = useState(false);
+    const [reassignmentFeedback, setReassignmentFeedback] = useState<{
+        type: 'success' | 'error';
+        message: string;
+    } | null>(null);
     
     // State for role checking
     const [isManager, setIsManager] = useState(false);
@@ -432,8 +449,15 @@ function CustomerListContent() {
         [employees, isFieldOfficer, isManager, scopedEmployees]
     );
 
+    const fieldOfficerEmployees = useMemo(
+        () => employeesForOptions.filter((employee) =>
+            isFieldOfficerRoleValue(employee.role) || isFieldOfficerRoleValue(employee.userDto?.roles),
+        ),
+        [employeesForOptions],
+    );
+
     const employeeOptions = useMemo<SearchableOption<{ fullName: string }>[]>(() => {
-        const base = employeesForOptions.map((employee) => {
+        const base = fieldOfficerEmployees.map((employee) => {
             const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim();
             const identifier = employee.userDto?.employeeId ?? null;
             const fallbackName =
@@ -450,61 +474,24 @@ function CustomerListContent() {
         base.sort((a, b) => a.label.localeCompare(b.label));
 
         return [{ value: "all", label: "All Field Officers" }, ...base];
-    }, [employeesForOptions]);
+    }, [fieldOfficerEmployees]);
 
-    useEffect(() => {
-        if (employees.length === 0) {
-            return;
-        }
+    const targetEmployeeOptions = useMemo(
+        () => employeeOptions.filter(
+            (option) => option.value !== 'all' && option.value !== selectedEmployeeId,
+        ),
+        [employeeOptions, selectedEmployeeId],
+    );
 
-        const filterName = desktopFilters.employeeName;
+    const selectedSourceEmployee = useMemo(
+        () => fieldOfficerEmployees.find((employee) => String(employee.id) === selectedEmployeeId) ?? null,
+        [fieldOfficerEmployees, selectedEmployeeId],
+    );
 
-        if (!filterName) {
-            if (selectedEmployeeId !== "all") {
-                setSelectedEmployeeId("all");
-            }
-            return;
-        }
-
-        const match = employeeOptions.find(
-            (option) => option.value !== "all" && option.data?.fullName === filterName,
-        );
-
-        if (match) {
-            if (selectedEmployeeId !== match.value) {
-                setSelectedEmployeeId(match.value);
-            }
-        } else if (selectedEmployeeId !== "all") {
-            setSelectedEmployeeId("all");
-        }
-    }, [desktopFilters.employeeName, employeeOptions, employees, selectedEmployeeId]);
-
-    useEffect(() => {
-        if (employees.length === 0) {
-            return;
-        }
-
-        const filterName = mobileFilters.employeeName;
-
-        if (!filterName) {
-            if (mobileSelectedEmployeeId !== "all") {
-                setMobileSelectedEmployeeId("all");
-            }
-            return;
-        }
-
-        const match = employeeOptions.find(
-            (option) => option.value !== "all" && option.data?.fullName === filterName,
-        );
-
-        if (match) {
-            if (mobileSelectedEmployeeId !== match.value) {
-                setMobileSelectedEmployeeId(match.value);
-            }
-        } else if (mobileSelectedEmployeeId !== "all") {
-            setMobileSelectedEmployeeId("all");
-        }
-    }, [mobileFilters.employeeName, employeeOptions, employees, mobileSelectedEmployeeId]);
+    const selectedTargetEmployee = useMemo(
+        () => fieldOfficerEmployees.find((employee) => String(employee.id) === targetEmployeeId) ?? null,
+        [fieldOfficerEmployees, targetEmployeeId],
+    );
 
     // Determine role using corrected flags from auth context (preferred method)
     useEffect(() => {
@@ -602,6 +589,10 @@ function CustomerListContent() {
 
         try {
             let data: StoreResponse;
+            const parsedEmployeeId = Number(selectedEmployeeId);
+            const employeeIdFilter = selectedEmployeeId !== 'all' && Number.isFinite(parsedEmployeeId)
+                ? parsedEmployeeId
+                : undefined;
 
             if (birthdayToday) {
                 const today = new Date();
@@ -609,9 +600,12 @@ function CustomerListContent() {
                 const birthdayCustomers = await API.getStoresByDobDateRange(todayStr, todayStr);
                 if (!isLatestRequest()) return;
 
-                const filteredStores = (birthdayCustomers ?? []).filter((store) =>
-                    matchesCustomerFilters(store, desktopFilters),
-                );
+                const filteredStores = (birthdayCustomers ?? []).filter((store) => {
+                    const matchesEmployee = employeeIdFilter === undefined ||
+                        store.employeeId === employeeIdFilter ||
+                        (!store.employeeId && normalizeSearchValue(store.employeeName) === normalizeSearchValue(desktopFilters.employeeName));
+                    return matchesEmployee && matchesCustomerFilters(store, desktopFilters);
+                });
                 data = createStoreResponse(
                     sortStores(filteredStores, sortColumn, sortDirection),
                     currentPage,
@@ -630,12 +624,12 @@ function CustomerListContent() {
                 const responses = await Promise.all(teamIds.map(async (accessibleTeamId) => {
                     const requestPage = (page: number) => API.searchStores({
                         teamId: accessibleTeamId,
+                        employeeId: employeeIdFilter,
                         storeName: desktopFilters.storeName || undefined,
                         ownerName: desktopFilters.ownerName || undefined,
                         city: desktopFilters.city || undefined,
                         state: desktopFilters.state || undefined,
                         clientType: desktopFilters.clientType || undefined,
-                        employeeName: desktopFilters.employeeName || undefined,
                         primaryContact: desktopFilters.primaryContact || undefined,
                         page,
                         size: 100,
@@ -668,12 +662,12 @@ function CustomerListContent() {
                 };
             } else {
                 data = await API.getStoresFilteredPaginated({
+                    employeeId: employeeIdFilter,
                     storeName: desktopFilters.storeName || undefined,
                     ownerName: desktopFilters.ownerName || undefined,
                     city: desktopFilters.city || undefined,
                     state: desktopFilters.state || undefined,
                     clientType: desktopFilters.clientType || undefined,
-                    employeeName: desktopFilters.employeeName || undefined,
                     primaryContact: desktopFilters.primaryContact || undefined,
                     page: currentPage - 1,
                     size: pageSize,
@@ -725,7 +719,7 @@ function CustomerListContent() {
         customerRequestIdRef.current += 1;
         const timeoutId = window.setTimeout(fetchFilteredCustomers, CUSTOMER_FILTER_DEBOUNCE_MS);
         return () => window.clearTimeout(timeoutId);
-    }, [isStateHydrated, isRoleDetermined, isManager, isFieldOfficer, desktopFilters, currentPage, pageSize, sortColumn, sortDirection, teamIds, birthdayToday]);
+    }, [isStateHydrated, isRoleDetermined, isManager, isFieldOfficer, desktopFilters, selectedEmployeeId, currentPage, pageSize, sortColumn, sortDirection, teamIds, birthdayToday]);
 
     const openDeleteModal = (customerId: string) => {
         setSelectedCustomerId(customerId);
@@ -767,14 +761,18 @@ function CustomerListContent() {
     };
 
     const handleDesktopEmployeeSelect = (option: SearchableOption<{ fullName: string }> | null) => {
-        if (!option || option.value === "all") {
-            setSelectedEmployeeId("all");
-            handleDesktopFilterChange('employeeName', '');
-        } else {
-            setSelectedEmployeeId(option.value);
-            const nextName = option.data?.fullName ?? '';
-            handleDesktopFilterChange('employeeName', nextName);
+        const nextEmployeeId = !option || option.value === 'all' ? 'all' : option.value;
+        const nextName = nextEmployeeId === 'all' ? '' : option?.data?.fullName ?? '';
+
+        if (nextEmployeeId !== selectedEmployeeId) {
+            setSelectedStoreIds([]);
+            setTargetEmployeeId('all');
+            setReassignmentFeedback(null);
+            setIsLoading(true);
         }
+
+        setSelectedEmployeeId(nextEmployeeId);
+        handleDesktopFilterChange('employeeName', nextName);
     };
 
     const handleMobileEmployeeSelect = (option: SearchableOption<{ fullName: string }> | null) => {
@@ -785,6 +783,107 @@ function CustomerListContent() {
             setMobileSelectedEmployeeId(option.value);
             const nextName = option.data?.fullName ?? '';
             handleMobileFilterChange('employeeName', nextName);
+        }
+    };
+
+    const beginReassignMode = () => {
+        setIsReassignMode(true);
+        setIsDesktopFilterExpanded(true);
+        setSelectedStoreIds([]);
+        setTargetEmployeeId('all');
+        setReassignmentFeedback(null);
+    };
+
+    const closeReassignMode = () => {
+        setIsReassignMode(false);
+        setSelectedStoreIds([]);
+        setTargetEmployeeId('all');
+        setIsReassignConfirmOpen(false);
+        setReassignmentFeedback(null);
+    };
+
+    const toggleStoreSelection = (storeId: number, checked: boolean) => {
+        setSelectedStoreIds((current) => {
+            if (checked) return current.includes(storeId) ? current : [...current, storeId];
+            return current.filter((id) => id !== storeId);
+        });
+        setReassignmentFeedback(null);
+    };
+
+    const currentPageStoreIds = customers.map((customer) => customer.storeId);
+    const selectedCurrentPageCount = currentPageStoreIds.filter((storeId) => selectedStoreIds.includes(storeId)).length;
+    const areAllCurrentPageStoresSelected = currentPageStoreIds.length > 0 &&
+        selectedCurrentPageCount === currentPageStoreIds.length;
+
+    const toggleCurrentPageSelection = (checked: boolean) => {
+        setSelectedStoreIds((current) => {
+            if (checked) {
+                return Array.from(new Set([...current, ...currentPageStoreIds]));
+            }
+            const currentPageIds = new Set(currentPageStoreIds);
+            return current.filter((id) => !currentPageIds.has(id));
+        });
+        setReassignmentFeedback(null);
+    };
+
+    const getEmployeeDisplayName = (employee: EmployeeUserDto | null) => {
+        if (!employee) return 'Unknown employee';
+        return [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim() ||
+            employee.userName ||
+            `Employee ${employee.id}`;
+    };
+
+    const handleReassignStores = async () => {
+        const sourceEmployeeId = Number(selectedEmployeeId);
+        const destinationEmployeeId = Number(targetEmployeeId);
+
+        if (!Number.isFinite(sourceEmployeeId) || !Number.isFinite(destinationEmployeeId) || selectedStoreIds.length === 0) {
+            setReassignmentFeedback({
+                type: 'error',
+                message: 'Select a current field officer, at least one store, and a new field officer.',
+            });
+            setIsReassignConfirmOpen(false);
+            return;
+        }
+
+        if (sourceEmployeeId === destinationEmployeeId) {
+            setReassignmentFeedback({
+                type: 'error',
+                message: 'Choose a different field officer to receive these stores.',
+            });
+            setIsReassignConfirmOpen(false);
+            return;
+        }
+
+        setIsReassigning(true);
+        setReassignmentFeedback(null);
+
+        try {
+            await API.bulkEditStoreEmployee({
+                sourceEmployeeId,
+                targetEmployeeId: destinationEmployeeId,
+                storeIds: selectedStoreIds,
+            });
+
+            const movedCount = selectedStoreIds.length;
+            setSelectedStoreIds([]);
+            setTargetEmployeeId('all');
+            setIsReassignConfirmOpen(false);
+            setReassignmentFeedback({
+                type: 'success',
+                message: `${movedCount} ${movedCount === 1 ? 'store was' : 'stores were'} reassigned successfully.`,
+            });
+            await fetchFilteredCustomers();
+        } catch (reassignError) {
+            setIsReassignConfirmOpen(false);
+            setReassignmentFeedback({
+                type: 'error',
+                message: reassignError instanceof Error
+                    ? reassignError.message
+                    : 'The stores could not be reassigned. Please try again.',
+            });
+        } finally {
+            setIsReassigning(false);
         }
     };
 
@@ -913,6 +1012,12 @@ function CustomerListContent() {
     };
 
     const applyMobileFilters = () => {
+        if (mobileSelectedEmployeeId !== selectedEmployeeId) {
+            setSelectedStoreIds([]);
+            setTargetEmployeeId('all');
+            setReassignmentFeedback(null);
+            setIsLoading(true);
+        }
         setDesktopFilters(mobileFilters);
         setSelectedEmployeeId(mobileSelectedEmployeeId);
         setIsMobileFilterExpanded(false);
@@ -933,6 +1038,9 @@ function CustomerListContent() {
         setMobileFilters(emptyFilters);
         setSelectedEmployeeId('all');
         setMobileSelectedEmployeeId('all');
+        setSelectedStoreIds([]);
+        setTargetEmployeeId('all');
+        setReassignmentFeedback(null);
         setBirthdayToday(false);
         setCurrentPage(1);
     };
@@ -1066,6 +1174,12 @@ function CustomerListContent() {
                         <Button variant="outline" size="sm" onClick={openModal}>
                             Add Customer
                         </Button>
+                        {isAdmin && !isReassignMode && (
+                            <Button variant="outline" size="sm" onClick={beginReassignMode}>
+                                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                                Reassign Stores
+                            </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="sm"
@@ -1139,6 +1253,99 @@ function CustomerListContent() {
                         </Button>
                     </div>
                 </div>
+
+                {isAdmin && isReassignMode && (
+                    <div className="mb-4 rounded-xl border border-border/70 bg-muted/20 p-4">
+                        <div className="flex flex-col gap-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                    <h2 className="text-sm font-semibold text-foreground">Reassign stores</h2>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        Choose the current field officer, select their stores below, then choose the new field officer.
+                                    </p>
+                                </div>
+                                <Button variant="ghost" size="sm" onClick={closeReassignMode} disabled={isReassigning}>
+                                    <X className="mr-2 h-4 w-4" />
+                                    Cancel
+                                </Button>
+                            </div>
+
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end">
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium">Current field officer</Label>
+                                    <SearchableSelect
+                                        options={employeeOptions}
+                                        value={selectedEmployeeId}
+                                        onSelect={handleDesktopEmployeeSelect}
+                                        placeholder="Select current field officer"
+                                        loading={isLoadingEmployees}
+                                        triggerClassName="h-10 w-full justify-between bg-background"
+                                        contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                        searchPlaceholder="Search field officers..."
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium">New field officer</Label>
+                                    <SearchableSelect
+                                        options={targetEmployeeOptions}
+                                        value={targetEmployeeId === 'all' ? undefined : targetEmployeeId}
+                                        onSelect={(option) => {
+                                            setTargetEmployeeId(option?.value ?? 'all');
+                                            setReassignmentFeedback(null);
+                                        }}
+                                        placeholder="Select new field officer"
+                                        loading={isLoadingEmployees}
+                                        disabled={selectedEmployeeId === 'all'}
+                                        triggerClassName="h-10 w-full justify-between bg-background"
+                                        contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                        searchPlaceholder="Search field officers..."
+                                        emptyMessage="No other active field officers available"
+                                    />
+                                </div>
+                                <Button
+                                    className="h-10"
+                                    disabled={selectedEmployeeId === 'all' || targetEmployeeId === 'all' || selectedStoreIds.length === 0 || isReassigning}
+                                    onClick={() => setIsReassignConfirmOpen(true)}
+                                >
+                                    <ArrowRightLeft className="mr-2 h-4 w-4" />
+                                    {selectedStoreIds.length > 0
+                                        ? `Reassign ${selectedStoreIds.length} ${selectedStoreIds.length === 1 ? 'Store' : 'Stores'}`
+                                        : 'Reassign Stores'}
+                                </Button>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                                <span>
+                                    {selectedEmployeeId === 'all'
+                                        ? 'Select a current field officer to load their stores.'
+                                        : `${selectedStoreIds.length} ${selectedStoreIds.length === 1 ? 'store' : 'stores'} selected across the pages you reviewed.`}
+                                </span>
+                                {selectedEmployeeId !== 'all' && customers.length > 0 && (
+                                    <Button
+                                        type="button"
+                                        variant="link"
+                                        size="sm"
+                                        className="h-auto p-0 text-xs"
+                                        onClick={() => toggleCurrentPageSelection(!areAllCurrentPageStoresSelected)}
+                                    >
+                                        {areAllCurrentPageStoresSelected ? 'Clear this page' : `Select all ${customers.length} on this page`}
+                                    </Button>
+                                )}
+                            </div>
+
+                            {reassignmentFeedback && (
+                                <div
+                                    role="status"
+                                    className={reassignmentFeedback.type === 'success'
+                                        ? 'rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+                                        : 'rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'}
+                                >
+                                    {reassignmentFeedback.message}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {isDesktopFilterExpanded && (
                     <div className="mb-4 hidden rounded-xl border border-border/70 bg-muted/20 p-3 md:block">
@@ -1277,6 +1484,14 @@ function CustomerListContent() {
                                 <CardHeader className="pb-2">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center space-x-3">
+                                            {isReassignMode && isAdmin && (
+                                                <Checkbox
+                                                    checked={selectedStoreIds.includes(customer.storeId)}
+                                                    disabled={selectedEmployeeId === 'all'}
+                                                    onCheckedChange={(checked) => toggleStoreSelection(customer.storeId, checked === true)}
+                                                    aria-label={`Select ${customer.storeName || 'store'} for reassignment`}
+                                                />
+                                            )}
                                             <Avatar>
                                                 <AvatarFallback>{getInitials(customer.clientFirstName, customer.clientLastName)}</AvatarFallback>
                                             </Avatar>
@@ -1379,7 +1594,8 @@ function CustomerListContent() {
                 <div className="hidden min-w-0 md:block rounded-lg border bg-card overflow-hidden">
                     <Table className="table-fixed text-xs font-poppins">
                         <colgroup>
-                            {selectedColumns.includes('shopName') && <col className="w-[14%]" />}
+                            {isReassignMode && isAdmin && <col className="w-[3%]" />}
+                            {selectedColumns.includes('shopName') && <col className={isReassignMode && isAdmin ? "w-[12%]" : "w-[14%]"} />}
                             {selectedColumns.includes('ownerName') && <col className="w-[10%]" />}
                             {selectedColumns.includes('city') && <col className="w-[8%]" />}
                             {selectedColumns.includes('state') && <col className="w-[8%]" />}
@@ -1390,10 +1606,24 @@ function CustomerListContent() {
                             {selectedColumns.includes('clientType') && <col className="w-[10%]" />}
                             {selectedColumns.includes('totalVisits') && <col className="w-[5%]" />}
                             {selectedColumns.includes('lastVisitDate') && <col className="w-[7%]" />}
-                            <col className="w-[5%]" />
+                            <col className={isReassignMode && isAdmin ? "w-[4%]" : "w-[5%]"} />
                         </colgroup>
                         <TableHeader>
                             <TableRow>
+                                {isReassignMode && isAdmin && (
+                                    <TableHead className="px-2">
+                                        <Checkbox
+                                            checked={areAllCurrentPageStoresSelected
+                                                ? true
+                                                : selectedCurrentPageCount > 0
+                                                    ? 'indeterminate'
+                                                    : false}
+                                            disabled={selectedEmployeeId === 'all' || customers.length === 0}
+                                            onCheckedChange={(checked) => toggleCurrentPageSelection(checked === true)}
+                                            aria-label="Select all stores on this page"
+                                        />
+                                    </TableHead>
+                                )}
                                 {selectedColumns.includes('shopName') && (
                                     <TableHead className="cursor-pointer overflow-hidden text-ellipsis" title="Shop Name" onClick={() => handleSort('storeName')}>
                                         Shop Name
@@ -1491,6 +1721,9 @@ function CustomerListContent() {
                                 <>
                                     {[...Array(5)].map((_, index) => (
                                         <TableRow key={`skeleton-${index}`}>
+                                            {isReassignMode && isAdmin && (
+                                                <TableCell className="px-2"><Skeleton className="h-4 w-4" /></TableCell>
+                                            )}
                                             {selectedColumns.includes('shopName') && (
                                                 <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                                             )}
@@ -1533,6 +1766,16 @@ function CustomerListContent() {
                             ) : (
                                 customers.map((customer: Customer, index: number) => (
                                     <TableRow key={`customer-${customer.storeId}-${index}`}>
+                                        {isReassignMode && isAdmin && (
+                                            <TableCell className="px-2">
+                                                <Checkbox
+                                                    checked={selectedStoreIds.includes(customer.storeId)}
+                                                    disabled={selectedEmployeeId === 'all'}
+                                                    onCheckedChange={(checked) => toggleStoreSelection(customer.storeId, checked === true)}
+                                                    aria-label={`Select ${customer.storeName || 'store'} for reassignment`}
+                                                />
+                                            </TableCell>
+                                        )}
                                         {selectedColumns.includes('shopName') && <TableCell><Ellipsis value={customer.storeName || ''} /></TableCell>}
                                         {selectedColumns.includes('ownerName') && (
                                             <TableCell>
@@ -1630,6 +1873,35 @@ function CustomerListContent() {
                         </div>
                     </div>
                 )}
+
+                <Dialog open={isReassignConfirmOpen} onOpenChange={(open) => !isReassigning && setIsReassignConfirmOpen(open)}>
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>Confirm store reassignment</DialogTitle>
+                            <DialogDescription>
+                                This will move {selectedStoreIds.length} {selectedStoreIds.length === 1 ? 'store' : 'stores'} from{' '}
+                                <span className="font-medium text-foreground">{getEmployeeDisplayName(selectedSourceEmployee)}</span> to{' '}
+                                <span className="font-medium text-foreground">{getEmployeeDisplayName(selectedTargetEmployee)}</span>.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                            Only the selected store assignments are included in this request. Review the officers and store count before confirming.
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsReassignConfirmOpen(false)} disabled={isReassigning}>
+                                Keep reviewing
+                            </Button>
+                            <Button onClick={handleReassignStores} disabled={isReassigning}>
+                                {isReassigning ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                    <ArrowRightLeft className="mr-2 h-4 w-4" />
+                                )}
+                                {isReassigning ? 'Reassigning...' : 'Confirm reassignment'}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
 
                 {/* Add Customer Modal */}
                 <AddCustomerModal
