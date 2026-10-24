@@ -18,6 +18,7 @@ import { buildCityOptions, mergeCityOptions, normalizeCityKey } from "@/lib/city
 import { getTeamManagers } from "@/lib/team-access";
 import { API } from "@/lib/api";
 import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
@@ -296,7 +297,10 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
             );
 
             if (!response.ok) {
-                throw new Error(`Failed to assign city ${city}`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    `${city} could not be assigned. Please try again.`,
+                ));
             }
         })));
     };
@@ -320,7 +324,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
                 return { ...employee, assignedCity };
             }));
         } catch (error) {
-            setModalError(error instanceof Error ? error.message : `Failed to assign ${city}`);
+            setModalError(getUserFacingErrorMessage(error, `${city} could not be assigned. Please try again.`));
         } finally {
             setAssigningEmployeeCities((current) => current.filter((key) => key !== assignmentKey));
         }
@@ -375,13 +379,17 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
                 setIsModalOpen(false);
                 resetForm();
             } else {
-                const errorText = await response.text();
-                throw new Error(errorText || `Team creation failed (${response.status})`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The team could not be created. Please check the details and try again.',
+                ));
             }
         } catch (error) {
             console.error("Error creating team:", error);
-            const message = error instanceof Error ? error.message : 'Failed to create team';
-            setModalError(message);
+            setModalError(getUserFacingErrorMessage(
+                error,
+                'The team could not be created. Please check the details and try again.',
+            ));
         } finally {
             setIsCreatingTeam(false);
         }

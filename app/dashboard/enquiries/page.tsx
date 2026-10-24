@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { ChevronLeft, ChevronRight, Filter, Loader2, MapPin, RefreshCw, Store, Phone, DollarSign, Users, X } from 'lucide-react';
 import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
@@ -188,15 +189,17 @@ export default function EnquiriesPage() {
       });
       
       if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`Network response was not ok while fetching enquiries: ${errorData || response.statusText}`);
+        throw new Error(await getResponseErrorMessage(
+          response,
+          'Enquiries could not be loaded. Please try again.',
+        ));
       }
       
       const data = await response.json();
       setEnquiriesData(data);
       setTotalPages(data.totalPages || 0);
     } catch (err) {
-      setError((err as Error).message);
+      setError(getUserFacingErrorMessage(err, 'Enquiries could not be loaded. Please try again.'));
     } finally {
       setIsLoading(false);
     }

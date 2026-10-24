@@ -48,6 +48,7 @@ import {
   X
 } from "lucide-react";
 import { formatCityLabel } from "@/lib/city-options";
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 import { format, parseISO } from "date-fns";
 import { Heading, Text } from "@/components/ui/typography";
 import {
@@ -1009,8 +1010,10 @@ export default function VisitDetailPage() {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `Failed to create ${taskType} (${response.status})`);
+        throw new Error(await getResponseErrorMessage(
+          response,
+          `The ${taskType} could not be created. Please check the details and try again.`,
+        ));
       }
 
       const data = await response.json();
@@ -1077,7 +1080,10 @@ export default function VisitDetailPage() {
       }
     } catch (taskErr) {
       console.error('Error creating task:', taskErr);
-      setTaskCreateError(taskErr instanceof Error ? taskErr.message : `Failed to create ${taskType}`);
+      setTaskCreateError(getUserFacingErrorMessage(
+        taskErr,
+        `The ${taskType} could not be created. Please try again.`,
+      ));
     } finally {
       setIsCreatingTask(false);
     }

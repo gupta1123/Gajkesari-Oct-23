@@ -1,3 +1,5 @@
+import { getUserFacingErrorMessage, NETWORK_ERROR_MESSAGE } from './user-facing-error.ts';
+
 // API service for WebSalesV3 - All endpoints from api.md
 // Use direct API calls to https://api.gajkesaristeels.in
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
@@ -1243,29 +1245,21 @@ export class API {
 
       if (!response.ok) {
         // Try to extract error details from body (JSON or text)
-        let bodySnippet = '';
         let errorDetails: ApiErrorBody = null;
         try {
           if (contentType.includes('application/json')) {
             const errJson = await response.json() as ApiErrorBody;
             errorDetails = errJson;
-            bodySnippet = typeof errJson === 'string' ? errJson : JSON.stringify(errJson);
           } else {
-            bodySnippet = await response.text();
-            errorDetails = bodySnippet;
+            errorDetails = await response.text();
           }
         } catch {
           // ignore body parsing errors
         }
-        const preview = bodySnippet ? ` Body: ${bodySnippet.slice(0, 200)}` : '';
-        // Friendly messages for auth failures (backend often returns an
-        // empty body, e.g. 403 with Content-Length: 0).
-        const friendlyMessage =
-          response.status === 401
-            ? 'Your session has expired. Please sign in again.'
-            : response.status === 403
-              ? 'Access denied. Your account does not have permission to view this data.'
-              : `API request failed: ${response.status} ${response.statusText}.${preview}`;
+        const friendlyMessage = getUserFacingErrorMessage({
+          status: response.status,
+          details: errorDetails,
+        });
         throw new APIRequestError(
           friendlyMessage,
           response.status,
@@ -1309,10 +1303,12 @@ export class API {
           return { success: true, message: text } as unknown as T;
         }
         
-        const preview = text.slice(0, 200);
-        throw new Error(
-          `Expected JSON but received '${contentType || 'unknown'}' from ${url}. Body starts with: ${preview}`
-        );
+        console.error('Unexpected non-JSON response:', {
+          url,
+          contentType: contentType || 'unknown',
+          preview: text.slice(0, 200),
+        });
+        throw new Error('The server returned an unexpected response. Please try again.');
       }
 
       return await response.json();
@@ -1347,13 +1343,7 @@ export class API {
           return this.makeRequest<T>(endpoint, options, retryCount + 1);
         }
 
-        throw new Error(`Network error: Unable to connect to API server at ${this.baseUrl}. This could be due to:
-- API server is down or unreachable
-- Network connectivity issues
-- CORS policy blocking the request
-- Authentication token expired
-
-Please check your internet connection and try again.`);
+        throw new Error(NETWORK_ERROR_MESSAGE);
       }
       
       throw error;
@@ -1409,8 +1399,11 @@ Please check your internet connection and try again.`);
       const text = await response.text();
 
       if (!response.ok) {
-        const preview = text ? ` Body: ${text.slice(0, 200)}` : '';
-        throw new Error(`API request failed: ${response.status} ${response.statusText}.${preview}`);
+        throw new APIRequestError(
+          getUserFacingErrorMessage({ status: response.status, details: text }),
+          response.status,
+          text,
+        );
       }
 
       return text;
@@ -1429,13 +1422,7 @@ Please check your internet connection and try again.`);
           return this.makeTextRequest(endpoint, options, retryCount + 1);
         }
 
-        throw new Error(`Network error: Unable to connect to API server at ${this.baseUrl}. This could be due to:
-- API server is down or unreachable
-- Network connectivity issues
-- CORS policy blocking the request
-- Authentication token expired
-
-Please check your internet connection and try again.`);
+        throw new Error(NETWORK_ERROR_MESSAGE);
       }
 
       throw error;
@@ -2072,7 +2059,11 @@ Please check your internet connection and try again.`);
     });
     
     if (!response.ok) {
-      throw new Error(`Export failed: ${response.status} ${response.statusText}`);
+      const details = await response.text().catch(() => '');
+      throw new Error(getUserFacingErrorMessage(
+        { status: response.status, details },
+        'The customer export could not be downloaded. Please try again.',
+      ));
     }
     
     return response.text();

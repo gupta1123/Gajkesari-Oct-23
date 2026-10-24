@@ -1,3 +1,5 @@
+import { getResponseErrorMessage } from "./user-facing-error.ts";
+
 export interface DailyTaDaEditRequest {
   employeeId: number;
   date: string;
@@ -20,18 +22,6 @@ export async function requestDailyTaDaEdit(
   const kilometresChanged = Math.abs(kilometreDelta) > 0.0001;
   const daChanged = Math.abs(request.dearnessAllowance - request.currentDearnessAllowance) > 0.0001;
 
-  const parseError = async (response: Response, fallback: string) => {
-    const raw = (await response.text()).trim();
-    if (!raw) return fallback;
-
-    try {
-      const parsed = JSON.parse(raw) as { error?: string; message?: string };
-      return parsed.error || parsed.message || fallback;
-    } catch {
-      return raw;
-    }
-  };
-
   if (kilometresChanged) {
     const response = await fetch(
       "https://api.gajkesaristeels.in/travel-allowance/apply-km-adjustment",
@@ -51,7 +41,10 @@ export async function requestDailyTaDaEdit(
     );
 
     if (!response.ok) {
-      throw new Error(await parseError(response, `Failed to update kilometres (${response.status}).`));
+      throw new Error(await getResponseErrorMessage(
+        response,
+        'Kilometres could not be updated. Please try again.',
+      ));
     }
   }
 
@@ -74,7 +67,10 @@ export async function requestDailyTaDaEdit(
     );
 
     if (!response.ok) {
-      throw new Error(await parseError(response, `Failed to update DA (${response.status}).`));
+      throw new Error(await getResponseErrorMessage(
+        response,
+        'The daily allowance could not be updated. Please try again.',
+      ));
     }
   }
 }

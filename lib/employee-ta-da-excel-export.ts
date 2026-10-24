@@ -1,3 +1,5 @@
+import { getResponseErrorMessage } from "./user-facing-error.ts";
+
 export interface EmployeeTaDaExcelExportRequest {
   startDate: string;
   endDate: string;
@@ -28,8 +30,10 @@ export async function requestEmployeeTaDaExcelSummary(
   );
 
   if (!response.ok) {
-    const message = (await response.text()).trim();
-    throw new Error(message || `Failed to download Excel summary (${response.status}).`);
+    throw new Error(await getResponseErrorMessage(
+      response,
+      'The Excel summary could not be downloaded. Please try again.',
+    ));
   }
 
   const disposition = response.headers.get("content-disposition") || "";

@@ -1,5 +1,6 @@
 // Authentication service for WebSalesV3
 import { teamHasManager } from './team-access';
+import { getResponseErrorMessage } from './user-facing-error.ts';
 import {
   FIELD_OFFICER_WEB_ACCESS_ERROR,
   isFieldOfficerRoleValue,
@@ -324,17 +325,14 @@ export const authService = {
       });
 
       if (!response.ok) {
-        const errorText = (await response.text()).trim();
-
         if (response.status === 401 || response.status === 403) {
           throw new Error('Invalid credentials');
         }
 
-        const fallbackMessage = errorText
-          ? `Login failed: ${response.status} ${errorText}`
-          : `Login failed: ${response.status}`;
-
-        throw new Error(fallbackMessage.trim());
+        throw new Error(await getResponseErrorMessage(
+          response,
+          'Login could not be completed. Please try again.',
+        ));
       }
 
       const tokenData = await response.text();

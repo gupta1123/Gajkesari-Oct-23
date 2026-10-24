@@ -23,6 +23,7 @@ import {
 } from "@/lib/employee-ta-da-excel-export";
 import { API, APIRequestError, type SalaryCalculationJob } from "@/lib/api";
 import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 
 interface SummaryData {
     employeeName: string;
@@ -199,16 +200,10 @@ const EmployeeSummary: React.FC = () => {
             );
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => '');
-                let serverMessage = '';
-                try {
-                    const jsonError = JSON.parse(errorText);
-                    serverMessage = jsonError.message || jsonError.error || errorText;
-                } catch {
-                    serverMessage = errorText;
-                }
-                const cleanMessage = serverMessage?.trim() || response.statusText || 'Unable to fetch summary data.';
-                throw new Error(cleanMessage);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'Salary summary data could not be loaded. Please try again.',
+                ));
             }
 
             const data = await response.json();
@@ -279,7 +274,7 @@ const EmployeeSummary: React.FC = () => {
             }
             await loadSummaryTable();
         } catch (error) {
-            setError(error instanceof Error ? error.message : 'An unknown error occurred');
+            setError(getUserFacingErrorMessage(error, 'Salary summary data could not be loaded. Please try again.'));
         } finally {
             setSummaryLoading(false);
         }
@@ -291,7 +286,7 @@ const EmployeeSummary: React.FC = () => {
             setIsCancellingSalaryJob(true);
             setSalaryJob(await API.cancelSalaryJob(salaryJob.id));
         } catch (cancelError) {
-            setError(cancelError instanceof Error ? cancelError.message : 'Unable to cancel the salary refresh.');
+            setError(getUserFacingErrorMessage(cancelError, 'Unable to cancel the salary refresh.'));
         } finally {
             setIsCancellingSalaryJob(false);
         }
@@ -310,7 +305,7 @@ const EmployeeSummary: React.FC = () => {
                 await loadSummaryTable();
             }
         } catch (retryError) {
-            setError(retryError instanceof Error ? retryError.message : 'Unable to retry the salary refresh.');
+            setError(getUserFacingErrorMessage(retryError, 'Unable to retry the salary refresh.'));
         } finally {
             setSummaryLoading(false);
             setIsRetryingSalaryJob(false);
@@ -466,15 +461,20 @@ const EmployeeSummary: React.FC = () => {
             });
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => '');
-                throw new Error(errorText || `Failed to apply TA adjustment: ${response.statusText}`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The TA adjustment could not be applied. Please try again.',
+                ));
             }
 
             await loadSummaryTable();
             clearAdjustmentChanges();
             resetAdjustmentModal();
         } catch (error) {
-            setAdjustmentError(error instanceof Error ? error.message : 'Failed to apply TA adjustment.');
+            setAdjustmentError(getUserFacingErrorMessage(
+                error,
+                'The TA adjustment could not be applied. Please try again.',
+            ));
         } finally {
             setIsApplyingAdjustment(false);
         }

@@ -48,6 +48,7 @@ import { formatDateToUserFriendly } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { getUserFacingErrorMessage } from "@/lib/user-facing-error";
 
 const CUSTOMER_LIST_STORAGE_KEY = "customers.list.state.v1";
 
@@ -878,9 +879,10 @@ function CustomerListContent() {
             setIsReassignConfirmOpen(false);
             setReassignmentFeedback({
                 type: 'error',
-                message: reassignError instanceof Error
-                    ? reassignError.message
-                    : 'The stores could not be reassigned. Please try again.',
+                message: getUserFacingErrorMessage(
+                    reassignError,
+                    'The stores could not be reassigned. Please try again.',
+                ),
             });
         } finally {
             setIsReassigning(false);

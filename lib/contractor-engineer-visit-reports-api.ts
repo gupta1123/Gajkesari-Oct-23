@@ -1,3 +1,5 @@
+import { getResponseErrorMessage } from './user-facing-error.ts';
+
 const API_BASE_URL = "https://api.gajkesaristeels.in";
 
 export interface ContractorEngineerVisitReport {
@@ -113,22 +115,13 @@ function getHeaders() {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function getErrorMessage(response: Response, fallback: string) {
-  const raw = (await response.text()).trim();
-  if (!raw) return fallback;
-
-  try {
-    const parsed = JSON.parse(raw) as { error?: string; message?: string };
-    return parsed.error || parsed.message || fallback;
-  } catch {
-    return raw;
-  }
-}
-
 async function requestJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, { headers: getHeaders() });
   if (!response.ok) {
-    throw new Error(await getErrorMessage(response, `Failed to load visit reports (${response.status}).`));
+    throw new Error(await getResponseErrorMessage(
+      response,
+      'The visit reports could not be loaded. Please try again.',
+    ));
   }
   return response.json() as Promise<T>;
 }
@@ -144,7 +137,10 @@ async function sendJson<T>(path: string, method: "POST" | "PUT", payload: unknow
   });
 
   if (!response.ok) {
-    throw new Error(await getErrorMessage(response, `Failed to save visit report (${response.status}).`));
+    throw new Error(await getResponseErrorMessage(
+      response,
+      'The visit report could not be saved. Please try again.',
+    ));
   }
 
   const raw = await response.text();
@@ -189,7 +185,10 @@ async function collectReportPages(filters: ContractorEngineerVisitReportFilters 
 async function requestExport(path: string): Promise<VisitReportExportResponse> {
   const response = await fetch(`${API_BASE_URL}${path}`, { headers: getHeaders() });
   if (!response.ok) {
-    throw new Error(await getErrorMessage(response, `Failed to download visit reports (${response.status}).`));
+    throw new Error(await getResponseErrorMessage(
+      response,
+      'The visit reports could not be downloaded. Please try again.',
+    ));
   }
 
   const disposition = response.headers.get("content-disposition") || "";

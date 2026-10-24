@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, CalendarDays, Clock3, Pencil } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 
 interface WorkingDaysData {
     fullDayCount: number;
@@ -58,14 +59,20 @@ const WorkingDays: React.FC = () => {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to fetch working days: ${response.statusText}`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'Working-day settings could not be loaded. Please try again.',
+                ));
             }
 
             const result = await response.json();
             setWorkingDays(result);
             setEditedData(result);
         } catch (error) {
-            setError(error instanceof Error ? error.message : 'An unknown error occurred');
+            setError(getUserFacingErrorMessage(
+                error,
+                'Working-day settings could not be loaded. Please try again.',
+            ));
         } finally {
             setIsLoading(false);
         }
@@ -97,7 +104,10 @@ const WorkingDays: React.FC = () => {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to update working days: ${response.statusText}`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'Working-day settings could not be saved. Please try again.',
+                ));
             }
 
             setWorkingDays(payload);
@@ -105,8 +115,10 @@ const WorkingDays: React.FC = () => {
             clearUnsavedChanges();
             setEditMode(false);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Error updating working days';
-            setError(message);
+            setError(getUserFacingErrorMessage(
+                error,
+                'Working-day settings could not be saved. Please try again.',
+            ));
         } finally {
             setIsSaving(false);
         }

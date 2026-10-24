@@ -44,6 +44,7 @@ import {
 import AddTeam from '@/components/AddTeam';
 import { API } from '@/lib/api';
 import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 
 interface Team {
     id: number;
@@ -148,7 +149,10 @@ const Teams: React.FC = () => {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to fetch teams: ${response.statusText}`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'Teams could not be loaded. Please try again.',
+                ));
             }
 
             const data = await response.json();
@@ -170,7 +174,7 @@ const Teams: React.FC = () => {
             );
             setIsDataAvailable(sortedTeams.length > 0);
         } catch (error) {
-            setError(error instanceof Error ? error.message : 'An unknown error occurred');
+            setError(getUserFacingErrorMessage(error, 'Teams could not be loaded. Please try again.'));
             setIsDataAvailable(false);
         } finally {
             setIsLoading(false);
@@ -340,8 +344,10 @@ const Teams: React.FC = () => {
             });
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Failed to delete team');
-                throw new Error(errorText || 'Failed to delete team');
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The team could not be deleted. Please try again.',
+                ));
             }
 
             await fetchTeams();
@@ -350,8 +356,7 @@ const Teams: React.FC = () => {
             closeTeamPanel();
         } catch (error) {
             console.error('Error deleting team:', error);
-            const message = error instanceof Error ? error.message : 'Error deleting team';
-            setError(message);
+            setError(getUserFacingErrorMessage(error, 'The team could not be deleted. Please try again.'));
         } finally {
             setIsSaving(false);
         }
@@ -376,8 +381,10 @@ const Teams: React.FC = () => {
             );
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Failed to remove city');
-                throw new Error(errorText || 'Failed to remove city');
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The city could not be removed. Please try again.',
+                ));
             }
 
             setAssignedCities(prev => prev.filter(c => normalizeCityKey(c) !== normalizeCityKey(targetCity)));
@@ -387,8 +394,7 @@ const Teams: React.FC = () => {
             setModalError(null);
         } catch (error) {
             console.error('Error removing city:', error);
-            const message = error instanceof Error ? error.message : 'Error removing city';
-            setModalError(message);
+            setModalError(getUserFacingErrorMessage(error, 'The city could not be removed. Please try again.'));
         } finally {
             setIsSaving(false);
         }
@@ -419,8 +425,10 @@ const Teams: React.FC = () => {
             );
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Failed to add field officers');
-                throw new Error(errorText || 'Failed to add field officers');
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The selected field officers could not be added. Please try again.',
+                ));
             }
 
             await fetchTeams();
@@ -430,8 +438,10 @@ const Teams: React.FC = () => {
             setModalError(null);
         } catch (error) {
             console.error('Error adding field officer:', error);
-            const message = error instanceof Error ? error.message : 'Error adding field officers';
-            setModalError(message);
+            setModalError(getUserFacingErrorMessage(
+                error,
+                'The selected field officers could not be added. Please try again.',
+            ));
         } finally {
             setIsSaving(false);
         }
@@ -459,8 +469,10 @@ const Teams: React.FC = () => {
             });
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Failed to remove field officer');
-                throw new Error(errorText || 'Failed to remove field officer');
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The field officer could not be removed. Please try again.',
+                ));
             }
 
             setTeams((current) => current.map((team) => (
@@ -480,8 +492,10 @@ const Teams: React.FC = () => {
             return true;
         } catch (error) {
             console.error('Error removing field officer:', error);
-            const message = error instanceof Error ? error.message : 'Error removing field officer';
-            setModalError(message);
+            setModalError(getUserFacingErrorMessage(
+                error,
+                'The field officer could not be removed. Please try again.',
+            ));
             return false;
         } finally {
             setIsSaving(false);
@@ -536,7 +550,10 @@ const Teams: React.FC = () => {
             const failed = responses.filter(r => !r.ok);
 
             if (failed.length > 0) {
-                throw new Error(`Failed to assign ${failed.length} of ${selectedCities.length} cities`);
+                throw new Error(await getResponseErrorMessage(
+                    failed[0],
+                    `${failed.length} of ${selectedCities.length} cities could not be assigned. Please try again.`,
+                ));
             }
 
             setAssignedCities(prev => Array.from(new Set([...prev, ...selectedCities])));
@@ -547,8 +564,7 @@ const Teams: React.FC = () => {
             setModalError(null);
         } catch (error) {
             console.error('Error assigning city:', error);
-            const message = error instanceof Error ? error.message : 'Error assigning city';
-            setModalError(message);
+            setModalError(getUserFacingErrorMessage(error, 'The cities could not be assigned. Please try again.'));
         } finally {
             setIsSaving(false);
         }
@@ -575,8 +591,10 @@ const Teams: React.FC = () => {
             );
 
             if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Failed to update regional managers');
-                throw new Error(errorText || 'Failed to update regional managers');
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The regional managers could not be updated. Please try again.',
+                ));
             }
 
             await fetchTeams();
@@ -584,8 +602,10 @@ const Teams: React.FC = () => {
             setModalError(null);
         } catch (error) {
             console.error('Error updating regional managers:', error);
-            const message = error instanceof Error ? error.message : 'Failed to update regional managers';
-            setModalError(message);
+            setModalError(getUserFacingErrorMessage(
+                error,
+                'The regional managers could not be updated. Please try again.',
+            ));
         } finally {
             setIsSaving(false);
         }

@@ -29,6 +29,7 @@ import { usePagedStoreNames } from '@/components/use-paged-store-names';
 import { resolveTaskAssignerId } from '@/lib/task-assignment';
 import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
 import { useDashboardHeader } from '@/components/dashboard-header-context';
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
 
@@ -480,8 +481,10 @@ const Requirements = () => {
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Failed to create task: ${response.status} ${errorText}`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The requirement could not be created. Please check the required fields and try again.',
+                ));
             }
 
             clearUnsavedChanges();
@@ -507,7 +510,10 @@ const Requirements = () => {
             fetchTasks();
         } catch (error) {
             console.error('Error creating requirement:', error);
-            setErrorMessage('Failed to create requirement. Please check required fields.');
+            setErrorMessage(getUserFacingErrorMessage(
+                error,
+                'The requirement could not be created. Please check the required fields and try again.',
+            ));
         } finally {
             setIsCreating(false);
         }
@@ -525,14 +531,19 @@ const Requirements = () => {
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || `Failed to delete requirement (${response.status})`);
+                throw new Error(await getResponseErrorMessage(
+                    response,
+                    'The requirement could not be deleted. Please try again.',
+                ));
             }
 
             await fetchTasks();
         } catch (error) {
             console.error('Error deleting requirement:', error);
-            setErrorMessage(error instanceof Error ? error.message : 'Failed to delete requirement');
+            setErrorMessage(getUserFacingErrorMessage(
+                error,
+                'The requirement could not be deleted. Please try again.',
+            ));
         }
     };
 

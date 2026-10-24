@@ -93,3 +93,41 @@ test('bulk store reassignment sends the selected ids with authentication', async
     storeIds: [9862, 9863],
   });
 });
+
+test('bulk store reassignment surfaces the backend message without HTTP details', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const originalLocalStorage = globalThis.localStorage;
+
+  Object.defineProperty(globalThis, 'window', { value: {}, configurable: true });
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: { getItem: (key) => key === 'authToken' ? 'store-token' : null },
+    configurable: true,
+  });
+  globalThis.fetch = async () => new Response(
+    JSON.stringify([{ message: 'Store 12878 city must match the target employee city.' }]),
+    { status: 400, headers: { 'content-type': 'application/json' } },
+  );
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true });
+    if (originalLocalStorage === undefined) delete globalThis.localStorage;
+    else Object.defineProperty(globalThis, 'localStorage', { value: originalLocalStorage, configurable: true });
+  });
+
+  await assert.rejects(
+    API.bulkEditStoreEmployee({
+      sourceEmployeeId: 205,
+      targetEmployeeId: 310,
+      storeIds: [12878],
+    }),
+    (error) => {
+      assert.equal(error.message, 'Store 12878 city must match the target employee city.');
+      assert.equal(error.status, 400);
+      assert.doesNotMatch(error.message, /API request failed|Body:|400/);
+      return true;
+    },
+  );
+});

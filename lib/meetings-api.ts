@@ -1,3 +1,5 @@
+import { getResponseErrorMessage } from './user-facing-error.ts';
+
 const MEETINGS_API_BASE_URL = "https://api.gajkesaristeels.in";
 
 export const MEETING_TYPES = [
@@ -383,10 +385,14 @@ const buildQuery = (params: object) => {
 };
 
 const parseResponse = async <T>(response: Response): Promise<T> => {
-  const text = await response.text();
   if (!response.ok) {
-    throw new Error(text || `Request failed with status ${response.status}`);
+    throw new Error(await getResponseErrorMessage(
+      response,
+      'The meeting request could not be completed. Please try again.',
+    ));
   }
+
+  const text = await response.text();
 
   if (!text) return undefined as T;
 
@@ -500,8 +506,10 @@ const meetingBlobRequest = async (endpoint: string, options: RequestInit = {}): 
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed with status ${response.status}`);
+    throw new Error(await getResponseErrorMessage(
+      response,
+      'The meeting file could not be downloaded. Please try again.',
+    ));
   }
 
   return response.blob();

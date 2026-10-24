@@ -26,6 +26,7 @@ import { requestDailyTaDaEdit } from "@/lib/daily-ta-da-edit";
 import { API } from "@/lib/api";
 import { isIncompletePayrollSetupError, readApiErrorMessage } from "@/lib/daily-breakdown-errors";
 import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
+import { getResponseErrorMessage, getUserFacingErrorMessage } from '@/lib/user-facing-error';
 
 // --- Interfaces ---
 interface DailyBreakdownData {
@@ -194,22 +195,19 @@ const DailyBreakdown: React.FC = () => {
                     throw new Error("You do not have permission to view this employee's daily breakdown.");
                 }
 
-                throw new Error(
-                    backendMessage ||
-                    `Daily breakdown could not be calculated (error ${res.status}). Please try again.`
-                );
+                throw new Error(getUserFacingErrorMessage(
+                    { status: res.status, details: backendMessage },
+                    'Daily breakdown could not be calculated. Please try again.',
+                ));
             }
             const data = await res.json();
             setDailyBreakdownData(data || []);
         } catch (err) {
             setDailyBreakdownData([]);
-            setError(
-                err instanceof TypeError && err.message === "Failed to fetch"
-                    ? "Unable to connect to the server. Check your internet connection and try again."
-                    : err instanceof Error
-                        ? err.message
-                        : "Daily breakdown could not be loaded. Please try again."
-            );
+            setError(getUserFacingErrorMessage(
+                err,
+                'Daily breakdown could not be loaded. Please try again.',
+            ));
         } finally {
             setIsLoading(false);
         }
@@ -277,8 +275,10 @@ const DailyBreakdown: React.FC = () => {
                 );
 
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Failed to update status for employee ${update.employeeId} on ${update.date}: ${response.status} ${response.statusText}. ${errorText}`);
+                    throw new Error(await getResponseErrorMessage(
+                        response,
+                        `Attendance for ${update.date} could not be updated. Please try again.`,
+                    ));
                 }
 
                 return response;
@@ -298,7 +298,7 @@ const DailyBreakdown: React.FC = () => {
 
         } catch (error) {
             console.error("Bulk update failed", error);
-            setError(error instanceof Error ? error.message : "Failed to update status. Please try again.");
+            setError(getUserFacingErrorMessage(error, 'Attendance could not be updated. Please try again.'));
             await fetchDailyBreakdown();
         } finally {
             setIsBulkUpdating(false);
