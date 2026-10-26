@@ -1,3 +1,5 @@
+import { parseReportSignature } from "./report-signature.ts";
+
 export type ContractorEngineerVisitReportFormData = {
   visitDate: string;
   officerName: string;
@@ -119,6 +121,17 @@ class PdfPage {
 
   line(x1: number, top1: number, x2: number, top2: number) {
     this.raw(`${x1.toFixed(2)} ${this.y(top1).toFixed(2)} m ${x2.toFixed(2)} ${this.y(top2).toFixed(2)} l S`);
+  }
+
+  polyline(points: Array<[number, number]>) {
+    if (!points.length) return;
+    const [first, ...rest] = points;
+    const commands = [
+      `${first[0].toFixed(2)} ${this.y(first[1]).toFixed(2)} m`,
+      ...rest.map(([x, top]) => `${x.toFixed(2)} ${this.y(top).toFixed(2)} l`),
+      "S",
+    ];
+    this.raw(commands.join(" "));
   }
 
   dashedLine(x1: number, top: number, x2: number) {
@@ -279,6 +292,40 @@ function drawHeader(page: PdfPage) {
   page.line(MARGIN_X, 74, MARGIN_X + CONTENT_WIDTH, 74);
 }
 
+function drawSignature(
+  page: PdfPage,
+  value: string,
+  x: number,
+  top: number,
+  width: number,
+  height: number,
+  label: string,
+) {
+  const strokes = parseReportSignature(value);
+  if (strokes) {
+    page.strokeColor(TEXT);
+    page.lineWidth(1.15);
+    strokes.forEach((stroke) => {
+      page.polyline(stroke.map(([pointX, pointY]) => [
+        x + pointX * width,
+        top + pointY * height,
+      ]));
+    });
+  } else if (value) {
+    page.text(x + 4, top + height - 4, value, { size: 8.5, font: "F2" });
+  }
+
+  page.strokeColor(MUTED);
+  page.lineWidth(0.75);
+  page.raw("[3 4] 0 d");
+  page.line(x, top + height, x + width, top + height);
+  page.raw("[] 0 d");
+  page.text(x + width / 2 - label.length * 2.05, top + height + 12, label, {
+    size: 8.7,
+    font: "F2",
+  });
+}
+
 function drawReport(page: PdfPage, data: ContractorEngineerVisitReportFormData) {
   drawHeader(page);
 
@@ -396,14 +443,8 @@ function drawReport(page: PdfPage, data: ContractorEngineerVisitReportFormData) 
   drawSectionHeader(page, 673, "9. REMARKS");
   drawWrappedLines(page, data.remarks, 700, [706, 721], 112);
 
-  page.strokeColor(MUTED);
-  page.lineWidth(0.75);
-  page.raw("[3 4] 0 d");
-  page.line(MARGIN_X + 2, 759, 270, 759);
-  page.line(325, 759, MARGIN_X + CONTENT_WIDTH - 2, 759);
-  page.raw("[] 0 d");
-  page.text(112, 771, data.customerSignature || "Customer Signature", { size: 8.7, font: "F2" });
-  page.text(408, 771, data.officerSignature || "Officer Signature", { size: 8.7, font: "F2" });
+  drawSignature(page, data.customerSignature, MARGIN_X + 2, 730, 234, 29, "Customer Signature");
+  drawSignature(page, data.officerSignature, 325, 730, 234, 29, "Officer Signature");
 }
 
 export function createContractorEngineerVisitReportPdfBytes(

@@ -31,6 +31,9 @@ export interface ContractorEngineerVisitReport {
   competitorBrand1?: string | null;
   competitorApproxRate1?: number | null;
   competitorRemarks1?: string | null;
+  competitorBrand2?: string | null;
+  competitorApproxRate2?: number | null;
+  competitorRemarks2?: string | null;
   potential?: string | null;
   expectedQtyMt?: number | null;
   nextFollowUpDate?: string | null;
@@ -96,6 +99,9 @@ export type ContractorEngineerVisitReportPayload = {
   competitorBrand1?: string | null;
   competitorApproxRate1?: number | null;
   competitorRemarks1?: string | null;
+  competitorBrand2?: string | null;
+  competitorApproxRate2?: number | null;
+  competitorRemarks2?: string | null;
   potential?: string | null;
   expectedQtyMt?: number | null;
   nextFollowUpDate?: string | null;

@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { SignatureField } from "@/components/ui/signature-field";
 import VisitReportsPanel from "@/components/visit-reports-panel";
 import {
   contractorEngineerVisitReportsApi,
@@ -116,7 +117,10 @@ function createInitialForm(): ContractorEngineerVisitReportFormData {
     purposeOfVisit: "",
     materialsProvided: [],
     customerFeedbackDiscussion: "",
-    competitorRows: [{ brand: "", approxRate: "", remarks: "" }],
+    competitorRows: [
+      { brand: "", approxRate: "", remarks: "" },
+      { brand: "", approxRate: "", remarks: "" },
+    ],
     potential: "",
     expectedQtyMt: "",
     nextFollowUpDate: "",
@@ -144,6 +148,7 @@ function buildVisitReportPayload(
 ): ContractorEngineerVisitReportPayload {
   const materials = new Set(form.materialsProvided);
   const competitor = form.competitorRows[0] || { brand: "", approxRate: "", remarks: "" };
+  const secondCompetitor = form.competitorRows[1] || { brand: "", approxRate: "", remarks: "" };
 
   return {
     visitDate: cleanText(form.visitDate),
@@ -173,6 +178,9 @@ function buildVisitReportPayload(
     competitorBrand1: cleanText(competitor.brand),
     competitorApproxRate1: cleanNumber(competitor.approxRate),
     competitorRemarks1: cleanText(competitor.remarks),
+    competitorBrand2: cleanText(secondCompetitor.brand),
+    competitorApproxRate2: cleanNumber(secondCompetitor.approxRate),
+    competitorRemarks2: cleanText(secondCompetitor.remarks),
     potential: cleanText(form.potential),
     expectedQtyMt: cleanNumber(form.expectedQtyMt),
     nextFollowUpDate: cleanText(form.nextFollowUpDate),
@@ -888,25 +896,30 @@ export default function ContractorEngineerVisitReportSection({
                 <FormSection title="Competitor Information">
                   <div className="space-y-3">
                     {form.competitorRows.map((row, index) => (
-                      <div key={index} className="grid gap-3 rounded-md border border-border/60 bg-muted/20 p-3 md:grid-cols-[1fr_160px_1.4fr]">
-                        <TextField
-                          id={`contractor-report-competitor-brand-${index}`}
-                          label="Brand"
-                          value={row.brand}
-                          onChange={(value) => updateCompetitorRow(index, "brand", value)}
-                        />
-                        <TextField
-                          id={`contractor-report-competitor-rate-${index}`}
-                          label="Approx. Rate"
-                          value={row.approxRate}
-                          onChange={(value) => updateCompetitorRow(index, "approxRate", value)}
-                        />
-                        <TextField
-                          id={`contractor-report-competitor-remarks-${index}`}
-                          label="Remarks"
-                          value={row.remarks}
-                          onChange={(value) => updateCompetitorRow(index, "remarks", value)}
-                        />
+                      <div key={index} className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Competitor {index + 1}
+                        </p>
+                        <div className="grid gap-3 md:grid-cols-[1fr_160px_1.4fr]">
+                          <TextField
+                            id={`contractor-report-competitor-brand-${index}`}
+                            label="Brand"
+                            value={row.brand}
+                            onChange={(value) => updateCompetitorRow(index, "brand", value)}
+                          />
+                          <TextField
+                            id={`contractor-report-competitor-rate-${index}`}
+                            label="Approx. Rate"
+                            value={row.approxRate}
+                            onChange={(value) => updateCompetitorRow(index, "approxRate", value)}
+                          />
+                          <TextField
+                            id={`contractor-report-competitor-remarks-${index}`}
+                            label="Remarks"
+                            value={row.remarks}
+                            onChange={(value) => updateCompetitorRow(index, "remarks", value)}
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -958,13 +971,13 @@ export default function ContractorEngineerVisitReportSection({
                     />
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <TextField
+                    <SignatureField
                       id="contractor-report-customer-signature"
                       label="Customer Signature"
                       value={form.customerSignature}
                       onChange={(value) => setField("customerSignature", value)}
                     />
-                    <TextField
+                    <SignatureField
                       id="contractor-report-officer-signature"
                       label="Officer Signature"
                       value={form.officerSignature}

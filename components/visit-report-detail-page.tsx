@@ -7,6 +7,7 @@ import { format } from "date-fns";
 import {
   Building2,
   CalendarDays,
+  Download,
   FileText,
   PackageCheck,
   Phone,
@@ -23,6 +24,15 @@ import {
   contractorEngineerVisitReportsApi,
   type ContractorEngineerVisitReport,
 } from "@/lib/contractor-engineer-visit-reports-api";
+import {
+  downloadBlob,
+  mapSavedVisitReportToFormData,
+} from "@/lib/contractor-engineer-visit-report-export";
+import {
+  createContractorEngineerVisitReportPdfBlob,
+  getContractorEngineerVisitReportFileName,
+} from "@/lib/contractor-engineer-visit-report-pdf";
+import { parseReportSignature } from "@/lib/report-signature";
 
 type VisitReportDetailPageProps = {
   reportId: number;
@@ -95,6 +105,36 @@ function CompactRow({
   );
 }
 
+function SignaturePreview({ label, value }: { label: string; value?: string | null }) {
+  const strokes = parseReportSignature(value);
+  return (
+    <div className="space-y-2">
+      <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">{label}</span>
+      <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-border bg-muted/20 px-3">
+        {strokes ? (
+          <svg viewBox="0 0 300 100" className="h-full w-full" role="img" aria-label={label}>
+            {strokes.map((stroke, index) => (
+              <polyline
+                key={index}
+                points={stroke.map(([x, y]) => `${x * 300},${y * 100}`).join(" ")}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+          </svg>
+        ) : value ? (
+          <span className="text-sm font-semibold italic text-foreground">{value}</span>
+        ) : (
+          <span className="text-xs italic text-muted-foreground/60">Not provided</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const getInitials = (value?: string | null) => {
   const initials = value
     ?.trim()
@@ -112,6 +152,8 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
   const [report, setReport] = useState<ContractorEngineerVisitReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<"pdf" | "docx" | null>(null);
 
   const loadReport = useCallback(async () => {
     if (!Number.isFinite(reportId) || reportId <= 0) {
@@ -170,6 +212,44 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
     ].filter((item): item is string => Boolean(item));
   }, [report]);
 
+  const downloadPdf = useCallback(() => {
+    if (!report) return;
+    setDownloadError(null);
+    setDownloading("pdf");
+    try {
+      const data = mapSavedVisitReportToFormData(report);
+      downloadBlob(
+        createContractorEngineerVisitReportPdfBlob(data),
+        getContractorEngineerVisitReportFileName(data),
+      );
+    } catch {
+      setDownloadError("The PDF could not be prepared. Please try again.");
+    } finally {
+      setDownloading(null);
+    }
+  }, [report]);
+
+  const downloadDocx = useCallback(async () => {
+    if (!report) return;
+    setDownloadError(null);
+    setDownloading("docx");
+    try {
+      const data = mapSavedVisitReportToFormData(report);
+      const {
+        createContractorEngineerVisitReportDocxBlob,
+        getContractorEngineerVisitReportDocxFileName,
+      } = await import("@/lib/contractor-engineer-visit-report-docx");
+      downloadBlob(
+        await createContractorEngineerVisitReportDocxBlob(data),
+        getContractorEngineerVisitReportDocxFileName(data),
+      );
+    } catch {
+      setDownloadError("The Word document could not be prepared. Please try again.");
+    } finally {
+      setDownloading(null);
+    }
+  }, [report]);
+
   if (isLoading) {
     return (
       <div className="w-full space-y-7">
@@ -208,6 +288,17 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
 
   return (
     <div className="w-full space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+        {downloadError ? <p className="mr-auto text-sm text-destructive">{downloadError}</p> : null}
+        <Button type="button" variant="outline" onClick={downloadPdf} disabled={downloading !== null}>
+          <Download className="mr-2 h-4 w-4" />
+          {downloading === "pdf" ? "Preparing PDF..." : "Download PDF"}
+        </Button>
+        <Button type="button" variant="outline" onClick={downloadDocx} disabled={downloading !== null}>
+          <FileText className="mr-2 h-4 w-4" />
+          {downloading === "docx" ? "Preparing Word..." : "Download Word"}
+        </Button>
+      </div>
       {/* Split Workspace Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
         {/* Left Column: Primary Operational Details (70% Width) */}
@@ -248,9 +339,12 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
                 Competitor Intelligence
               </span>
               <div className="grid gap-4 sm:grid-cols-2">
-                <SpecItem label="Competitor Brand" value={report.competitorBrand1} />
-                <SpecItem label="Approx. Rate" value={formatCurrency(report.competitorApproxRate1)} />
-                <SpecItem label="Remarks" value={report.competitorRemarks1} className="sm:col-span-2" />
+                <SpecItem label="Competitor 1 Brand" value={report.competitorBrand1} />
+                <SpecItem label="Competitor 1 Approx. Rate" value={formatCurrency(report.competitorApproxRate1)} />
+                <SpecItem label="Competitor 1 Remarks" value={report.competitorRemarks1} className="sm:col-span-2" />
+                <SpecItem label="Competitor 2 Brand" value={report.competitorBrand2} />
+                <SpecItem label="Competitor 2 Approx. Rate" value={formatCurrency(report.competitorApproxRate2)} />
+                <SpecItem label="Competitor 2 Remarks" value={report.competitorRemarks2} className="sm:col-span-2" />
               </div>
             </div>
           </Card>
@@ -372,9 +466,9 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
               <PackageCheck className="h-4 w-4 text-primary" />
               Verification Signatures
             </h2>
-            <div className="grid grid-cols-2 gap-4">
-              <SpecItem label="Customer Sign" value={report.customerSignature} />
-              <SpecItem label="Officer Sign" value={report.officerSignature} />
+            <div className="grid gap-4">
+              <SignaturePreview label="Customer Signature" value={report.customerSignature} />
+              <SignaturePreview label="Officer Signature" value={report.officerSignature} />
             </div>
           </Card>
         </div>
