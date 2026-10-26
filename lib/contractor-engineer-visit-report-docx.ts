@@ -5,6 +5,7 @@ import {
   Footer,
   ImageRun,
   Packer,
+  PageOrientation,
   Paragraph,
   ShadingType,
   Table,
@@ -21,11 +22,16 @@ import { parseReportSignature, type SignatureStrokes } from "./report-signature.
 
 const NAVY = "1A3A64";
 const RED = "C72B2B";
-const TEXT = "2A3241";
-const MUTED = "637187";
-const BORDER = "B0C2D6";
+const TEXT = "111827";
+const MUTED = "374151";
+const BORDER = "D9D9D9";
 const LIGHT_BLUE = "EDF3F8";
 const WHITE = "FFFFFF";
+const LETTER_WIDTH_TWIPS = 12240;
+const LETTER_HEIGHT_TWIPS = 15840;
+const CONTENT_WIDTH_TWIPS = 10656;
+
+const fixedTableWidth = { size: CONTENT_WIDTH_TWIPS, type: WidthType.DXA } as const;
 
 const noValue = "—";
 const value = (text?: string | null) => text?.trim() || noValue;
@@ -39,17 +45,59 @@ const borders = {
   insideVertical: { style: BorderStyle.SINGLE, size: 4, color: BORDER },
 };
 
-function title(text: string, color = NAVY, size = 24) {
-  return new Paragraph({
-    alignment: AlignmentType.CENTER,
-    spacing: { after: 80 },
-    children: [new TextRun({ text, bold: true, color, size, font: "Arial" })],
+const noBorders = {
+  top: { style: BorderStyle.NONE, size: 0, color: WHITE },
+  bottom: { style: BorderStyle.NONE, size: 0, color: WHITE },
+  left: { style: BorderStyle.NONE, size: 0, color: WHITE },
+  right: { style: BorderStyle.NONE, size: 0, color: WHITE },
+  insideHorizontal: { style: BorderStyle.NONE, size: 0, color: WHITE },
+  insideVertical: { style: BorderStyle.NONE, size: 0, color: WHITE },
+};
+
+function titleBlock() {
+  return new Table({
+    width: fixedTableWidth,
+    borders: noBorders,
+    rows: [
+      new TableRow({
+        children: [new TableCell({
+          shading: { type: ShadingType.CLEAR, color: WHITE, fill: WHITE },
+          margins: { top: 40, bottom: 30, left: 80, right: 80 },
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({
+              text: "GAJKESARI STEELS & ALLOYS PVT. LTD.",
+              bold: true,
+              color: NAVY,
+              size: 30,
+              font: "Arial",
+            })],
+          })],
+        })],
+      }),
+      new TableRow({
+        children: [new TableCell({
+          shading: { type: ShadingType.CLEAR, color: WHITE, fill: WHITE },
+          margins: { top: 20, bottom: 90, left: 80, right: 80 },
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({
+              text: "CONTRACTOR / ENGINEER VISIT REPORT",
+              bold: true,
+              color: RED,
+              size: 22,
+              font: "Arial",
+            })],
+          })],
+        })],
+      }),
+    ],
   });
 }
 
 function sectionHeader(text: string) {
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: fixedTableWidth,
     borders,
     rows: [
       new TableRow({
@@ -72,6 +120,7 @@ function sectionHeader(text: string) {
 function fieldCell(label: string, fieldValue?: string | null) {
   return new TableCell({
     verticalAlign: VerticalAlign.CENTER,
+    shading: { type: ShadingType.CLEAR, color: WHITE, fill: WHITE },
     margins: { top: 90, bottom: 90, left: 120, right: 120 },
     children: [
       new Paragraph({
@@ -87,7 +136,7 @@ function fieldCell(label: string, fieldValue?: string | null) {
 
 function fields(rows: Array<Array<[string, string | null | undefined]>>) {
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: fixedTableWidth,
     borders,
     rows: rows.map((row) => new TableRow({ children: row.map(([label, fieldValue]) => fieldCell(label, fieldValue)) })),
   });
@@ -125,7 +174,8 @@ function competitorTable(data: ContractorEngineerVisitReportFormData) {
     margins: { top: 90, bottom: 90, left: 100, right: 100 },
     children: [new Paragraph({ children: [new TextRun({ text, bold: true, color: NAVY, size: 17, font: "Arial" })] })],
   });
-  const dataCell = (text: string) => new TableCell({
+  const dataCell = (text: string, fill = WHITE) => new TableCell({
+    shading: { type: ShadingType.CLEAR, color: fill, fill },
     margins: { top: 90, bottom: 90, left: 100, right: 100 },
     children: [new Paragraph({ children: [new TextRun({ text: value(text), color: TEXT, size: 17, font: "Arial" })] })],
   });
@@ -134,11 +184,14 @@ function competitorTable(data: ContractorEngineerVisitReportFormData) {
   while (rows.length < 2) rows.push({ brand: "", approxRate: "", remarks: "" });
 
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: fixedTableWidth,
     borders,
     rows: [
       new TableRow({ children: [headerCell("BRAND"), headerCell("APPROX. RATE (₹/MT)"), headerCell("REMARKS")] }),
-      ...rows.map((row) => new TableRow({ children: [dataCell(row.brand), dataCell(row.approxRate), dataCell(row.remarks)] })),
+      ...rows.map((row, index) => {
+        const fill = index % 2 === 0 ? WHITE : "F7FAFC";
+        return new TableRow({ children: [dataCell(row.brand, fill), dataCell(row.approxRate, fill), dataCell(row.remarks, fill)] });
+      }),
     ],
   });
 }
@@ -173,6 +226,7 @@ function signatureCell(label: string, signature: string) {
   const strokes = parseReportSignature(signature);
   const pngBytes = strokes ? drawSignatureOnCanvas(strokes) : null;
   return new TableCell({
+    shading: { type: ShadingType.CLEAR, color: WHITE, fill: WHITE },
     margins: { top: 120, bottom: 100, left: 120, right: 120 },
     children: [
       new Paragraph({
@@ -202,6 +256,23 @@ export async function createContractorEngineerVisitReportDocxBlob(
   data: ContractorEngineerVisitReportFormData,
 ) {
   const documentFile = new Document({
+    title: "Contractor Engineer Visit Report",
+    subject: "Submitted contractor or engineer visit details",
+    creator: "Gajkesari Steels & Alloys Pvt. Ltd.",
+    background: { color: WHITE },
+    compatabilityModeVersion: 15,
+    theme: {
+      name: "Gajkesari Light",
+      colors: {
+        dark1: "000000",
+        light1: WHITE,
+        dark2: TEXT,
+        light2: "F3F4F6",
+        accent1: NAVY,
+        accent2: RED,
+      },
+      fonts: { headings: "Arial", body: "Arial" },
+    },
     styles: {
       default: {
         document: { run: { font: "Arial", color: TEXT, size: 18 } },
@@ -211,6 +282,11 @@ export async function createContractorEngineerVisitReportDocxBlob(
       {
         properties: {
           page: {
+            size: {
+              width: LETTER_WIDTH_TWIPS,
+              height: LETTER_HEIGHT_TWIPS,
+              orientation: PageOrientation.PORTRAIT,
+            },
             margin: {
               top: convertInchesToTwip(0.55),
               bottom: convertInchesToTwip(0.55),
@@ -230,8 +306,7 @@ export async function createContractorEngineerVisitReportDocxBlob(
           }),
         },
         children: [
-          title("GAJKESARI STEELS & ALLOYS PVT. LTD.", NAVY, 30),
-          title("CONTRACTOR / ENGINEER VISIT REPORT", RED, 22),
+          titleBlock(),
           sectionHeader("1. OFFICER DETAILS"),
           fields([
             [["Visit Date", data.visitDate], ["Officer Name", data.officerName]],
@@ -270,7 +345,7 @@ export async function createContractorEngineerVisitReportDocxBlob(
           sectionHeader("9. REMARKS"),
           narrative(data.remarks),
           new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
+            width: fixedTableWidth,
             borders,
             rows: [new TableRow({ children: [
               signatureCell("Customer Signature", data.customerSignature),
