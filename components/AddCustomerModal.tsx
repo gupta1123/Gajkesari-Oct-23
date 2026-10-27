@@ -549,7 +549,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                   Field Officer
                 </Label>
                 <div className="col-span-3">
-                  <Popover open={isFieldOfficerPopoverOpen} onOpenChange={setIsFieldOfficerPopoverOpen}>
+                  <Popover open={isFieldOfficerPopoverOpen} onOpenChange={setIsFieldOfficerPopoverOpen} modal>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
@@ -574,7 +574,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                           />
                         </div>
                       </div>
-                      <div className="max-h-64 overflow-y-auto">
+                      <div className="max-h-64 overflow-y-auto overscroll-contain">
                         {filteredFieldOfficers.length === 0 ? (
                           <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                             {fieldOfficerOptions.length === 0 ? 'No field officers available' : 'No matches found'}

@@ -1,8 +1,9 @@
 "use client";
 
 import DashboardLayout from "@/components/dashboard-layout";
-import { ReactNode, useCallback, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { resetListStateOnNavigation } from "@/lib/list-state";
 import {
   DashboardHeaderConfig,
   DashboardHeaderOverrideProvider,
@@ -12,6 +13,12 @@ import { UnsavedChangesProvider } from "@/components/unsaved-changes-provider";
 export default function Layout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [headerOverride, setHeaderOverrideState] = useState<DashboardHeaderConfig | null>(null);
+
+  // Filters only survive a detail-page round trip; landing on another top-level page resets them.
+  useEffect(() => {
+    resetListStateOnNavigation(pathname);
+  }, [pathname]);
+
   const setHeaderOverride = useCallback((config: DashboardHeaderConfig | null) => {
     setHeaderOverrideState(config);
   }, []);

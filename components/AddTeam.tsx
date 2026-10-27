@@ -463,7 +463,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
                             {/* Regional Managers / Office Managers */}
                             <div className="space-y-2">
                                 <Label className="text-xs font-semibold">Regional Manager</Label>
-                                <Popover>
+                                <Popover modal>
                                     <PopoverTrigger asChild>
                                         <Button variant="outline" className="w-full justify-between h-9 text-xs shadow-none">
                                             {selectedOfficeManager.length > 0
@@ -472,7 +472,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
                                         </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-full p-2" align="start">
-                                        <div className="space-y-1">
+                                        <div className="max-h-64 space-y-1 overflow-y-auto overscroll-contain">
                                             {officeManagers.map((manager) => (
                                                 <div
                                                     key={manager.value}
@@ -491,7 +491,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
                             {/* Select Cities */}
                             <div className="space-y-2">
                                 <Label className="text-xs font-semibold">Cities</Label>
-                                <Popover open={isCityPopoverOpen} onOpenChange={setIsCityPopoverOpen}>
+                                <Popover open={isCityPopoverOpen} onOpenChange={setIsCityPopoverOpen} modal>
                                     <PopoverTrigger asChild>
                                         <Button variant="outline" className="w-full justify-between h-9 text-xs shadow-none">
                                             {cityTriggerLabel}
@@ -505,7 +505,7 @@ const AddTeam = ({ onCreated }: AddTeamProps) => {
                                                 onChange={(e) => setCitySearchTerm(e.target.value)}
                                                 className="h-8 text-xs"
                                             />
-                                            <div className="max-h-48 overflow-y-auto space-y-1">
+                                            <div className="max-h-48 overflow-y-auto overscroll-contain space-y-1">
                                                 {filteredCities.map((city) => (
                                                     <div
                                                         key={city.value}

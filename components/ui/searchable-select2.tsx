@@ -6,7 +6,6 @@ import { Check, ChevronsUpDown, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 export type SearchableOption<T = unknown> = {
@@ -89,7 +88,7 @@ export function SearchableSelect<T = unknown>({
   const hasOptions = options.length > 0;
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={open} onOpenChange={handleOpenChange} modal>
       <PopoverTrigger asChild>
         <Button
           role="combobox"
@@ -133,7 +132,7 @@ export function SearchableSelect<T = unknown>({
                 Clear selection
               </Button>
             )}
-            <ScrollArea className="mt-2 max-h-64">
+            <div className="mt-2 max-h-64 overflow-y-auto overscroll-contain">
               {filteredOptions.length === 0 ? (
                 <div className="py-6 text-center text-sm text-muted-foreground">{noResultsMessage}</div>
               ) : (
@@ -160,7 +159,7 @@ export function SearchableSelect<T = unknown>({
                   })}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           </>
         ) : (
           <div className="py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div>

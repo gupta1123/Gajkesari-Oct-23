@@ -848,7 +848,7 @@ const Complaints = () => {
                                     />
                                 </div>
                             </div>
-                            <div className="max-h-64 overflow-y-auto">
+                            <div className="max-h-64 overflow-y-auto overscroll-contain">
                                 <button
                                     type="button"
                                     className={`flex w-full items-center justify-between px-4 py-2 text-sm ${
@@ -1076,6 +1076,7 @@ const Complaints = () => {
                                         Assigned To {isManager && teamMembers.length > 0 && <span className="text-xs text-muted-foreground">(Team Members Only)</span>}
                                     </Label>
                                     <Popover
+                                        modal
                                         open={isAssignPopoverOpen}
                                         onOpenChange={(open) => {
                                             if (employeeOptions.length === 0) return;
@@ -1111,7 +1112,7 @@ const Complaints = () => {
                                                     />
                                                 </div>
                                             </div>
-                                            <div className="max-h-64 overflow-y-auto">
+                                            <div className="max-h-64 overflow-y-auto overscroll-contain">
                                                 {filteredEmployeeOptions.length === 0 ? (
                                                     <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                                                         {employeeOptions.length === 0 ? "No employees available" : "No matches found"}
