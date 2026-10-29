@@ -165,7 +165,7 @@ export function StoreReassignmentDialog({
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
                     <div className="flex flex-col gap-1 text-sm">
                       <p className="font-semibold">{visits.length} ongoing {visits.length === 1 ? 'visit' : 'visits'} across {affectedStoreCount} selected {affectedStoreCount === 1 ? 'store' : 'stores'}</p>
-                      <p className="text-muted-foreground">Reassigning will check out all visits listed below and move all {storeCount} selected {storeCount === 1 ? 'store' : 'stores'} to {selection.targetEmployeeName}.</p>
+                      <p className="text-muted-foreground">When you click Reassign, all ongoing visits listed below will be <strong className="font-semibold text-foreground">marked as completed</strong>, and all {storeCount} selected {storeCount === 1 ? 'store' : 'stores'} will be reassigned to {selection.targetEmployeeName}.</p>
                     </div>
                   </div>
                   <div className="hidden overflow-x-auto sm:block">
