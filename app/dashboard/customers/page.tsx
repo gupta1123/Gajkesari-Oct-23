@@ -27,15 +27,11 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/com
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRightLeft, Check, ChevronDown, ChevronUp, Phone, User, DollarSign, Target, Filter, X, Download, Columns, Home, MoreHorizontal, ChevronLeft, ChevronRight, Briefcase, Cake, Loader2 } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronDown, ChevronUp, Phone, User, DollarSign, Target, Filter, X, Download, Columns, Home, MoreHorizontal, ChevronLeft, ChevronRight, Briefcase, Cake } from "lucide-react";
 import { format } from "date-fns";
 import { Checkbox } from "@/components/ui/checkbox";
 import { API, type StoreDto, type StoreResponse, type TeamDataDto, type EmployeeUserDto } from "@/lib/api";
@@ -49,6 +45,8 @@ import { useRouter } from "next/navigation";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getUserFacingErrorMessage } from "@/lib/user-facing-error";
+import { StoreReassignmentDialog } from "@/components/store-reassignment-dialog";
+import type { StoreReassignmentSelection } from "@/lib/store-reassignment";
 
 const CUSTOMER_LIST_STORAGE_KEY = "customers.list.state.v1";
 
@@ -268,12 +266,18 @@ function CustomerListContent() {
     const [isReassignMode, setIsReassignMode] = useState(false);
     const [selectedStoreIds, setSelectedStoreIds] = useState<number[]>([]);
     const [targetEmployeeId, setTargetEmployeeId] = useState<string>("all");
-    const [isReassignConfirmOpen, setIsReassignConfirmOpen] = useState(false);
-    const [isReassigning, setIsReassigning] = useState(false);
+    const [reassignmentSelection, setReassignmentSelection] = useState<StoreReassignmentSelection | null>(null);
+    const storeNamesRef = useRef(new Map<number, string>());
     const [reassignmentFeedback, setReassignmentFeedback] = useState<{
         type: 'success' | 'error';
         message: string;
     } | null>(null);
+
+    useEffect(() => {
+        customers.forEach((customer) => {
+            if (customer.storeName) storeNamesRef.current.set(customer.storeId, customer.storeName);
+        });
+    }, [customers]);
     
     // State for role checking
     const [isManager, setIsManager] = useState(false);
@@ -799,7 +803,7 @@ function CustomerListContent() {
         setIsReassignMode(false);
         setSelectedStoreIds([]);
         setTargetEmployeeId('all');
-        setIsReassignConfirmOpen(false);
+        setReassignmentSelection(null);
         setReassignmentFeedback(null);
     };
 
@@ -834,16 +838,16 @@ function CustomerListContent() {
             `Employee ${employee.id}`;
     };
 
-    const handleReassignStores = async () => {
+    const reviewStoreReassignment = () => {
         const sourceEmployeeId = Number(selectedEmployeeId);
         const destinationEmployeeId = Number(targetEmployeeId);
 
-        if (!Number.isFinite(sourceEmployeeId) || !Number.isFinite(destinationEmployeeId) || selectedStoreIds.length === 0) {
+        if (!isAdmin || !Number.isSafeInteger(sourceEmployeeId) || sourceEmployeeId <= 0 ||
+            !Number.isSafeInteger(destinationEmployeeId) || destinationEmployeeId <= 0 || selectedStoreIds.length === 0) {
             setReassignmentFeedback({
                 type: 'error',
                 message: 'Select a current field officer, at least one store, and a new field officer.',
             });
-            setIsReassignConfirmOpen(false);
             return;
         }
 
@@ -852,41 +856,30 @@ function CustomerListContent() {
                 type: 'error',
                 message: 'Choose a different field officer to receive these stores.',
             });
-            setIsReassignConfirmOpen(false);
             return;
         }
 
-        setIsReassigning(true);
         setReassignmentFeedback(null);
+        setReassignmentSelection({
+            sourceEmployeeId,
+            targetEmployeeId: destinationEmployeeId,
+            sourceEmployeeName: getEmployeeDisplayName(selectedSourceEmployee),
+            targetEmployeeName: getEmployeeDisplayName(selectedTargetEmployee),
+            storeIds: [...selectedStoreIds],
+            storeNames: Object.fromEntries(selectedStoreIds.map((storeId) => [storeId, storeNamesRef.current.get(storeId) || `Store ${storeId}`])),
+        });
+    };
 
-        try {
-            await API.bulkEditStoreEmployee({
-                sourceEmployeeId,
-                targetEmployeeId: destinationEmployeeId,
-                storeIds: selectedStoreIds,
-            });
-
-            const movedCount = selectedStoreIds.length;
-            setSelectedStoreIds([]);
-            setTargetEmployeeId('all');
-            setIsReassignConfirmOpen(false);
-            setReassignmentFeedback({
-                type: 'success',
-                message: `${movedCount} ${movedCount === 1 ? 'store was' : 'stores were'} reassigned successfully.`,
-            });
-            await fetchFilteredCustomers();
-        } catch (reassignError) {
-            setIsReassignConfirmOpen(false);
-            setReassignmentFeedback({
-                type: 'error',
-                message: getUserFacingErrorMessage(
-                    reassignError,
-                    'The stores could not be reassigned. Please try again.',
-                ),
-            });
-        } finally {
-            setIsReassigning(false);
-        }
+    const handleStoresReassigned = (selection: StoreReassignmentSelection) => {
+        const movedCount = selection.storeIds.length;
+        setSelectedStoreIds([]);
+        setTargetEmployeeId('all');
+        setReassignmentSelection(null);
+        setReassignmentFeedback({
+            type: 'success',
+            message: `${movedCount} ${movedCount === 1 ? 'store was' : 'stores were'} reassigned to ${selection.targetEmployeeName} successfully.`,
+        });
+        void fetchFilteredCustomers();
     };
 
     const handleFilterClear = (filterName: keyof typeof desktopFilters) => {
@@ -1266,7 +1259,7 @@ function CustomerListContent() {
                                         Choose the current field officer, select their stores below, then choose the new field officer.
                                     </p>
                                 </div>
-                                <Button variant="ghost" size="sm" onClick={closeReassignMode} disabled={isReassigning}>
+                                <Button variant="ghost" size="sm" onClick={closeReassignMode}>
                                     <X className="mr-2 h-4 w-4" />
                                     Cancel
                                 </Button>
@@ -1306,13 +1299,13 @@ function CustomerListContent() {
                                 </div>
                                 <Button
                                     className="h-10"
-                                    disabled={selectedEmployeeId === 'all' || targetEmployeeId === 'all' || selectedStoreIds.length === 0 || isReassigning}
-                                    onClick={() => setIsReassignConfirmOpen(true)}
+                                    disabled={selectedEmployeeId === 'all' || targetEmployeeId === 'all' || selectedStoreIds.length === 0}
+                                    onClick={reviewStoreReassignment}
                                 >
                                     <ArrowRightLeft className="mr-2 h-4 w-4" />
                                     {selectedStoreIds.length > 0
-                                        ? `Reassign ${selectedStoreIds.length} ${selectedStoreIds.length === 1 ? 'Store' : 'Stores'}`
-                                        : 'Reassign Stores'}
+                                        ? `Review ${selectedStoreIds.length} ${selectedStoreIds.length === 1 ? 'Store' : 'Stores'}`
+                                        : 'Review Reassignment'}
                                 </Button>
                             </div>
 
@@ -1876,34 +1869,13 @@ function CustomerListContent() {
                     </div>
                 )}
 
-                <Dialog open={isReassignConfirmOpen} onOpenChange={(open) => !isReassigning && setIsReassignConfirmOpen(open)}>
-                    <DialogContent className="sm:max-w-md">
-                        <DialogHeader>
-                            <DialogTitle>Confirm store reassignment</DialogTitle>
-                            <DialogDescription>
-                                This will move {selectedStoreIds.length} {selectedStoreIds.length === 1 ? 'store' : 'stores'} from{' '}
-                                <span className="font-medium text-foreground">{getEmployeeDisplayName(selectedSourceEmployee)}</span> to{' '}
-                                <span className="font-medium text-foreground">{getEmployeeDisplayName(selectedTargetEmployee)}</span>.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                            Only the selected store assignments are included in this request. Review the officers and store count before confirming.
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsReassignConfirmOpen(false)} disabled={isReassigning}>
-                                Keep reviewing
-                            </Button>
-                            <Button onClick={handleReassignStores} disabled={isReassigning}>
-                                {isReassigning ? (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                ) : (
-                                    <ArrowRightLeft className="mr-2 h-4 w-4" />
-                                )}
-                                {isReassigning ? 'Reassigning...' : 'Confirm reassignment'}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                {isAdmin && reassignmentSelection && (
+                    <StoreReassignmentDialog
+                        selection={reassignmentSelection}
+                        onCancel={() => setReassignmentSelection(null)}
+                        onReassigned={handleStoresReassigned}
+                    />
+                )}
 
                 {/* Add Customer Modal */}
                 <AddCustomerModal

@@ -1,4 +1,5 @@
 import { getUserFacingErrorMessage, NETWORK_ERROR_MESSAGE } from './user-facing-error.ts';
+import { normalizeStoreOngoingVisits, type OngoingStoreVisit } from './store-reassignment.ts';
 
 // API service for WebSalesV3 - All endpoints from api.md
 // Use direct API calls to https://api.gajkesaristeels.in
@@ -1044,6 +1045,14 @@ export class API {
     return apiService.bulkEditStoreEmployee(payload);
   }
 
+  static async getStoreOngoingVisits(storeId: number, signal?: AbortSignal): Promise<OngoingStoreVisit[]> {
+    return apiService.getStoreOngoingVisits(storeId, signal);
+  }
+
+  static async getStoresOngoingVisits(storeIds: number[], signal?: AbortSignal): Promise<OngoingStoreVisit[]> {
+    return apiService.getStoresOngoingVisits(storeIds, signal);
+  }
+
   static async exportStores(): Promise<string> {
     return apiService.exportStores();
   }
@@ -1313,6 +1322,7 @@ export class API {
 
       return await response.json();
     } catch (error) {
+      if (config.signal?.aborted) throw error;
       console.error(`🚨 API request failed for ${endpoint}:`, error);
       console.error('🌐 Request details:', {
         url,
@@ -2050,6 +2060,21 @@ export class API {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
+  }
+
+  async getStoreOngoingVisits(storeId: number, signal?: AbortSignal): Promise<OngoingStoreVisit[]> {
+    const response = await this.makeRequest<unknown>(`/store/ongoing-visits?storeid=${encodeURIComponent(storeId)}`, { signal, cache: 'no-store' });
+    return normalizeStoreOngoingVisits(response, [storeId]);
+  }
+
+  async getStoresOngoingVisits(storeIds: number[], signal?: AbortSignal): Promise<OngoingStoreVisit[]> {
+    const response = await this.makeRequest<unknown>('/store/ongoing-visits/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ storeIds }),
+      signal,
+      cache: 'no-store',
+    });
+    return normalizeStoreOngoingVisits(response, storeIds);
   }
 
   async exportStores(): Promise<string> {
