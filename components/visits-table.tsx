@@ -40,11 +40,14 @@ import { formatTimeTo12Hour, formatDateToUserFriendly, formatLastUpdated } from 
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
 import { isAdminEmployeeRole } from "@/lib/employee-role";
+import { contractorEngineerVisitReportsApi, type ContractorEngineerVisitReport } from "@/lib/contractor-engineer-visit-reports-api";
 
 const VISITS_TABLE_STORAGE_KEY = "visits.table.state.v2";
+const VISIT_COLUMNS = ['Customer Name', 'Visit Type', 'Executive', 'Date', 'Status', 'Purpose', 'Visit Start', 'Visit End', 'Intent', 'Last Updated', 'Actions'];
 
 type Row = {
   id: number;
+  reportCategory?: string;
   customerName: string;
   executive: string;
   employeeId?: number;
@@ -63,6 +66,23 @@ type Row = {
   checkinTime?: string;
   checkoutTime?: string;
 };
+
+const visitKey = (visit: Row) => visit.reportCategory ? `report:${visit.id}` : String(visit.id);
+const normalizeName = (value?: string | null) => (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+function mapReportToVisit(report: ContractorEngineerVisitReport): Row {
+  return {
+    id: report.id,
+    reportCategory: report.category?.trim() || 'Contractor / Engineer',
+    customerName: report.customerName?.trim() || report.firmName?.trim() || '—',
+    executive: report.officerName ?? '',
+    date: report.visitDate?.slice(0, 10) ?? '',
+    status: 'Submitted',
+    purpose: report.purposeOfVisit ?? undefined,
+    lastUpdated: report.updatedAt ?? report.createdAt ?? undefined,
+    city: report.districtArea ?? undefined,
+  };
+}
 
 function Ellipsis({ value }: { value: string | number | null | undefined }) {
   const displayValue = value === null || value === undefined || value === "" ? "—" : String(value);
@@ -109,9 +129,9 @@ const deriveVisitStatus = (visit: Pick<VisitDto, "checkinTime" | "checkoutTime">
 };
 
 export default function VisitsTable() {
-  const { userRole, userData, currentUser, teamId, correctedRoleFlags } = useAuth();
+  const { token, userRole, userData, currentUser, teamId, correctedRoleFlags } = useAuth();
   const router = useRouter();
-  const [navigatingVisitId, setNavigatingVisitId] = useState<number | null>(null);
+  const [navigatingVisitId, setNavigatingVisitId] = useState<string | null>(null);
   const [isNavigating, startTransition] = useTransition();
   const hasHydratedRef = useRef(false);
   const [isStateHydrated, setIsStateHydrated] = useState(false);
@@ -133,9 +153,14 @@ export default function VisitsTable() {
   const [currentPage, setCurrentPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
-  const [totalElements, setTotalElements] = useState(0);
+  const [reportResult, setReportResult] = useState<{
+    key: string;
+    token: string;
+    reports: ContractorEngineerVisitReport[];
+    error?: string;
+  } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [expandedCards, setExpandedCards] = useState<number[]>([]);
+  const [expandedCards, setExpandedCards] = useState<string[]>([]);
   const [areFiltersVisible, setAreFiltersVisible] = useState(true);
 
   const [employees, setEmployees] = useState<EmployeeUserDto[]>([]);
@@ -169,7 +194,7 @@ export default function VisitsTable() {
   }, []);
 
   // Role-based state
-  const [isManager, setIsManager] = useState(false);
+  const { isManager } = getCorrectedRoleFlags(userRole, currentUser, correctedRoleFlags, teamId);
   const [teamMembers, setTeamMembers] = useState<EmployeeUserDto[]>([]);
   const [managerTeamIds, setManagerTeamIds] = useState<number[]>([]);
   const authTeamId = teamId;
@@ -199,7 +224,7 @@ export default function VisitsTable() {
           customerName?: string;
           currentPage?: number;
           pageSize?: number;
-          expandedCards?: number[];
+          expandedCards?: Array<number | string>;
         };
 
         if (parsed.startDate) {
@@ -237,7 +262,7 @@ export default function VisitsTable() {
         }
 
         if (Array.isArray(parsed.expandedCards)) {
-          setExpandedCards(parsed.expandedCards);
+          setExpandedCards(parsed.expandedCards.map(String));
         }
       }
     } catch (error) {
@@ -283,8 +308,9 @@ export default function VisitsTable() {
   const purposes = useMemo(() => {
     const set = new Set<string>();
     rows.forEach(r => { if (r.purpose) set.add(r.purpose); });
+    if (selectedPurpose !== 'all' && selectedPurpose !== 'All Purposes') set.add(selectedPurpose);
     return Array.from(set);
-  }, [rows]);
+  }, [rows, selectedPurpose]);
 
   const employeeOptions = useMemo<SearchableOption[]>(() => {
     const employeesToUse = (isManager ? teamMembers : employees).filter(
@@ -329,7 +355,7 @@ export default function VisitsTable() {
     }
   }, [selectedExecutive, employeeOptions, employees]);
 
-  const toggleCardExpansion = (visitId: number) => {
+  const toggleCardExpansion = (visitId: string) => {
     setExpandedCards(prev => 
       prev.includes(visitId) 
         ? prev.filter(id => id !== visitId)
@@ -337,13 +363,15 @@ export default function VisitsTable() {
     );
   };
 
-  const handleViewDetails = (visitId: number) => {
+  const handleViewDetails = (visit: Row) => {
     if (navigatingVisitId !== null || isNavigating) {
       return;
     }
-    setNavigatingVisitId(visitId);
+    setNavigatingVisitId(visitKey(visit));
     startTransition(() => {
-      router.push(`/dashboard/visits/${visitId}`);
+      router.push(visit.reportCategory
+        ? `/dashboard/reports/contractor-engineer/${visit.id}?from=visits`
+        : `/dashboard/visits/${visit.id}`);
     });
   };
 
@@ -352,14 +380,6 @@ export default function VisitsTable() {
       setNavigatingVisitId(null);
     }
   }, [isNavigating, navigatingVisitId]);
-
-  useEffect(() => {
-    const checkUserRole = () => {
-      const roleFlags = getCorrectedRoleFlags(userRole, currentUser, correctedRoleFlags, teamId);
-      setIsManager(roleFlags.isManager);
-    };
-    checkUserRole();
-  }, [userRole, currentUser, teamId, correctedRoleFlags]);
 
   useEffect(() => {
     const loadTeamMembers = async () => {
@@ -447,16 +467,46 @@ export default function VisitsTable() {
     }
   }, [isManager, effectiveTeamId, userData?.employeeId]);
 
+  const startStr = startDate ? formatDate(startDate, 'yyyy-MM-dd') : '';
+  const endStr = endDate ? formatDate(endDate, 'yyyy-MM-dd') : '';
+  const reportKey = `${startStr}:${endStr}`;
+  const currentReports = reportResult?.key === reportKey && reportResult.token === token ? reportResult : null;
+
   useEffect(() => {
-    if (!isStateHydrated) return;
-    if (!startDate || !endDate || dateRangeInvalid) return;
-    
-    if (isManager && managerTeamIds.length === 0) {
-      return;
-    }
-    
-    const startStr = formatDate(startDate, 'yyyy-MM-dd');
-    const endStr = formatDate(endDate, 'yyyy-MM-dd');
+    if (!token || !isStateHydrated || !startStr || !endStr || dateRangeInvalid) return;
+    let cancelled = false;
+    contractorEngineerVisitReportsApi.getByDateRange(startStr, endStr).then(
+      (reports) => {
+        if (!cancelled) setReportResult({ key: reportKey, token, reports });
+      },
+      () => {
+        if (!cancelled) setReportResult({
+          key: reportKey,
+          token,
+          reports: [],
+          error: 'Contractor / Engineer reports could not be loaded. Store visits are still available.',
+        });
+      },
+    );
+    return () => { cancelled = true; };
+  }, [token, isStateHydrated, startStr, endStr, dateRangeInvalid, reportKey]);
+
+  const reportRows = useMemo(() => {
+    const allowedNames = new Set(teamMembers.map((employee) => normalizeName(buildEmployeeFilterName(employee))));
+    const selectedEmployee = (isManager ? teamMembers : employees).find((employee) => String(employee.id) === selectedExecutive);
+    const selectedName = selectedEmployee ? normalizeName(buildEmployeeFilterName(selectedEmployee)) : '';
+    return (currentReports?.reports ?? []).map(mapReportToVisit).filter((row) => {
+      const officer = normalizeName(row.executive);
+      return (!isManager || (officer && allowedNames.has(officer)))
+        && (selectedExecutive === 'all' || (selectedName && officer === selectedName))
+        && (selectedPurpose === 'all' || selectedPurpose === 'All Purposes' || row.purpose === selectedPurpose)
+        && normalizeName(row.customerName).includes(normalizeName(customerName));
+    }).sort((left, right) => right.date.localeCompare(left.date) || right.id - left.id);
+  }, [currentReports, isManager, teamMembers, employees, selectedExecutive, selectedPurpose, customerName]);
+
+  useEffect(() => {
+    if (!token || !isStateHydrated || !startStr || !endStr || dateRangeInvalid || !currentReports) return;
+    let cancelled = false;
     const employeesToSearch = isManager ? teamMembers : employees;
     const selectedEmployee = selectedExecutive !== 'all'
       ? employeesToSearch.find(emp => String(emp.id) === selectedExecutive)
@@ -470,14 +520,12 @@ export default function VisitsTable() {
         const storeNameFilter = customerName.trim() !== '' ? customerName : undefined;
         const purposeFilter = selectedPurpose && selectedPurpose !== 'all' && selectedPurpose !== 'All Purposes' ? selectedPurpose : undefined;
         
-        let response: VisitResponse;
-
-        if (isManager && managerTeamIds.length > 0) {
-          response = await API.getVisitsForTeams(
+        const loadStorePage = (page: number): Promise<VisitResponse> => isManager
+          ? API.getVisitsForTeams(
             managerTeamIds,
             startStr,
             endStr,
-            currentPage,
+            page,
             pageSize,
             'visitDate,desc',
             purposeFilter,
@@ -485,19 +533,32 @@ export default function VisitsTable() {
             undefined,
             storeNameFilter,
             employeeNameFilter
-          );
-        } else {
-          response = await API.getVisitsByDateSortedOld(
+          )
+          : API.getVisitsByDateSorted(
             startStr,
             endStr,
-            currentPage,
+            page,
             pageSize,
             'id,desc',
+            storeNameFilter,
             employeeNameFilter
           );
+
+        // Report rows come first. The remaining space comes from the existing
+        // store-visit pages, which may straddle a page boundary.
+        const offset = currentPage * pageSize;
+        const reportsOnPage = reportRows.slice(offset, offset + pageSize);
+        const storeOffset = Math.max(0, offset - reportRows.length);
+        const storePage = Math.floor(storeOffset / pageSize);
+        const withinPage = storeOffset % pageSize;
+        const storeLimit = pageSize - reportsOnPage.length;
+        const response = await loadStorePage(storePage);
+        let visits: VisitDto[] = (response.content || []).slice(withinPage, withinPage + storeLimit);
+        if (visits.length < storeLimit && storePage + 1 < response.totalPages) {
+          const next = await loadStorePage(storePage + 1);
+          visits = visits.concat((next.content || []).slice(0, storeLimit - visits.length));
         }
-        
-        const visits: VisitDto[] = response.content || [];
+        if (cancelled) return;
         
         const mapped: Row[] = visits.map(v => ({
           id: v.id,
@@ -520,10 +581,9 @@ export default function VisitsTable() {
           checkoutTime: v.checkoutTime ?? undefined,
         }));
         
-        setRows(mapped);
-        const resolvedTotalPages = response.totalPages && response.totalPages > 0 ? response.totalPages : 1;
+        setRows([...reportsOnPage, ...mapped]);
+        const resolvedTotalPages = Math.max(1, Math.ceil((reportRows.length + response.totalElements) / pageSize));
         setTotalPages(resolvedTotalPages);
-        setTotalElements(response.totalElements || 0);
 
         if (currentPage >= resolvedTotalPages) {
           const nextPage = Math.max(resolvedTotalPages - 1, 0);
@@ -532,21 +592,27 @@ export default function VisitsTable() {
           }
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('API Error:', err);
-        setError('Failed to fetch visits. Please try again.');
-        setRows([]);
-        setTotalPages(1);
-        setTotalElements(0);
+        setError('Store visits could not be loaded. Please try again.');
+        setRows(reportRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize));
+        const reportPages = Math.max(1, Math.ceil(reportRows.length / pageSize));
+        setTotalPages(reportPages);
+        if (currentPage >= reportPages) setCurrentPage(reportPages - 1);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     run();
+    return () => { cancelled = true; };
   }, [
+    token,
     isStateHydrated,
-    startDate,
-    endDate,
+    startStr,
+    endStr,
+    currentReports,
+    reportRows,
     dateRangeInvalid,
     currentPage,
     pageSize,
@@ -565,7 +631,7 @@ export default function VisitsTable() {
         if (r.purpose !== selectedPurpose) return false;
       }
       if (customerName.trim() !== "") {
-        if (!r.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) return false;
+        if (!normalizeName(r.customerName).includes(normalizeName(customerName))) return false;
       }
       return true;
     });
@@ -580,6 +646,7 @@ export default function VisitsTable() {
 
     const headers = [
       'Customer Name',
+      'Visit Type',
       'Executive',
       'Date',
       'Status',
@@ -599,6 +666,7 @@ export default function VisitsTable() {
       const lastUpdated = r.lastUpdated ?? '';
       const line = [
         r.customerName,
+        r.reportCategory ?? 'Store Visit',
         r.executive,
         r.date,
         status,
@@ -732,7 +800,7 @@ export default function VisitsTable() {
         return true;
       });
 
-      buildCsvAndDownload(rowsForCsv);
+      buildCsvAndDownload([...reportRows, ...rowsForCsv]);
     } catch (e) {
       console.error('Export failed', e);
       alert('Failed to export CSV');
@@ -742,10 +810,11 @@ export default function VisitsTable() {
   };
 
   const statusClassName = (status?: string) => {
-    if (status === "Completed") return "bg-emerald-50 text-emerald-700 ring-emerald-600/15 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-900";
+    if (status === "Completed" || status === "Submitted") return "bg-emerald-50 text-emerald-700 ring-emerald-600/15 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-900";
     if (status === "Ongoing") return "bg-amber-50 text-amber-700 ring-amber-600/15 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900";
     return "bg-blue-50 text-blue-700 ring-blue-600/15 dark:bg-blue-950/50 dark:text-blue-300 dark:ring-blue-900";
   };
+  const loadingVisits = isLoading || Boolean(token && startStr && endStr && !dateRangeInvalid && !currentReports);
 
   return (
     <div className="mx-auto w-full max-w-none py-4">
@@ -759,7 +828,7 @@ export default function VisitsTable() {
             variant="outline"
             size="sm"
             onClick={handleExport}
-            disabled={isExporting || dateRangeInvalid || !startDate || !endDate}
+            disabled={isExporting || loadingVisits || dateRangeInvalid || !startDate || !endDate}
           >
             {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadIcon className="mr-2 h-4 w-4" />}
             {isExporting ? "Exporting…" : "Export"}
@@ -773,6 +842,9 @@ export default function VisitsTable() {
       </div>
 
       {error && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2.5 text-sm text-red-700">{error}</div>}
+      {currentReports?.error && !dateRangeInvalid && (
+        <div role="status" className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-sm">{currentReports.error}</div>
+      )}
       <DateRangeError fromDate={startDate} toDate={endDate} className="mb-3" />
 
       {areFiltersVisible && (
@@ -788,7 +860,7 @@ export default function VisitsTable() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <SpacedCalendar initialFocus mode="single" defaultMonth={startDate} selected={startDate} onSelect={setStartDate} />
+                  <SpacedCalendar initialFocus mode="single" defaultMonth={startDate} selected={startDate} onSelect={(date) => { setStartDate(date); setCurrentPage(0); }} />
                 </PopoverContent>
               </Popover>
             </div>
@@ -803,14 +875,14 @@ export default function VisitsTable() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <SpacedCalendar initialFocus mode="single" defaultMonth={endDate} selected={endDate} onSelect={setEndDate} />
+                  <SpacedCalendar initialFocus mode="single" defaultMonth={endDate} selected={endDate} onSelect={(date) => { setEndDate(date); setCurrentPage(0); }} />
                 </PopoverContent>
               </Popover>
             </div>
 
             <div className="min-w-0">
               <Label className="sr-only">Purpose</Label>
-              <Select value={selectedPurpose} onValueChange={setSelectedPurpose}>
+              <Select value={selectedPurpose} onValueChange={(value) => { setSelectedPurpose(value); setCurrentPage(0); }}>
                 <SelectTrigger className="h-8 w-full bg-background text-xs shadow-none"><SelectValue placeholder="Purpose" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Purposes</SelectItem>
@@ -827,7 +899,7 @@ export default function VisitsTable() {
                 autoComplete="off"
                 placeholder="Customer name"
                 value={customerName}
-                onChange={(event) => setCustomerName(event.target.value)}
+                onChange={(event) => { setCustomerName(event.target.value); setCurrentPage(0); }}
                 className="h-8 bg-background text-xs shadow-none"
               />
             </div>
@@ -837,7 +909,7 @@ export default function VisitsTable() {
               <SearchableSelect
                 options={employeeOptions}
                 value={selectedExecutive}
-                onSelect={(option) => setSelectedExecutive(!option || option.value === "all" ? "all" : option.value)}
+                onSelect={(option) => { setSelectedExecutive(option?.value ?? "all"); setCurrentPage(0); }}
                 placeholder="All employees"
                 loading={isLoadingEmployees}
                 triggerClassName="h-8 w-full justify-between bg-background text-xs shadow-none"
@@ -850,30 +922,31 @@ export default function VisitsTable() {
       )}
 
       <div className="hidden min-w-0 md:block">
-        <Table className="table-fixed text-xs font-poppins">
+        <Table className="min-w-[940px] table-fixed text-xs font-poppins">
           <colgroup>
-            <col className="w-[16%]" /><col className="w-[15%]" /><col className="w-[10%]" />
-            <col className="w-[10%]" /><col className="w-[10%]" /><col className="w-[8%]" />
-            <col className="w-[8%]" /><col className="w-[5%]" /><col className="w-[13%]" /><col className="w-[5%]" />
+            <col className="w-[14%]" /><col className="w-[10%]" /><col className="w-[13%]" /><col className="w-[10%]" />
+            <col className="w-[9%]" /><col className="w-[9%]" /><col className="w-[8%]" />
+            <col className="w-[8%]" /><col className="w-[5%]" /><col className="w-[8%]" /><col className="w-[6%]" />
           </colgroup>
           <TableHeader>
             <TableRow>
-              {['Customer Name', 'Executive', 'Date', 'Status', 'Purpose', 'Visit Start', 'Visit End', 'Intent', 'Last Updated', 'Actions'].map((heading) => (
+              {VISIT_COLUMNS.map((heading) => (
                 <TableHead key={heading} className="overflow-hidden text-ellipsis whitespace-nowrap" title={heading}>{heading}</TableHead>
               ))}
             </TableRow>
           </TableHeader>
           <TableBody>
             {!startDate || !endDate ? (
-              <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">Select both dates to view visits</TableCell></TableRow>
-            ) : isLoading ? (
+              <TableRow><TableCell colSpan={VISIT_COLUMNS.length} className="h-24 text-center text-muted-foreground">Select both dates to view visits</TableCell></TableRow>
+            ) : loadingVisits ? (
               Array.from({ length: 3 }, (_, index) => (
-                <TableRow key={`visit-skeleton-${index}`}>{Array.from({ length: 10 }, (_, cell) => <TableCell key={cell}><Skeleton className="h-4 w-full max-w-24" /></TableCell>)}</TableRow>
+                <TableRow key={`visit-skeleton-${index}`}>{VISIT_COLUMNS.map((column) => <TableCell key={column}><Skeleton className="h-4 w-full max-w-24" /></TableCell>)}</TableRow>
               ))
             ) : filteredVisits.length > 0 ? (
               filteredVisits.map((visit) => (
-                <TableRow key={visit.id}>
+                <TableRow key={visitKey(visit)}>
                   <TableCell className="font-medium"><Ellipsis value={visit.customerName} /></TableCell>
+                  <TableCell><Ellipsis value={visit.reportCategory ?? 'Store Visit'} /></TableCell>
                   <TableCell><Ellipsis value={visit.executive} /></TableCell>
                   <TableCell><Ellipsis value={formatDateToUserFriendly(visit.date)} /></TableCell>
                   <TableCell>
@@ -887,14 +960,14 @@ export default function VisitsTable() {
                   <TableCell><Ellipsis value={visit.intent} /></TableCell>
                   <TableCell><Ellipsis value={visit.lastUpdated ? formatLastUpdated(visit.lastUpdated) : '—'} /></TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => handleViewDetails(visit.id)} disabled={navigatingVisitId !== null}>
-                      {navigatingVisitId === visit.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View"}
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => handleViewDetails(visit)} disabled={navigatingVisitId !== null}>
+                      {navigatingVisitId === visitKey(visit) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View"}
                     </Button>
                   </TableCell>
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No visits match the selected filters</TableCell></TableRow>
+              <TableRow><TableCell colSpan={VISIT_COLUMNS.length} className="h-24 text-center text-muted-foreground">No visits match the selected filters</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -903,26 +976,27 @@ export default function VisitsTable() {
       <div className="space-y-3 md:hidden">
         {!startDate || !endDate ? (
           <div className="py-10 text-center text-sm text-muted-foreground">Select both dates to view visits</div>
-        ) : isLoading ? (
+        ) : loadingVisits ? (
           Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-36 w-full rounded-xl" />)
         ) : filteredVisits.length > 0 ? (
           filteredVisits.map((visit) => (
-            <Card key={visit.id} className="overflow-hidden shadow-none">
+            <Card key={visitKey(visit)} className="overflow-hidden shadow-none">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold" title={visit.customerName}>{visit.customerName}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">{formatDateToUserFriendly(visit.date)}</p>
+                    <Badge variant="outline" className="mt-1 text-xs">{visit.reportCategory ?? 'Store Visit'}</Badge>
                   </div>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${statusClassName(visit.status)}`}>{visit.status ?? '—'}</span>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2 text-xs">
                   <div className="flex min-w-0 items-center gap-1.5"><User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><Ellipsis value={visit.executive} /></div>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => toggleCardExpansion(visit.id)} aria-label="Toggle visit details">
-                    {expandedCards.includes(visit.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => toggleCardExpansion(visitKey(visit))} aria-label="Toggle visit details">
+                    {expandedCards.includes(visitKey(visit)) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </Button>
                 </div>
-                {expandedCards.includes(visit.id) && (
+                {expandedCards.includes(visitKey(visit)) && (
                   <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-xs">
                     <div><span className="text-muted-foreground">Purpose</span><p className="truncate font-medium">{visit.purpose ?? '—'}</p></div>
                     <div><span className="text-muted-foreground">Intent</span><p className="font-medium">{visit.intent ?? '—'}</p></div>
@@ -931,8 +1005,8 @@ export default function VisitsTable() {
                   </div>
                 )}
                 <div className="mt-3 flex justify-end">
-                  <Button variant="outline" size="sm" className="h-7 px-3 text-xs" onClick={() => handleViewDetails(visit.id)} disabled={navigatingVisitId !== null}>
-                    {navigatingVisitId === visit.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View details"}
+                  <Button variant="outline" size="sm" className="h-7 px-3 text-xs" onClick={() => handleViewDetails(visit)} disabled={navigatingVisitId !== null}>
+                    {navigatingVisitId === visitKey(visit) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View details"}
                   </Button>
                 </div>
               </CardContent>
@@ -947,7 +1021,7 @@ export default function VisitsTable() {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs">
             <Label htmlFor="pageSize" className="text-xs">Rows per page:</Label>
-            <Select value={pageSize.toString()} onValueChange={(value) => setPageSize(parseInt(value))}>
+            <Select value={pageSize.toString()} onValueChange={(value) => { setPageSize(Number(value)); setCurrentPage(0); }}>
               <SelectTrigger id="pageSize" className="h-8 w-20 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>{[10, 25, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}</SelectContent>
             </Select>
