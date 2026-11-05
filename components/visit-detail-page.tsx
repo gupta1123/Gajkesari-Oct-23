@@ -1559,8 +1559,12 @@ export default function VisitDetailPage() {
                             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                           </div>
                           <div className="min-w-0 pt-0.5">
-                            <p className="text-sm font-medium text-foreground">Visit in progress</p>
-                            <p className="text-xs text-muted-foreground">Waiting for check-out</p>
+                            <p className="text-sm font-medium text-foreground">
+                              {visitStatus.isOngoing ? 'Visit in progress' : 'Assigned'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {visitStatus.isOngoing ? 'Waiting for check-out' : 'Waiting for check-in'}
+                            </p>
                           </div>
                         </div>
                       )}
