@@ -11,7 +11,7 @@ import {
 import EmployeeAttendanceCard from "@/components/employee-attendance-card";
 import VisitDetailsModal from "@/components/visit-details-modal";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
-import { API } from "@/lib/api";
+import { API, type VisitReportEntry } from "@/lib/api";
 import { getEmployeeRoleCategory, getEmployeeRoleLabel, isAdminEmployeeRole } from "@/lib/employee-role";
 
 const API_BASE_URL = 'https://api.gajkesaristeels.in';
@@ -62,6 +62,8 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [visitData, setVisitData] = useState<unknown[]>([]);
+  const [visitReports, setVisitReports] = useState<VisitReportEntry[]>([]);
+  const visitRequestRef = useRef(0);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>('');
 
@@ -201,26 +203,32 @@ export default function AttendancePage() {
   }, [token, selectedYear, selectedMonth]);
 
   const fetchVisitData = useCallback(
-    async (date: string, employeeName: string) => {
+    async (date: string, employeeName: string, employeeId: number) => {
       if (!token) {
         console.error("Auth token is missing");
         return;
       }
 
+      const requestId = ++visitRequestRef.current;
       try {
-        const data = await API.getVisitsByDateSorted(date, date, 0, 100, 'id,desc', undefined, employeeName);
+        const data = await API.getVisitActivity({
+          employeeId,
+          startDate: date,
+          endDate: date,
+          dateType: 'completed',
+        });
+        if (requestId !== visitRequestRef.current) return;
 
-        setVisitData(data.content || []);
+        setVisitData(data.visits);
+        setVisitReports(data.reports.filter((entry) => entry.employeeResolutionStatus === 'RESOLVED' && entry.employeeId === employeeId));
         setSelectedDate(date);
         setSelectedEmployeeName(employeeName);
         setIsModalOpen(true);
-
-        if (data.content.length === 0) {
-          setVisitData([]);
-        }
       } catch (error) {
+        if (requestId !== visitRequestRef.current) return;
         console.error("Error fetching visit data:", error);
         setVisitData([]);
+        setVisitReports([]);
       }
     },
     [token]
@@ -391,7 +399,7 @@ export default function AttendancePage() {
                     checkoutDate: a.checkoutDate,
                     rawStatus: String((a as unknown as Record<string, unknown>).rawStatus || '')
                   }))}
-                  onDateClick={(date, employeeName) => fetchVisitData(date, employeeName)}
+                  onDateClick={(date, employeeName) => fetchVisitData(date, employeeName, employee.id)}
                 />
               );
             })}
@@ -403,6 +411,7 @@ export default function AttendancePage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         visitData={visitData as Record<string, unknown>[]}
+        reports={visitReports}
         selectedDate={selectedDate}
         employeeName={selectedEmployeeName}
       />

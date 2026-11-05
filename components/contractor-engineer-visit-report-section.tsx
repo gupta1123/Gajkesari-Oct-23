@@ -28,6 +28,8 @@ import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { SignatureField } from "@/components/ui/signature-field";
+import { SearchableSelect } from "@/components/ui/searchable-select2";
+import { API, type EmployeeUserDto } from "@/lib/api";
 import VisitReportsPanel from "@/components/visit-reports-panel";
 import {
   contractorEngineerVisitReportsApi,
@@ -421,6 +423,28 @@ export default function ContractorEngineerVisitReportSection({
     initialTab === "submittedReports" ? "submittedReports" : "fillReport",
   );
   const [activeFormStep, setActiveFormStep] = useState(0);
+  const [officerEmployees, setOfficerEmployees] = useState<EmployeeUserDto[]>([]);
+  const [selectedOfficerId, setSelectedOfficerId] = useState('');
+  const [officersLoading, setOfficersLoading] = useState(true);
+  const [officersError, setOfficersError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    API.getReportOfficerEmployees().then((employees) => {
+      if (!cancelled) setOfficerEmployees(employees);
+    }).catch(() => {
+      if (!cancelled) setOfficersError('Employee names could not be loaded. Refresh to try again.');
+    }).finally(() => {
+      if (!cancelled) setOfficersLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const officerOptions = useMemo(() => officerEmployees.map((employee) => ({
+    value: String(employee.id),
+    label: [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim(),
+    data: employee,
+  })).filter((option) => option.label).sort((a, b) => a.label.localeCompare(b.label)), [officerEmployees]);
   const [reports, setReports] = useState<ContractorEngineerVisitReport[]>([]);
   const [reportStartDate, setReportStartDate] = useState(() => initialStartDate || todayIso());
   const [reportEndDate, setReportEndDate] = useState(() => initialEndDate || todayIso());
@@ -593,6 +617,11 @@ export default function ContractorEngineerVisitReportSection({
 
   const downloadPdf = async () => {
     if (isSavingReport) return;
+    if (!selectedOfficerId || !officerOptions.some((option) => option.value === selectedOfficerId && option.label === form.officerName)) {
+      setFormError('Select an employee in Officer Name before saving the report.');
+      setActiveFormStep(0);
+      return;
+    }
 
     setIsSavingReport(true);
     setFormError(null);
@@ -635,6 +664,7 @@ export default function ContractorEngineerVisitReportSection({
 
   const resetForm = () => {
     setForm(createInitialForm());
+    setSelectedOfficerId('');
     setActiveFormStep(0);
     setFormError(null);
     setFormMessage(null);
@@ -740,12 +770,23 @@ export default function ContractorEngineerVisitReportSection({
                       value={form.visitDate}
                       onChange={(value) => setField("visitDate", value)}
                     />
-                    <TextField
-                      id="contractor-report-officer-name"
-                      label="Officer Name"
-                      value={form.officerName}
-                      onChange={(value) => setField("officerName", value)}
-                    />
+                    <div className="space-y-2">
+                      <Label>Officer Name</Label>
+                      <SearchableSelect
+                        options={officerOptions}
+                        value={selectedOfficerId}
+                        onSelect={(option) => {
+                          setSelectedOfficerId(option?.value ?? '');
+                          setField('officerName', option?.label ?? '');
+                        }}
+                        placeholder="Select an employee"
+                        searchPlaceholder="Search employee names..."
+                        loading={officersLoading}
+                        disabled={officersLoading || Boolean(officersError)}
+                        triggerClassName="w-full"
+                      />
+                      {officersError && <p role="alert" className="text-sm text-destructive">{officersError}</p>}
+                    </div>
                     <TextField
                       id="contractor-report-region"
                       label="Region"

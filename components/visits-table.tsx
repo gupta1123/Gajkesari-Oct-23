@@ -31,7 +31,7 @@ import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from "next/navigation";
-import { API, type VisitDto, type VisitResponse, type EmployeeUserDto, type TeamDataDto } from "@/lib/api";
+import { API, type VisitDto, type VisitResponse, type EmployeeUserDto, type TeamDataDto, type VisitReportEntry } from "@/lib/api";
 import { format as formatDate } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { getCorrectedRoleFlags } from "@/lib/auth";
@@ -40,7 +40,6 @@ import { formatTimeTo12Hour, formatDateToUserFriendly, formatLastUpdated } from 
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
 import { isAdminEmployeeRole } from "@/lib/employee-role";
-import { contractorEngineerVisitReportsApi, type ContractorEngineerVisitReport } from "@/lib/contractor-engineer-visit-reports-api";
 
 const VISITS_TABLE_STORAGE_KEY = "visits.table.state.v2";
 const VISIT_COLUMNS = ['Customer Name', 'Visit Type', 'Executive', 'Date', 'Status', 'Purpose', 'Visit Start', 'Visit End', 'Intent', 'Last Updated', 'Actions'];
@@ -70,12 +69,14 @@ type Row = {
 const visitKey = (visit: Row) => visit.reportCategory ? `report:${visit.id}` : String(visit.id);
 const normalizeName = (value?: string | null) => (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-function mapReportToVisit(report: ContractorEngineerVisitReport): Row {
+function mapReportToVisit(entry: VisitReportEntry): Row {
+  const report = entry.report;
   return {
+    employeeId: entry.employeeId ?? undefined,
     id: report.id,
     reportCategory: report.category?.trim() || 'Contractor / Engineer',
     customerName: report.customerName?.trim() || report.firmName?.trim() || '—',
-    executive: report.officerName ?? '',
+    executive: entry.employeeName || report.officerName || '',
     date: report.visitDate?.slice(0, 10) ?? '',
     status: 'Submitted',
     purpose: report.purposeOfVisit ?? undefined,
@@ -156,7 +157,7 @@ export default function VisitsTable() {
   const [reportResult, setReportResult] = useState<{
     key: string;
     token: string;
-    reports: ContractorEngineerVisitReport[];
+    reports: VisitReportEntry[];
     error?: string;
   } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -469,13 +470,23 @@ export default function VisitsTable() {
 
   const startStr = startDate ? formatDate(startDate, 'yyyy-MM-dd') : '';
   const endStr = endDate ? formatDate(endDate, 'yyyy-MM-dd') : '';
-  const reportKey = `${startStr}:${endStr}`;
+  const reportKey = `${startStr}:${endStr}:${isManager}:${managerTeamIds.join(",")}:${selectedExecutive}:${selectedPurpose}`;
   const currentReports = reportResult?.key === reportKey && reportResult.token === token ? reportResult : null;
 
   useEffect(() => {
     if (!token || !isStateHydrated || !startStr || !endStr || dateRangeInvalid) return;
     let cancelled = false;
-    contractorEngineerVisitReportsApi.getByDateRange(startStr, endStr).then(
+    const params = {
+      startDate: startStr,
+      endDate: endStr,
+      employeeId: selectedExecutive !== 'all' ? Number(selectedExecutive) : undefined,
+      purpose: selectedPurpose !== 'all' && selectedPurpose !== 'All Purposes' ? selectedPurpose : undefined,
+    };
+    const reportRequest = isManager
+      ? Promise.all(managerTeamIds.map((teamId) => API.getVisitReports({ ...params, teamId })))
+          .then((pages) => [...new Map(pages.flat().map((entry) => [entry.report.id, entry])).values()])
+      : API.getVisitReports(params);
+    reportRequest.then(
       (reports) => {
         if (!cancelled) setReportResult({ key: reportKey, token, reports });
       },
@@ -489,20 +500,13 @@ export default function VisitsTable() {
       },
     );
     return () => { cancelled = true; };
-  }, [token, isStateHydrated, startStr, endStr, dateRangeInvalid, reportKey]);
+  }, [token, isStateHydrated, startStr, endStr, dateRangeInvalid, reportKey, isManager, managerTeamIds, selectedExecutive, selectedPurpose]);
 
   const reportRows = useMemo(() => {
-    const allowedNames = new Set(teamMembers.map((employee) => normalizeName(buildEmployeeFilterName(employee))));
-    const selectedEmployee = (isManager ? teamMembers : employees).find((employee) => String(employee.id) === selectedExecutive);
-    const selectedName = selectedEmployee ? normalizeName(buildEmployeeFilterName(selectedEmployee)) : '';
-    return (currentReports?.reports ?? []).map(mapReportToVisit).filter((row) => {
-      const officer = normalizeName(row.executive);
-      return (!isManager || (officer && allowedNames.has(officer)))
-        && (selectedExecutive === 'all' || (selectedName && officer === selectedName))
-        && (selectedPurpose === 'all' || selectedPurpose === 'All Purposes' || row.purpose === selectedPurpose)
-        && normalizeName(row.customerName).includes(normalizeName(customerName));
-    }).sort((left, right) => right.date.localeCompare(left.date) || right.id - left.id);
-  }, [currentReports, isManager, teamMembers, employees, selectedExecutive, selectedPurpose, customerName]);
+    return (currentReports?.reports ?? []).map(mapReportToVisit).filter((row) =>
+      normalizeName(row.customerName).includes(normalizeName(customerName))
+    ).sort((left, right) => right.date.localeCompare(left.date) || right.id - left.id);
+  }, [currentReports, customerName]);
 
   useEffect(() => {
     if (!token || !isStateHydrated || !startStr || !endStr || dateRangeInvalid || !currentReports) return;

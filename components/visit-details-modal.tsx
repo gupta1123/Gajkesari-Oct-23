@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import type { VisitReportEntry } from '@/lib/api';
 import { Dialog,
   DialogContent as DialogContentPrimitive,
   DialogHeader,
@@ -32,6 +33,7 @@ interface VisitDetailsModalProps {
     visitData: Record<string, unknown>[];
     selectedDate: string;
     employeeName: string;
+    reports?: VisitReportEntry[];
 }
 
 const getOutcomeStatus = (visit: Record<string, unknown>): { emoji: React.ReactNode; status: string; color: string } => {
@@ -60,7 +62,7 @@ const formatDateTime = (dateString: string, timeString: string) => {
     return `${month} ${day} '${year} ${time}`;
 };
 
-const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, visitData, selectedDate, employeeName }) => {
+const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, visitData, selectedDate, employeeName, reports = [] }) => {
     const [selectedVisit, setSelectedVisit] = useState<Record<string, unknown> | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const visitsPerPage = 7;
@@ -125,7 +127,7 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                             </div>
                             <div className="flex-shrink-0 flex items-center space-x-3">
                                 <p className="text-sm font-medium text-blue-400">
-                                    {visitData.length} {visitData.length === 1 ? 'visit' : 'visits'}
+                                    {visitData.length} visits · {reports.length} reports
                                 </p>
                                 <Button 
                                     onClick={onClose} 
@@ -146,6 +148,23 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                     <div className="flex-1 overflow-hidden px-4 py-4">
                     <div className="h-[65vh] w-full overflow-x-auto overflow-y-auto border rounded-lg bg-background">
                         <div className="min-w-full">
+                            {reports.length > 0 && (
+                                <section className="space-y-2 border-b p-4" aria-label="Contractor and Engineer reports">
+                                    <h3 className="text-sm font-semibold">Contractor / Engineer reports</h3>
+                                    {reports.map(({ report }) => (
+                                        <div key={`report:${report.id}`} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                                            <div>
+                                                <p className="text-sm font-medium">{report.customerName || report.firmName || 'Report'}</p>
+                                                <p className="text-xs text-muted-foreground">{report.category} · {report.purposeOfVisit || 'Submitted report'}</p>
+                                            </div>
+                                            <Button variant="outline" size="sm" onClick={() => {
+                                                router.push(`/dashboard/reports/contractor-engineer/${report.id}?from=attendance`);
+                                                onClose();
+                                            }}>View report</Button>
+                                        </div>
+                                    ))}
+                                </section>
+                            )}
                             {currentVisits.length > 0 ? (
                                 <>
                                     <Table className="w-full min-w-[1200px] table-fixed">

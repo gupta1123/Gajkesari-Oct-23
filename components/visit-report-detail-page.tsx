@@ -182,6 +182,7 @@ export default function VisitReportDetailPage({ reportId }: VisitReportDetailPag
 
   const submittedReportsRoute = useMemo(() => {
     if (searchParams.get("from") === "visits") return "/dashboard/visits";
+    if (searchParams.get("from") === "attendance") return "/dashboard/attendance";
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", "contractorEngineerVisitReport");
     params.set("contractorReportTab", "submittedReports");

@@ -1,5 +1,6 @@
 import { getUserFacingErrorMessage, NETWORK_ERROR_MESSAGE } from './user-facing-error.ts';
 import { normalizeStoreOngoingVisits, type OngoingStoreVisit } from './store-reassignment.ts';
+import type { ContractorEngineerVisitReport } from './contractor-engineer-visit-reports-api';
 
 // API service for WebSalesV3 - All endpoints from api.md
 // Use direct API calls to https://api.gajkesaristeels.in
@@ -138,7 +139,26 @@ export interface VisitCheckoutPayload {
   outcome: string;
 }
 
+export interface VisitReportEntry {
+  employeeId: number | null;
+  teamId: number | null;
+  employeeName: string | null;
+  employeeResolutionStatus: 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED';
+  report: ContractorEngineerVisitReport;
+}
+
+export interface VisitActivityParams {
+  employeeId?: number;
+  teamId?: number;
+  startDate: string;
+  endDate: string;
+  dateType?: 'scheduled' | 'completed' | 'checkin';
+  purpose?: string;
+}
+
 export interface VisitResponse {
+  contractorEngineerReports?: CompactPage<VisitReportEntry>;
+  totalRecords?: number;
   content: VisitDto[];
   page?: number;
   pageable?: {
@@ -827,6 +847,7 @@ const buildQuery = (params: Record<string, unknown>): string => {
 };
 
 const normalizePage = <T>(page: CompactPage<T>): CompactPage<T> => ({
+  ...page,
   content: Array.isArray(page.content) ? page.content : [],
   page: Number(page.page ?? 0),
   size: Number(page.size ?? 0),
@@ -1450,6 +1471,40 @@ export class API {
   }
 
   // Visit APIs
+  static async getVisitReports(params: VisitActivityParams): Promise<VisitReportEntry[]> {
+    return apiService.collectVisitActivity(params, true).then((result) => result.reports);
+  }
+
+  static async getVisitActivity(params: VisitActivityParams): Promise<{ visits: VisitDto[]; reports: VisitReportEntry[] }> {
+    return apiService.collectVisitActivity(params);
+  }
+
+  private async collectVisitActivity(params: VisitActivityParams, reportsOnly = false) {
+    const requestPage = (page: number) => this.makeRequest<VisitResponse>(
+      `/v2/visits?${buildQuery({ ...params, dateType: params.dateType ?? 'scheduled', page, size: 100, sortBy: 'id', sortOrder: 'desc' })}`,
+    );
+    const first = await requestPage(0);
+    const visits = reportsOnly ? [] : [...(first.content ?? [])];
+    const reports = [...(first.contractorEngineerReports?.content ?? [])];
+    const visitPages = reportsOnly ? 0 : first.totalPages;
+    const reportPages = first.contractorEngineerReports?.totalPages ?? 0;
+    // The two collections have independent page counts. Never use visit totals
+    // to stop collecting reports (including days with reports but no visits).
+    for (let page = 1; page < Math.max(visitPages, reportPages); page += 1) {
+      const next = await requestPage(page);
+      if (page < visitPages) visits.push(...(next.content ?? []));
+      if (page < reportPages) reports.push(...(next.contractorEngineerReports?.content ?? []));
+    }
+    return {
+      visits: [...new Map(visits.map((visit) => [visit.id, visit])).values()],
+      reports: [...new Map(reports.map((entry) => [entry.report.id, entry])).values()],
+    };
+  }
+
+  static async getReportOfficerEmployees(): Promise<EmployeeUserDto[]> {
+    return apiService.makeRequest<EmployeeUserDto[]>('/employee/getAll');
+  }
+
   async getAllVisits(): Promise<VisitDto[]> {
     return this.collectCompactPages<VisitDto>('/v2/visits', { sortBy: 'id', sortOrder: 'desc' }, 100);
   }
